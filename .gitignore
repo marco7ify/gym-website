@@ -1,0 +1,19 @@
+# Logs
+*.log
+*.err
+server.log
+server.err
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Node (in case)
+node_modules/
+npm-debug.log*
+
+# Local env
+.env
+.env.local
