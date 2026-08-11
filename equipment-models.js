@@ -90,33 +90,110 @@
 
   function buildNordicTrackX16Model(view,group,inst,base,height){
     const {w,d,h,material,addBox,addCylinder,addBeam,addTube}=createModelKit(view,group,inst,base,height);
-    const frame=material({color:0x12161a,roughness:.48,metalness:.42,envMapIntensity:.72});
-    const belt=material({color:0x050708,roughness:.92,metalness:.02,envMapIntensity:.12});
-    const cushion=material({color:0x252b30,roughness:.62,metalness:.2,envMapIntensity:.4});
-    const chrome=material({color:0xaebbc3,roughness:.2,metalness:.9,envMapIntensity:1.1});
-    const screen=material({color:0x0b5367,emissive:0x0b8da7,emissiveIntensity:.32,roughness:.24,metalness:.16,depthWrite:false});
-    const deckRotation=-.13;
-    // Distinct deck layers sit on the same modest incline, so the belt reads as separate.
-    addBox({x:w*.72,y:h*.06,z:d*.68},{x:0,y:h*.2,z:d*.04},frame,{rotationX:deckRotation});
-    addBox({x:w*.61,y:h*.025,z:d*.64},{x:0,y:h*.245,z:d*.02},belt,{rotationX:deckRotation});
-    [-1,1].forEach(sign=>addBox({x:w*.06,y:h*.04,z:d*.67},{x:sign*w*.335,y:h*.25,z:d*.02},cushion,{rotationX:deckRotation}));
-    addBox({x:w*.76,y:h*.2,z:d*.18},{x:0,y:h*.31,z:-d*.3},frame,{rotationX:deckRotation});
-    addBox({x:w*.67,y:h*.09,z:d*.1},{x:0,y:h*.39,z:-d*.34},cushion,{rotationX:deckRotation});
-    addCylinder(w*.034,w*.61,{x:0,y:h*.17,z:d*.34},chrome,{rotationZ:Math.PI/2,segments:16,signature:"x16-rear-roller"});
-    addBeam({x:-w*.34,y:h*.12,z:d*.34},{x:w*.34,y:h*.12,z:d*.34},w*.045,frame,d*.04);
-    [-1,1].forEach(sign=>{
-      addBeam({x:sign*w*.31,y:h*.13,z:d*.24},{x:sign*w*.31,y:h*.58,z:-d*.12},w*.035,frame,d*.03);
-      addTube({x:sign*w*.3,y:h*.34,z:d*.16},{x:sign*w*.38,y:h*.62,z:-d*.08},w*.016,chrome,14);
-      addTube({x:sign*w*.38,y:h*.62,z:-d*.08},{x:sign*w*.32,y:h*.77,z:-d*.19},w*.016,chrome,14);
-      addTube({x:sign*w*.32,y:h*.77,z:-d*.19},{x:sign*w*.2,y:h*.79,z:-d*.21},w*.016,chrome,14);
+    const frame=material({color:0x0c0f12,roughness:.58,metalness:.34,envMapIntensity:.55});
+    const graphite=material({color:0x242a2f,roughness:.7,metalness:.18,envMapIntensity:.34});
+    const rubber=material({color:0x050708,roughness:.94,metalness:.01,envMapIntensity:.08});
+    const screen=material({color:0x0b5367,emissive:0x0b8da7,emissiveIntensity:.34,roughness:.24,metalness:.12,depthWrite:false});
+    const red=material({color:0xb91c1c,roughness:.44,metalness:.2,envMapIntensity:.4});
+    const hardware=material({color:0x5d666c,roughness:.46,metalness:.5,envMapIntensity:.62});
+    const incline=globalThis.THREE?.MathUtils?.degToRad?.(6) ?? Math.PI/30;
+    const beltWidth=22/12,beltLength=60/12,rearTop=13.66/12;
+    const beltThickness=.018;
+    const deltaY=Math.sin(incline)*beltLength;
+    const beltCenterY=rearTop+deltaY/2-beltThickness/2;
+
+    // The measured walking surface rises toward the local -Z console end.
+    addBox(
+      {x:beltWidth,y:beltThickness,z:beltLength},
+      {x:0,y:beltCenterY,z:.03},rubber,
+      {rotationX:incline,partTag:"x16-belt",castShadow:false}
+    );
+    const deckLength=64.5/12,deckThickness=.12;
+    const deckCenterY=rearTop-.055+Math.sin(incline)*deckLength/2-deckThickness/2;
+    addBox(
+      {x:31.5/12,y:deckThickness,z:deckLength},
+      {x:0,y:deckCenterY,z:0},graphite,
+      {rotationX:incline,partTag:"x16-deck-shell"}
+    );
+    const footRailLength=61.5/12,footRailWidth=3.4/12,footRailThickness=.055;
+    const footRailCenterY=rearTop+.045+Math.sin(incline)*footRailLength/2-footRailThickness/2;
+    [-1,1].forEach(sign=>addBox(
+      {x:footRailWidth,y:footRailThickness,z:footRailLength},
+      {x:sign*(beltWidth+footRailWidth)/2,y:footRailCenterY,z:.03},graphite,
+      {rotationX:incline,partTag:"x16-foot-rail",side:sign<0?"left":"right",castShadow:false}
+    ));
+
+    const rollerRadius=2.75/24,rollerLength=22.5/12;
+    const beltTopAt=z=>beltCenterY-Math.sin(incline)*(z-.03)+Math.cos(incline)*beltThickness/2;
+    const frontRollerZ=.03-beltLength/2,rearRollerZ=.03+beltLength/2;
+    addCylinder(rollerRadius,rollerLength,{x:0,y:beltTopAt(frontRollerZ)-rollerRadius,z:frontRollerZ},hardware,{
+      rotationZ:Math.PI/2,segments:16,partTag:"x16-front-roller",castShadow:false,
     });
-    addBox({x:w*.08,y:h*.44,z:d*.07},{x:0,y:h*.66,z:-d*.18},frame);
-    addCylinder(w*.05,h*.07,{x:0,y:h*.78,z:-d*.21},chrome,{rotationZ:Math.PI/2,segments:16});
-    // A 16-inch diagonal 16:9 screen is about 13.9 by 7.8 inches: intentionally modest.
-    addBox({x:Math.min(w*.365,1.16),y:Math.min(h*.106,.66),z:d*.045},{x:0,y:h*.87,z:-d*.23},screen,{castShadow:false,receiveShadow:false});
-    addBox({x:Math.min(w*.395,1.25),y:Math.min(h*.126,.77),z:d*.06},{x:0,y:h*.87,z:-d*.205},frame,{castShadow:false});
-    addBox({x:w*.18,y:h*.05,z:d*.12},{x:0,y:h*.08,z:d*.31},cushion);
-    addBeam({x:-w*.27,y:h*.1,z:d*.2},{x:w*.27,y:h*.1,z:d*.2},w*.04,frame,d*.035);
+    addCylinder(rollerRadius,rollerLength,{x:0,y:beltTopAt(rearRollerZ)-rollerRadius,z:rearRollerZ},hardware,{
+      rotationZ:Math.PI/2,segments:16,signature:"x16-rear-roller",partTag:"x16-rear-roller",castShadow:false,
+    });
+
+    // Open grounded chassis, transverse ties, four contacts, and one central lift linkage.
+    const baseWidth=.12,baseRadius=Math.hypot(baseWidth,baseWidth)/2;
+    [-1,1].forEach(sign=>addBeam(
+      {x:sign*1.36,y:baseRadius,z:-d/2+baseRadius},
+      {x:sign*1.36,y:baseRadius,z:d/2-baseRadius},
+      baseWidth,frame,baseWidth,{partTag:"x16-base-rail",side:sign<0?"left":"right"}
+    ));
+    [-1,1].forEach((sign,index)=>addBeam(
+      {x:-w/2+baseRadius,y:baseRadius,z:sign*2.68},
+      {x:w/2-baseRadius,y:baseRadius,z:sign*2.68},
+      baseWidth,frame,baseWidth,{partTag:"x16-crossmember",partIndex:index}
+    ));
+    [-1,1].forEach(sign=>[-1,1].forEach((endSign,index)=>addCylinder(
+      .085,.07,
+      {x:sign*(w/2-.085),y:.035,z:endSign*(d/2-.085)},hardware,
+      {segments:12,partTag:"x16-leveling-foot",side:sign<0?"left":"right",partIndex:index}
+    )));
+    addBeam(
+      {x:0,y:.1,z:-2.55},{x:0,y:.95,z:-1.95},
+      .1,hardware,.1,{partTag:"x16-lift-actuator",partIndex:0}
+    );
+
+    // Three low planes read as the X16's faceted front motor hood.
+    addBox({x:2,y:.24,z:.52},{x:0,y:1.72,z:-2.38},graphite,{partTag:"x16-motor-hood",side:"center",partIndex:0});
+    [-1,1].forEach((sign,index)=>addBox(
+      {x:.22,y:.18,z:.5},{x:sign*1.1,y:1.72,z:-2.38},graphite,
+      {rotationZ:-sign*.22,partTag:"x16-motor-hood",side:sign<0?"left":"right",partIndex:index+1}
+    ));
+
+    [-1,1].forEach(sign=>addBeam(
+      {x:sign*1.1,y:.42,z:-2.37},{x:sign*1.02,y:4.62,z:-1.56},
+      .16,frame,.2,{partTag:"x16-incline-upright",side:sign<0?"left":"right"}
+    ));
+    addBeam(
+      {x:0,y:4.62,z:-1.56},{x:0,y:5.08,z:-1.78},
+      .15,frame,.18,{partTag:"x16-pivot-neck"}
+    );
+    addBox({x:32/12,y:.32,z:.26},{x:0,y:5.12,z:-1.86},graphite,{partTag:"x16-console-shell"});
+    addBox({x:2.2,y:.12,z:.08},{x:0,y:5.3,z:-2.04},hardware,{partTag:"x16-console-controls",castShadow:false});
+    addCylinder(.055,.06,{x:.78,y:5.3,z:-2.12},red,{
+      rotationX:Math.PI/2,segments:12,partTag:"x16-stop-key",castShadow:false,
+    });
+    addBox({x:15/12,y:9/12,z:.11},{x:0,y:5.62,z:-1.99},frame,{partTag:"x16-display-bezel",castShadow:false});
+    addBox({x:13.9/12,y:7.8/12,z:.07},{x:0,y:5.62,z:-2.085},screen,{
+      partTag:"x16-display-panel",castShadow:false,receiveShadow:false,
+    });
+
+    // Three connected molded handle segments on each side reach the measured top silhouette.
+    [-1,1].forEach(sign=>{
+      const side=sign<0?"left":"right";
+      const points=[
+        {x:sign*1.16,y:3.25,z:-.95},
+        {x:sign*1.4,y:4.25,z:-1.25},
+        {x:sign*1.38,y:5.4,z:-1.53},
+        {x:sign*.92,y:5.98,z:-1.9},
+      ];
+      for(let index=0;index<3;index++) addTube(
+        points[index],points[index+1],.07,frame,12,
+        {partTag:"x16-handrail",side,partIndex:index}
+      );
+    });
     return "photo-matched NordicTrack X16";
   }
 

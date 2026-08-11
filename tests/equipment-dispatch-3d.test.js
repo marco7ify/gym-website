@@ -331,7 +331,7 @@
   GymTests.test("cleans a throwing dedicated stage before the generic fallback can build",()=>{
     const fixture=createEquipmentDispatchFixture();
     const originalModels=window.GymEquipmentModels;
-    let staleMesh=null;
+    const staleMeshes=[];
     let geometryDisposed=0;
     let materialDisposed=0;
     try{
@@ -339,11 +339,17 @@
         ...originalModels,
         build(profile,view,group,inst,base,height){
           if(profile!=="nordictrack-x16") return originalModels.build(profile,view,group,inst,base,height);
-          staleMesh=view.box(group,{x:.2,y:.2,z:.2},{x:0,y:.1,z:0},view.material({color:0xffffff}),{instId:inst.id});
-          const disposeGeometry=staleMesh.geometry.dispose.bind(staleMesh.geometry);
-          const disposeMaterial=staleMesh.material.dispose.bind(staleMesh.material);
-          staleMesh.geometry.dispose=()=>{geometryDisposed++;disposeGeometry();};
-          staleMesh.material.dispose=()=>{materialDisposed++;disposeMaterial();};
+          const staleMaterial=view.material({color:0xffffff});
+          staleMeshes.push(
+            view.box(group,{x:.2,y:.2,z:.2},{x:0,y:.1,z:0},staleMaterial,{instId:inst.id,partTag:"x16-test-stage",partIndex:0}),
+            view.box(group,{x:.2,y:.2,z:.2},{x:0,y:.3,z:0},staleMaterial,{instId:inst.id,partTag:"x16-test-stage",partIndex:1}),
+          );
+          staleMeshes.forEach(staleMesh=>{
+            const disposeGeometry=staleMesh.geometry.dispose.bind(staleMesh.geometry);
+            staleMesh.geometry.dispose=()=>{geometryDisposed++;disposeGeometry();};
+          });
+          const disposeMaterial=staleMaterial.dispose.bind(staleMaterial);
+          staleMaterial.dispose=()=>{materialDisposed++;disposeMaterial();};
           throw new Error("test builder failure");
         },
       };
@@ -357,10 +363,12 @@
       GymTests.equal(result.error.message,"test builder failure");
       GymTests.deepEqual(view.clickTargets,baselineTargets,"Throwing stage must not retain a click target");
       GymTests.equal(hostGroup.children.length,0,"Throwing stage must not attach a root");
-      GymTests.equal(geometryDisposed,1,"Throwing stage geometry must be disposed");
+      GymTests.equal(geometryDisposed,2,"Throwing stage geometries must be disposed");
       GymTests.equal(materialDisposed,1,"Throwing stage material must be disposed");
-      GymTests.assert(!view.disposables.includes(staleMesh.geometry),"Disposed stage geometry must leave renderer disposables");
-      GymTests.assert(!view.disposables.includes(staleMesh.material),"Disposed stage material must leave renderer disposables");
+      staleMeshes.forEach(staleMesh=>{
+        GymTests.assert(!view.disposables.includes(staleMesh.geometry),"Disposed stage geometry must leave renderer disposables");
+        GymTests.assert(!view.disposables.includes(staleMesh.material),"Disposed stage material must leave renderer disposables");
+      });
     }finally{
       window.GymEquipmentModels=originalModels;
       fixture.destroy();
@@ -383,6 +391,20 @@
         ["canonicalFootprint","worldFootprint","measuredFootprint"].forEach(key=>GymTests.assert(group.userData[key],`Expected ${key}`));
         GymTests.assert(groupMeshes(group).some(mesh=>mesh.userData.instId===group.userData.instId),"Placement must retain an inst hit target");
       });
+    }finally{ fixture.destroy(); }
+  });
+
+  GymTests.test("publishes the complete X16 semantic mesh contract through real Three primitives",()=>{
+    const fixture=createEquipmentDispatchFixture({items:[dedicatedItems[2]]});
+    try{
+      const group=fixture.view.itemGroups.get("inst_x16");
+      const tagged=groupMeshes(group).filter(mesh=>String(mesh.userData.partTag||"").startsWith("x16-"));
+      GymTests.equal(group.userData.modelType,"photo-matched NordicTrack X16");
+      GymTests.assert(tagged.length>0 && tagged.length<=32,"The dedicated X16 root must expose its bounded tagged assembly");
+      GymTests.assert(tagged.every(mesh=>mesh.userData.instId==="inst_x16"),"Every tagged X16 mesh must preserve its interaction target");
+      GymTests.equal(tagged.filter(mesh=>mesh.userData.partTag==="x16-belt").length,1);
+      GymTests.equal(tagged.filter(mesh=>mesh.userData.partTag==="x16-handrail").length,6);
+      GymTests.assert(new Set(tagged.map(mesh=>mesh.material)).size<=6,"Real X16 meshes must reuse at most six material objects");
     }finally{ fixture.destroy(); }
   });
 
@@ -424,12 +446,20 @@
 
   GymTests.test("falls back only the throwing X16 and restores the registry after the assertion",()=>{
     const originalModels=window.GymEquipmentModels;
+    const stagedMeshes=[];
     try{
       window.GymEquipmentModels={
         ...originalModels,
-        build(profile,...args){
-          if(profile==="nordictrack-x16") throw new Error("test builder failure");
-          return originalModels.build(profile,...args);
+        build(profile,view,group,inst,...args){
+          if(profile==="nordictrack-x16"){
+            const material=view.material({color:0xffffff});
+            stagedMeshes.push(
+              view.box(group,{x:.2,y:.2,z:.2},{x:0,y:.1,z:0},material,{instId:inst.id,partTag:"x16-test-stage",partIndex:0}),
+              view.box(group,{x:.2,y:.2,z:.2},{x:0,y:.3,z:0},material,{instId:inst.id,partTag:"x16-test-stage",partIndex:1}),
+            );
+            throw new Error("test builder failure");
+          }
+          return originalModels.build(profile,view,group,inst,...args);
         },
       };
       const fixture=createEquipmentDispatchFixture();
@@ -442,6 +472,14 @@
         GymTests.equal(x16.userData.dedicatedModel,false);
         GymTests.equal(x16.userData.modelBuilder,"");
         GymTests.equal(x16.userData.modelType,"incline treadmill");
+        GymTests.equal([...view.itemGroups.keys()].filter(id=>id==="inst_x16").length,1,"X16 failure must create one generic fallback placement");
+        GymTests.assert(!groupMeshes(x16).some(mesh=>String(mesh.userData.partTag||"").startsWith("x16-")),"Generic fallback must retain no staged X16 semantic mesh");
+        GymTests.assert(!view.clickTargets.some(mesh=>String(mesh.userData.partTag||"").startsWith("x16-")),"Generic fallback must retain no staged X16 click target");
+        stagedMeshes.forEach(mesh=>{
+          GymTests.assert(!view.disposables.includes(mesh.geometry),"Generic fallback must retain no staged X16 geometry");
+          GymTests.assert(!view.disposables.includes(mesh.material),"Generic fallback must retain no staged X16 material");
+          GymTests.assert(!mesh.parent,"Generic fallback must retain no staged X16 object");
+        });
         GymTests.assert(
           host.querySelector("[data-gym3d-warnings]").textContent.includes("NordicTrack X16 Treadmill"),
           "The first published warning must identify the X16 dedicated fallback"
@@ -458,6 +496,10 @@
     try{
       GymTests.equal(restored.host.dataset.builderFailures,"0");
       GymTests.equal(restored.host.dataset.dedicatedModels,"11");
+      const restoredX16=restored.view.itemGroups.get("inst_x16");
+      GymTests.equal(restoredX16.userData.dedicatedModel,true);
+      GymTests.equal([...restored.view.itemGroups.keys()].filter(id=>id==="inst_x16").length,1,"Recovery must restore one dedicated X16 placement");
+      GymTests.assert(groupMeshes(restoredX16).some(mesh=>mesh.userData.partTag==="x16-belt"),"Recovery must restore the dedicated tagged X16 assembly");
     }finally{ restored.destroy(); }
   });
 

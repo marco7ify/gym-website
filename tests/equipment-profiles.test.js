@@ -18,8 +18,12 @@
   function modelProbe(){
     const parts=[];
     const record=(kind,size,pos,material,options={})=>{
-      parts.push({kind,size,pos,material,options});
-      return {userData:{}};
+      const part={kind,size,pos,material,options,userData:{}};
+      ["instId","partTag","side","partIndex"].forEach(key=>{
+        if(options[key]!==undefined) part.userData[key]=options[key];
+      });
+      parts.push(part);
+      return part;
     };
     const view={
       material:spec=>spec,
@@ -27,8 +31,68 @@
       cylinder:(group,radius,length,pos,mat,options)=>record("cylinder",{radius,length},pos,mat,options),
       beam:(group,start,end,width,depth,mat,options)=>record("beam",{start,end,radius:Math.hypot(width,depth)/2},{x:0,y:0,z:0},mat,options),
       tube:(group,start,end,radius,mat,options)=>record("tube",{start,end,radius},{x:0,y:0,z:0},mat,options),
+      extrudedPanel:(group,points,depth,pos,mat,options)=>record("extruded-panel",{points,depth},pos,mat,options),
     };
     return {parts,view,group:{add(){}}};
+  }
+
+  function partsByTag(parts,tag){
+    return parts.filter(part=>part.userData.partTag===tag);
+  }
+
+  function boxTopAtLocalZ(box,z){
+    const rotationX=box.options?.rotationX||0;
+    return box.pos.y-Math.sin(rotationX)*(z-box.pos.z)+Math.cos(rotationX)*box.size.y/2;
+  }
+
+  function partAabb(part){
+    if(part.kind==="box"){
+      const {rotationX:rx=0,rotationY:ry=0,rotationZ:rz=0}=part.options||{};
+      const sx=Math.sin(rx),cx=Math.cos(rx),sy=Math.sin(ry),cy=Math.cos(ry),sz=Math.sin(rz),cz=Math.cos(rz);
+      const matrix=[
+        [cy*cz,-cy*sz,sy],
+        [sx*sy*cz+cx*sz,-sx*sy*sz+cx*cz,-sx*cy],
+        [-cx*sy*cz+sx*sz,cx*sy*sz+sx*cz,cx*cy],
+      ];
+      const half=[part.size.x/2,part.size.y/2,part.size.z/2];
+      const extent=matrix.map(row=>row.reduce((sum,value,axis)=>sum+Math.abs(value)*half[axis],0));
+      return {
+        min:{x:part.pos.x-extent[0],y:part.pos.y-extent[1],z:part.pos.z-extent[2]},
+        max:{x:part.pos.x+extent[0],y:part.pos.y+extent[1],z:part.pos.z+extent[2]},
+      };
+    }
+    if(part.kind==="cylinder"){
+      const {rotationX:rx=0,rotationY:ry=0,rotationZ:rz=0}=part.options||{};
+      const sx=Math.sin(rx),cx=Math.cos(rx),sy=Math.sin(ry),cy=Math.cos(ry),sz=Math.sin(rz),cz=Math.cos(rz);
+      const axis=[-cy*sz,-sx*sy*sz+cx*cz,cx*sy*sz+sx*cz];
+      const extent=axis.map(value=>Math.abs(value)*part.size.length/2+Math.sqrt(Math.max(0,1-value*value))*part.size.radius);
+      return {
+        min:{x:part.pos.x-extent[0],y:part.pos.y-extent[1],z:part.pos.z-extent[2]},
+        max:{x:part.pos.x+extent[0],y:part.pos.y+extent[1],z:part.pos.z+extent[2]},
+      };
+    }
+    const radius=part.size.radius;
+    const {start,end}=part.size;
+    return {
+      min:{x:Math.min(start.x,end.x)-radius,y:Math.min(start.y,end.y)-radius,z:Math.min(start.z,end.z)-radius},
+      max:{x:Math.max(start.x,end.x)+radius,y:Math.max(start.y,end.y)+radius,z:Math.max(start.z,end.z)+radius},
+    };
+  }
+
+  function modelAabb(parts){
+    const bounds=parts.map(partAabb);
+    return {
+      min:{
+        x:Math.min(...bounds.map(bound=>bound.min.x)),
+        y:Math.min(...bounds.map(bound=>bound.min.y)),
+        z:Math.min(...bounds.map(bound=>bound.min.z)),
+      },
+      max:{
+        x:Math.max(...bounds.map(bound=>bound.max.x)),
+        y:Math.max(...bounds.map(bound=>bound.max.y)),
+        z:Math.max(...bounds.map(bound=>bound.max.z)),
+      },
+    };
   }
 
   function assertPointInEnvelope(point,radius,envelope,label){
@@ -72,6 +136,16 @@
     return parts.filter(part=>part.options?.signature===signature);
   }
 
+  function x16ProbeParts(){
+    const probe=modelProbe();
+    window.GymEquipmentModels.build("nordictrack-x16",probe.view,probe.group,{id:"probe"},{w:3.175,h:5.825},6.1083);
+    return probe.parts;
+  }
+
+  function x16BeltCandidate(parts){
+    return partsByTag(parts,"x16-belt")[0] || parts.find(part=>part.kind==="box" && part.material?.color===0x050708);
+  }
+
   GymTests.test("registers Task 2 exact builders with bounded signature geometry",()=>{
     const cases=[
       ["ice-barrel-500",10,"photo-matched Ice Barrel 500",{w:2.5583,d:4.8,h:3.5}],
@@ -103,6 +177,100 @@
     GymTests.equal(roller?.kind,"cylinder","X16 rear roller must be a cylinder");
     GymTests.assert(roller.size.length>=envelope.w*.58 && roller.size.length<=envelope.w*.64,"X16 rear roller must span the belt width");
     GymTests.assert(roller.pos.z>envelope.d*.2,"X16 rear roller must stay at the rear deck end");
+  });
+
+  GymTests.test("uses the exact 22 by 60 inch X16 belt and 31.5 by 64.5 inch deck",()=>{
+    const parts=x16ProbeParts();
+    GymTests.deepEqual(x16BeltCandidate(parts)?.size,{x:22/12,y:.018,z:60/12},"X16 belt must measure exactly 22 × 60 in");
+    const deck=partsByTag(parts,"x16-deck-shell")[0] || parts.find(part=>part.kind==="box" && part.size.x>2 && part.size.z>4);
+    GymTests.deepEqual(deck?.size,{x:31.5/12,y:.12,z:64.5/12},"X16 deck shell must measure exactly 31.5 × 64.5 in");
+  });
+
+  GymTests.test("anchors the X16 belt at its measured rear step-up",()=>{
+    const belt=x16BeltCandidate(x16ProbeParts());
+    const rearZ=belt.pos.z+belt.size.z/2;
+    GymTests.closeTo(boxTopAtLocalZ(belt,rearZ),13.66/12,.02,"X16 rear belt top must match the measured 13.66 in step-up");
+  });
+
+  GymTests.test("raises the local front of the X16 belt above its rear entry",()=>{
+    const belt=x16BeltCandidate(x16ProbeParts());
+    const rearZ=belt.pos.z+belt.size.z/2;
+    const frontZ=belt.pos.z-belt.size.z/2;
+    GymTests.assert(boxTopAtLocalZ(belt,frontZ)>boxTopAtLocalZ(belt,rearZ),"X16 incline is reversed: local -Z must be higher than local +Z");
+  });
+
+  GymTests.test("exposes every required X16 semantic part",()=>{
+    const parts=x16ProbeParts();
+    const tags=[...new Set(parts.map(part=>part.userData.partTag).filter(Boolean))];
+    ["x16-base-rail","x16-incline-upright","x16-console-controls","x16-stop-key"].forEach(tag=>{
+      GymTests.assert(tags.includes(tag),`X16 semantic contract is missing ${tag}`);
+    });
+    GymTests.assert(parts.every(part=>part.userData.partTag),"Every visible X16 primitive must carry semantic metadata");
+  });
+
+  GymTests.test("keeps the X16 display at a thin true 16 inch proportion",()=>{
+    const parts=x16ProbeParts();
+    const panel=partsByTag(parts,"x16-display-panel")[0] || parts.find(part=>part.kind==="box" && part.material?.color===0x0b5367);
+    const diagonalIn=Math.hypot(panel.size.x,panel.size.y)*12;
+    GymTests.assert(diagonalIn>=15.8 && diagonalIn<=16.2,`X16 display diagonal must stay near 16 in; received ${diagonalIn}`);
+    GymTests.assert(panel.size.z*12<=1.25,`X16 display panel is too deep; received ${panel.size.z*12} in`);
+  });
+
+  GymTests.test("builds the X16 to its measured geometry and complete semantic contract",()=>{
+    const envelope={w:3.175,d:5.825,h:6.1083};
+    const probe=modelProbe();
+    window.GymEquipmentModels.build("nordictrack-x16",probe.view,probe.group,{id:"probe"},{w:envelope.w,h:envelope.d},envelope.h);
+    const {parts}=probe;
+    const expectedTags=[
+      "x16-base-rail","x16-belt","x16-console-controls","x16-console-shell",
+      "x16-crossmember","x16-deck-shell","x16-display-bezel","x16-display-panel",
+      "x16-foot-rail","x16-front-roller","x16-handrail","x16-incline-upright",
+      "x16-leveling-foot","x16-lift-actuator","x16-motor-hood","x16-pivot-neck",
+      "x16-rear-roller","x16-stop-key",
+    ];
+
+    GymTests.equal(partsByTag(parts,"x16-belt").length,1);
+    GymTests.deepEqual(partsByTag(parts,"x16-belt")[0].size,{x:22/12,y:.018,z:60/12});
+    GymTests.deepEqual(partsByTag(parts,"x16-deck-shell")[0].size,{x:31.5/12,y:.12,z:64.5/12});
+    GymTests.equal(partsByTag(parts,"x16-foot-rail").length,2);
+    partsByTag(parts,"x16-foot-rail").forEach(rail=>GymTests.deepEqual(rail.size,{x:3.4/12,y:.055,z:61.5/12}));
+    GymTests.equal(partsByTag(parts,"x16-base-rail").length,2);
+    GymTests.equal(partsByTag(parts,"x16-incline-upright").length,2);
+    GymTests.equal(partsByTag(parts,"x16-front-roller").length,1);
+    GymTests.equal(partsByTag(parts,"x16-rear-roller").length,1);
+    GymTests.equal(partsByTag(parts,"x16-handrail").length,6);
+    GymTests.deepEqual(partsByTag(parts,"x16-handrail").map(part=>[part.userData.side,part.userData.partIndex]),[
+      ["left",0],["left",1],["left",2],["right",0],["right",1],["right",2],
+    ]);
+
+    const belt=partsByTag(parts,"x16-belt")[0];
+    const rearZ=belt.pos.z+belt.size.z/2;
+    const frontZ=belt.pos.z-belt.size.z/2;
+    GymTests.closeTo(boxTopAtLocalZ(belt,rearZ),13.66/12,.02,"X16 rear belt top must match the measured step-up");
+    GymTests.assert(boxTopAtLocalZ(belt,frontZ)>boxTopAtLocalZ(belt,rearZ),"X16 local -Z belt end must be higher than local +Z");
+
+    const panel=partsByTag(parts,"x16-display-panel")[0];
+    const diagonalIn=Math.hypot(panel.size.x,panel.size.y)*12;
+    GymTests.assert(diagonalIn>=15.8 && diagonalIn<=16.2,`X16 display diagonal must stay near 16 in; received ${diagonalIn}`);
+    GymTests.assert(panel.size.z*12<=1.25,"X16 visible display panel must remain thin");
+
+    const handleMaxY=Math.max(...partsByTag(parts,"x16-handrail").map(part=>partAabb(part).max.y))*12;
+    GymTests.assert(handleMaxY>=72 && handleMaxY<=73.3,`X16 handle maximum must stay within 72–73.3 in; received ${handleMaxY}`);
+    const bounds=modelAabb(parts);
+    GymTests.closeTo(bounds.min.y,0,1e-9,"X16 must touch the floor");
+    GymTests.assert((bounds.max.x-bounds.min.x)/envelope.w>=.9,"X16 visible geometry must use at least 90% of measured width");
+    GymTests.assert((bounds.max.z-bounds.min.z)/envelope.d>=.93,"X16 visible geometry must use at least 93% of measured length");
+    GymTests.assert((bounds.max.y-bounds.min.y)/envelope.h>=.98,"X16 visible geometry must use at least 98% of measured height");
+    assertRigidEnvelope(parts,envelope);
+
+    GymTests.assert(parts.length<=32,`X16 must stay within 32 visible primitives; received ${parts.length}`);
+    GymTests.assert(new Set(parts.map(part=>part.material)).size<=6,"X16 must share at most six materials");
+    GymTests.deepEqual([...new Set(parts.map(part=>part.userData.partTag))].sort(),expectedTags);
+    GymTests.assert(parts.every(part=>part.userData.instId==="probe" && part.userData.partTag),"Every X16 primitive needs stable semantic metadata");
+    ["x16-console-shell","x16-console-controls","x16-stop-key","x16-display-bezel","x16-display-panel","x16-pivot-neck","x16-motor-hood"].forEach(tag=>{
+      partsByTag(parts,tag).forEach(part=>GymTests.assert(partAabb(part).max.z<0,`${tag} must remain at local front -Z`));
+    });
+    GymTests.assert(partAabb(partsByTag(parts,"x16-rear-roller")[0]).min.z>0,"X16 rear roller must remain at local rear +Z");
   });
 
   GymTests.test("keeps GATOR foam rollers large and elevated at the local back end",()=>{
