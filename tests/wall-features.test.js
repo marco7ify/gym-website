@@ -215,7 +215,7 @@ GymTests.test("uses the suggested layout name when native prompts are unsupporte
   const name=requestLayoutName(
     "Duplicate layout name:",
     "Layout 3 (copy)",
-    ()=>{ throw new Error("prompt() is not supported"); }
+    ()=>{ throw new Error("prompt() is not supported."); }
   );
   GymTests.equal(name,"Layout 3 (copy)");
 });
@@ -238,6 +238,129 @@ GymTests.test("does not swallow unrelated layout-name prompt errors", () => {
     caught=error;
   }
   GymTests.equal(caught?.message,"unexpected failure");
+});
+
+GymTests.test("does not swallow a near-match unsupported-prompt error", () => {
+  let caught=null;
+  try{
+    requestLayoutName(
+      "Duplicate layout name:",
+      "Layout 3 (copy)",
+      ()=>{ throw new Error("prompt() is not supported because the prompt bridge crashed"); }
+    );
+  }catch(error){
+    caught=error;
+  }
+  GymTests.equal(caught?.message,"prompt() is not supported because the prompt bridge crashed");
+});
+
+GymTests.test("allocates deterministic case-insensitive trimmed layout names", () => {
+  const layouts=[
+    {id:"ly_1",name:"Layout 3 (copy)"},
+    {id:"ly_2",name:"layout 3 (COPY) (2)"},
+  ];
+  GymTests.equal(availableLayoutName("  layout 3 (copy)  ",layouts),"layout 3 (copy) (3)");
+  GymTests.equal(availableLayoutName("  Training room  ",layouts),"Training room");
+});
+
+function layoutActionTestState(){
+  const settings=deepCopy(DEFAULT_SETTINGS);
+  const source=normalizeLayout({
+    ...deepCopy(DEFAULT_LAYOUT),
+    instances:[{id:"inst_source",itemId:"item_source",xFt:1,yFt:1,rot:0}],
+    wallFeatures:[deepCopy(GymWallFeatures.layout3Starter()[0])],
+  },settings);
+  return {
+    settings,
+    layouts:[{id:"ly_1",name:"Layout 1",layout:deepCopy(source)}],
+    activeLayoutId:"ly_1",
+    layout:deepCopy(source),
+    tab:"layout",
+    _roomCache:{stale:true},
+  };
+}
+
+GymTests.test("a new-layout action adds and selects exactly one empty layout", () => {
+  const appState=layoutActionTestState();
+  const changed=performLayoutLibraryAction("new",appState,{
+    requestName:()=>"Training room",
+    makeId:()=>"ly_new",
+  });
+  GymTests.equal(changed,true);
+  GymTests.deepEqual(appState.layouts.map(entry=>({id:entry.id,name:entry.name})),[
+    {id:"ly_1",name:"Layout 1"},
+    {id:"ly_new",name:"Training room"},
+  ]);
+  GymTests.equal(appState.activeLayoutId,"ly_new");
+  GymTests.equal(appState.layout.instances.length,0);
+  GymTests.equal(appState.layout.wallFeatures.length,1);
+});
+
+GymTests.test("a duplicate action selects an independent layout copy", () => {
+  const appState=layoutActionTestState();
+  const changed=performLayoutLibraryAction("duplicate",appState,{
+    requestName:()=>"Layout 1 copy",
+    makeId:()=>"ly_copy",
+  });
+  GymTests.equal(changed,true);
+  GymTests.equal(appState.layouts.length,2);
+  GymTests.equal(appState.activeLayoutId,"ly_copy");
+  GymTests.equal(appState.layout.instances.length,1);
+  appState.layout.wallFeatures[0].color="#000000";
+  GymTests.equal(appState.layouts[0].layout.wallFeatures[0].color,"#cbd5e1");
+});
+
+GymTests.test("repeated unsupported-prompt duplicates receive unique names", () => {
+  const appState=layoutActionTestState();
+  let nextId=2;
+  const requestName=(message,suggested)=>requestLayoutName(message,suggested,()=>{
+    throw new Error("prompt() is not supported.");
+  });
+  performLayoutLibraryAction("duplicate",appState,{requestName,makeId:()=>`ly_${nextId++}`});
+  appState.activeLayoutId="ly_1";
+  appState.layout=deepCopy(appState.layouts[0].layout);
+  performLayoutLibraryAction("duplicate",appState,{requestName,makeId:()=>`ly_${nextId++}`});
+  GymTests.deepEqual(appState.layouts.map(entry=>entry.name),[
+    "Layout 1",
+    "Layout 1 (copy)",
+    "Layout 1 (copy) (2)",
+  ]);
+});
+
+GymTests.test("rename keeps the current name and resolves a typed conflict", () => {
+  const appState=layoutActionTestState();
+  appState.layouts.push({id:"ly_2",name:"Layout 2",layout:deepCopy(appState.layout)});
+  appState.activeLayoutId="ly_2";
+  performLayoutLibraryAction("rename",appState,{requestName:()=>"  Layout 2  "});
+  GymTests.equal(appState.layouts[1].name,"Layout 2");
+  performLayoutLibraryAction("rename",appState,{requestName:()=>" layout 1 "});
+  GymTests.equal(appState.layouts[1].name,"layout 1 (2)");
+});
+
+GymTests.test("cancelling a layout action leaves state unchanged", () => {
+  const appState=layoutActionTestState();
+  const before=deepCopy(appState);
+  const changed=performLayoutLibraryAction("duplicate",appState,{requestName:()=>null,makeId:()=>"ly_unused"});
+  GymTests.equal(changed,false);
+  GymTests.deepEqual(appState,before);
+});
+
+GymTests.test("a near-match prompt error rethrows without mutating layouts", () => {
+  const appState=layoutActionTestState();
+  const before=deepCopy(appState);
+  let caught=null;
+  try{
+    performLayoutLibraryAction("duplicate",appState,{
+      requestName:(message,suggested)=>requestLayoutName(message,suggested,()=>{
+        throw new Error("prompt() is not supported because the prompt bridge crashed");
+      }),
+      makeId:()=>"ly_unused",
+    });
+  }catch(error){
+    caught=error;
+  }
+  GymTests.equal(caught?.message,"prompt() is not supported because the prompt bridge crashed");
+  GymTests.deepEqual(appState,before);
 });
 
 GymTests.test("renders selectable mirror wall features with accessible identity", () => {

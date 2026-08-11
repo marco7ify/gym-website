@@ -5,9 +5,81 @@ function requestLayoutName(message,suggestedName,requestPrompt){
   try{
     return invoke(message,suggestedName);
   }catch(error){
-    if(String(error?.message||"").includes("prompt() is not supported")) return suggestedName;
+    const unsupportedPromptMessages=new Set(["prompt() is not supported."]);
+    if(unsupportedPromptMessages.has(String(error?.message||"").trim())) return suggestedName;
     throw error;
   }
+}
+
+function availableLayoutName(preferredName,layouts,excludeId=null){
+  const preferred=String(preferredName||"").trim();
+  if(!preferred) return "";
+  const used=new Set((layouts||[])
+    .filter(entry=>entry?.id!==excludeId)
+    .map(entry=>String(entry?.name||"").trim().toLowerCase()));
+  if(!used.has(preferred.toLowerCase())) return preferred;
+  for(let suffix=2;;suffix+=1){
+    const candidate=`${preferred} (${suffix})`;
+    if(!used.has(candidate.toLowerCase())) return candidate;
+  }
+}
+
+function performLayoutLibraryAction(action,appState=state,options={}){
+  const requestName=options.requestName||requestLayoutName;
+  const makeId=options.makeId||(()=>uid("ly"));
+  const layouts=appState.layouts||[];
+  const activeId=appState.activeLayoutId;
+
+  if(action==="rename"){
+    const index=layouts.findIndex(entry=>entry.id===activeId);
+    if(index<0) return false;
+    const requested=requestName("Rename layout:",layouts[index].name||"Layout");
+    if(!String(requested||"").trim()) return false;
+    layouts[index].name=availableLayoutName(requested,layouts,activeId);
+    return true;
+  }
+
+  const current=normalizeLayout(deepCopy(appState.layout),appState.settings);
+  const suggestion=action==="new"
+    ? availableLayoutName(`Layout ${layouts.length+1}`,layouts)
+    : action==="duplicate"
+      ? availableLayoutName(`${layouts.find(entry=>entry.id===activeId)?.name||"Layout"} (copy)`,layouts)
+      : "";
+  if(!suggestion) return false;
+  const promptMessage=action==="new" ? "New layout name:" : "Duplicate layout name:";
+  const requested=requestName(promptMessage,suggestion);
+  if(!String(requested||"").trim()) return false;
+  const name=availableLayoutName(requested,layouts);
+  const id=makeId("ly");
+  const currentIndex=layouts.findIndex(entry=>entry.id===activeId);
+  if(currentIndex>=0) layouts[currentIndex].layout=deepCopy(current);
+  const layout=action==="new"
+    ? normalizeLayout({
+        ...DEFAULT_LAYOUT,
+        wallExtensions:deepCopy(current.wallExtensions||[]),
+        areas:deepCopy(current.areas||[]),
+        outlets:deepCopy(current.outlets||[]),
+        ceilingZones:deepCopy(current.ceilingZones||[]),
+        floorZones:deepCopy(current.floorZones||[]),
+        flooringPieces:deepCopy(current.flooringPieces||[]),
+        wallFeatures:deepCopy(current.wallFeatures||[]),
+        spatial3d:deepCopy(current.spatial3d||{}),
+        instances:[],
+      },appState.settings)
+    : normalizeLayout(deepCopy(current),appState.settings);
+  appState.layouts=[...layouts,{id,name,layout}];
+  appState.activeLayoutId=id;
+  appState.layout=normalizeLayout(deepCopy(layout),appState.settings);
+  appState.layout.selectedInstId=null;
+  appState.layout.selectedAreaId=null;
+  appState.layout.selectedOutletId=null;
+  appState.layout.selectedWallExtId=null;
+  appState.layout.selectedCeilingZoneId=null;
+  appState.layout.selectedFloorZoneId=null;
+  appState.layout.selectedWallFeatureId=null;
+  appState._roomCache=null;
+  appState.tab="layout";
+  return true;
 }
 
 function refreshInstInvalid(id){
@@ -1176,37 +1248,12 @@ function wireMain(){
 
     // Layout library actions
     if(t.dataset.action==="layout_new"){
-      const name = requestLayoutName("New layout name:", `Layout ${((state.layouts||[]).length||0)+1}`) || "";
-      if(!name.trim()) return;
-      const cur = normalizeLayout(state.layout, state.settings);
-      const newLayout = normalizeLayout({
-        ...DEFAULT_LAYOUT,
-        wallExtensions: deepCopy(cur.wallExtensions||[]),
-        areas: deepCopy(cur.areas||[]),
-        outlets: deepCopy(cur.outlets||[]),
-        ceilingZones: deepCopy(cur.ceilingZones||[]),
-        floorZones: deepCopy(cur.floorZones||[]),
-        flooringPieces: deepCopy(cur.flooringPieces||[]),
-        wallFeatures: deepCopy(cur.wallFeatures||[]),
-        spatial3d: deepCopy(cur.spatial3d||{}),
-        instances: [],
-      }, state.settings);
-      const id = uid("ly");
-      state.layouts = [...(state.layouts||[]), { id, name: name.trim(), layout: newLayout }];
-      if(state.setActiveLayout) state.setActiveLayout(id);
-      state.tab = "layout";
+      if(!performLayoutLibraryAction("new")) return;
       render();
       return;
     }
     if(t.dataset.action==="layout_dup"){
-      const curEntry = (state.layouts||[]).find(x=>x.id===state.activeLayoutId);
-      const baseName = curEntry?.name || "Layout";
-      const name = requestLayoutName("Duplicate layout name:", `${baseName} (copy)`) || "";
-      if(!name.trim()) return;
-      const id = uid("ly");
-      state.layouts = [...(state.layouts||[]), { id, name: name.trim(), layout: normalizeLayout(deepCopy(state.layout), state.settings) }];
-      if(state.setActiveLayout) state.setActiveLayout(id);
-      state.tab = "layout";
+      if(!performLayoutLibraryAction("duplicate")) return;
       render();
       return;
     }
@@ -1225,12 +1272,7 @@ function wireMain(){
       return;
     }
     if(t.dataset.action==="layout_rename"){
-      const idx = (state.layouts||[]).findIndex(x=>x.id===state.activeLayoutId);
-      if(idx<0) return;
-      const curName = state.layouts[idx].name || "Layout";
-      const name = requestLayoutName("Rename layout:", curName) || "";
-      if(!name.trim()) return;
-      state.layouts[idx].name = name.trim();
+      if(!performLayoutLibraryAction("rename")) return;
       render();
       return;
     }
