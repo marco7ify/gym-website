@@ -34,17 +34,19 @@
     };
   }
 
-  function createEquipmentDispatchFixture({items=dedicatedItems}={}){
+  function createEquipmentDispatchFixture({items=dedicatedItems,instances=null}={}){
     state.settings=fixtureSettings();
     state.items=items.map(item=>normalizeItemRecord({...item,unit:"ft"}));
     state.layout=normalizeLayout({
       ...deepCopy(DEFAULT_LAYOUT),
       spatial3d:{...DEFAULT_LAYOUT.spatial3d,walls:false,labelMode:"off",clearances:false},
-      instances:state.items.map((item,index)=>({
+      instances:instances || state.items.map((item,index)=>({
         id:`inst_${item.id}`,
         itemId:item.id,
-        x:(index%4)*8,
-        y:Math.floor(index/4)*8,
+        xFt:(index%4)*8,
+        xIn:0,
+        yFt:Math.floor(index/4)*8,
+        yIn:0,
         rotated:index===4 || index===5,
       })),
     },state.settings);
@@ -64,6 +66,86 @@
     group.traverse(object=>{if(object.isMesh) meshes.push(object);});
     return meshes;
   }
+
+  function assertNear(actual,expected,message){
+    GymTests.assert(Math.abs(actual-expected)<=.001,`${message}: expected ${expected}, received ${actual}`);
+  }
+
+  function frameFocus(group){
+    const footprint=group.userData.worldFootprint;
+    return {
+      x:group.position.x,
+      y:Math.min(footprint.heightFt*.43,10*.38),
+      z:group.position.z,
+    };
+  }
+
+  function segmentHitsRect(start,end,rect){
+    const dx=end.x-start.x, dz=end.z-start.z;
+    let enter=0, exit=1;
+    [[start.x,dx,rect.minX,rect.maxX],[start.z,dz,rect.minZ,rect.maxZ]].forEach(([origin,delta,min,max])=>{
+      if(Math.abs(delta)<1e-8){
+        if(origin<min || origin>max){ enter=1; exit=0; }
+        return;
+      }
+      const a=(min-origin)/delta, b=(max-origin)/delta;
+      enter=Math.max(enter,Math.min(a,b));
+      exit=Math.min(exit,Math.max(a,b));
+    });
+    return enter<=exit;
+  }
+
+  function cameraBlockedByOtherEquipment(view,target){
+    const focus=frameFocus(target);
+    const radius=view.orbit.radius*Math.sin(view.orbit.phi);
+    const camera={
+      x:focus.x+radius*Math.sin(view.orbit.theta),
+      z:focus.z+radius*Math.cos(view.orbit.theta),
+    };
+    return [...view.itemGroups.values()].some(group=>{
+      if(group===target) return false;
+      const footprint=group.userData.worldFootprint;
+      const rect={
+        minX:group.position.x-footprint.widthFt/2,
+        maxX:group.position.x+footprint.widthFt/2,
+        minZ:group.position.z-footprint.depthFt/2,
+        maxZ:group.position.z+footprint.depthFt/2,
+      };
+      return (camera.x>=rect.minX && camera.x<=rect.maxX && camera.z>=rect.minZ && camera.z<=rect.maxZ)
+        || segmentHitsRect(camera,focus,rect);
+    });
+  }
+
+  GymTests.test("preserves the established front-oblique angle when an equipment selection is unobstructed",()=>{
+    const fixture=createEquipmentDispatchFixture({items:[dedicatedItems[0]],instances:[{
+      id:"inst_ice",itemId:"ice",xFt:0,xIn:0,yFt:9,yIn:0,rotated:false,
+    }]});
+    try{
+      const target=fixture.view.itemGroups.get("inst_ice");
+      state.layout.selectedInstId="inst_ice";
+      fixture.view.frameSelected();
+      GymTests.assert(Math.abs(fixture.view.orbit.theta-(Math.PI+.16))<.001,"Expected the established local-front oblique camera angle");
+      GymTests.equal(cameraBlockedByOtherEquipment(fixture.view,target),false);
+    }finally{ fixture.destroy(); }
+  });
+
+  GymTests.test("frames the saved dense Ice and Yindun placements from a clear front-oblique path",()=>{
+    const fixture=createEquipmentDispatchFixture({items:[dedicatedItems[0],dedicatedItems[7]],instances:[
+      {id:"inst_ice",itemId:"ice",xFt:0,xIn:0,yFt:9,yIn:0,rotated:false},
+      {id:"inst_yindun",itemId:"yindun",xFt:0,xIn:0,yFt:3,yIn:0,rotated:false},
+    ]});
+    try{
+      const target=fixture.view.itemGroups.get("inst_ice");
+      state.layout.selectedInstId="inst_ice";
+      fixture.view.frameSelected();
+      const focus=frameFocus(target);
+      const defaultView={itemGroups:fixture.view.itemGroups,orbit:{...fixture.view.orbit,theta:Math.PI+.16}};
+      GymTests.equal(cameraBlockedByOtherEquipment(defaultView,target),true,"Saved Yindun placement must obstruct Ice's normal front-oblique ray");
+      GymTests.assert(Math.abs(fixture.view.orbit.theta-(Math.PI+.16))>.001,"Blocked default camera must select a different candidate");
+      GymTests.assert(Math.abs(fixture.view.orbit.theta-Math.PI)<1.12,"Fallback must remain in Ice's front-side hemisphere");
+      GymTests.equal(cameraBlockedByOtherEquipment(fixture.view,target),false);
+    }finally{ fixture.destroy(); }
+  });
 
   GymTests.test("stages known and unknown dedicated dispatch without bypassing the real Three view",()=>{
     const fixture=createEquipmentDispatchFixture();
@@ -138,6 +220,42 @@
         ["canonicalFootprint","worldFootprint","measuredFootprint"].forEach(key=>GymTests.assert(group.userData[key],`Expected ${key}`));
         GymTests.assert(groupMeshes(group).some(mesh=>mesh.userData.instId===group.userData.instId),"Placement must retain an inst hit target");
       });
+    }finally{ fixture.destroy(); }
+  });
+
+  GymTests.test("preserves the eight saved Layout 3 footprints, origins, rotations, and validity",()=>{
+    const instances=[
+      {id:"saved_ice",itemId:"ice",xFt:0,xIn:0,yFt:9,yIn:0,rotated:false,__invalid:false},
+      {id:"saved_stair",itemId:"stair",xFt:0,xIn:0,yFt:0,yIn:0,rotated:true,__invalid:false},
+      {id:"saved_x16",itemId:"x16",xFt:6.5,xIn:0,yFt:0,yIn:0,rotated:true,__invalid:false},
+      {id:"saved_gator",itemId:"gator",xFt:3,xIn:0,yFt:4,yIn:0,rotated:true,__invalid:false},
+      {id:"saved_hs08",itemId:"hs08",xFt:15,xIn:0,yFt:3.5,yIn:0,rotated:true,__invalid:false},
+      {id:"saved_shizhuo",itemId:"shizhuo",xFt:14,xIn:0,yFt:7,yIn:0,rotated:true,__invalid:false},
+      {id:"saved_wanjia",itemId:"wanjia",xFt:7.5,xIn:0,yFt:14.51,yIn:0,rotated:false,__invalid:false},
+      {id:"saved_yindun",itemId:"yindun",xFt:0,xIn:0,yFt:3,yIn:0,rotated:false,__invalid:false},
+    ];
+    const fixture=createEquipmentDispatchFixture({items:dedicatedItems.slice(0,8),instances});
+    const before=deepCopy(state.layout.instances);
+    try{
+      before.forEach(inst=>{
+        const item=getItemById(inst.itemId);
+        const fp=footprint(item);
+        const dims=instanceDims(inst,item);
+        const group=fixture.view.itemGroups.get(inst.id);
+        GymTests.assert(group,`Expected placement group for ${inst.id}`);
+        assertNear(group.userData.canonicalFootprint.widthFt,fp.W,`${inst.id} canonical width`);
+        assertNear(group.userData.canonicalFootprint.depthFt,fp.L,`${inst.id} canonical depth`);
+        assertNear(group.userData.canonicalFootprint.heightFt,fp.H,`${inst.id} canonical height`);
+        assertNear(group.userData.worldFootprint.widthFt,dims.w,`${inst.id} world width`);
+        assertNear(group.userData.worldFootprint.depthFt,dims.h,`${inst.id} world depth`);
+        assertNear(group.userData.measuredFootprint.widthFt,dims.w,`${inst.id} measured width`);
+        assertNear(group.userData.measuredFootprint.depthFt,dims.h,`${inst.id} measured depth`);
+        assertNear(group.position.x,instXTotalFt(inst)+dims.w/2,`${inst.id} world center x`);
+        assertNear(group.position.z,instYTotalFt(inst)+dims.h/2,`${inst.id} world center z`);
+        GymTests.equal(group.userData.dedicatedModel,true);
+        GymTests.equal(inst.__invalid,false);
+      });
+      GymTests.deepEqual(state.layout.instances,before,"3D construction must not mutate saved placement state");
     }finally{ fixture.destroy(); }
   });
 
