@@ -41,8 +41,152 @@ function applyLayoutShowIn(dim, id){
   render();
 }
 
+const PENDING_MODEL_ASSET_KEY="gym_planner_pending_model_asset_ref";
+let pendingDraftModelAssetRef="";
+
+function setPendingDraftModelAsset(ref){
+  pendingDraftModelAssetRef=String(ref||"");
+  try{
+    if(pendingDraftModelAssetRef) localStorage.setItem(PENDING_MODEL_ASSET_KEY,pendingDraftModelAssetRef);
+    else localStorage.removeItem(PENDING_MODEL_ASSET_KEY);
+  }catch{}
+}
+
+function emptyModelAssetFields(){
+  return {
+    model3dAssetRef:"",
+    model3dAssetName:"",
+    model3dAssetSize:0,
+    model3dAssetUpdatedAt:0,
+    model3dAssetRotation:0,
+  };
+}
+
+function normalizedModelAssetRotation(value){
+  const rotation=Number(value);
+  return [0,90,180,270].includes(rotation) ? rotation : 0;
+}
+
+function modelAssetIsReferenced(ref){
+  const value=String(ref||"");
+  return !!value && (state.items||[]).some(item=>String(item.model3dAssetRef||"")===value);
+}
+
+function removeUnreferencedModelAsset(ref){
+  const value=String(ref||"");
+  if(!value.startsWith("local:") || modelAssetIsReferenced(value)) return Promise.resolve();
+  const api=window.GymModelAssets;
+  return api?.remove ? api.remove(value).catch(()=>{}) : Promise.resolve();
+}
+
+function discardPendingDraftModelAsset(){
+  const ref=pendingDraftModelAssetRef;
+  setPendingDraftModelAsset("");
+  if(ref) removeUnreferencedModelAsset(ref);
+}
+
+try{
+  const stalePendingRef=localStorage.getItem(PENDING_MODEL_ASSET_KEY)||"";
+  localStorage.removeItem(PENDING_MODEL_ASSET_KEY);
+  if(stalePendingRef) removeUnreferencedModelAsset(stalePendingRef);
+}catch{}
+
+function removeItemReferencesFromAllLayouts(removeIds){
+  const ids=removeIds instanceof Set ? removeIds : new Set(removeIds||[]);
+  if(!ids.size) return;
+  const cleanLayout=(layout)=>{
+    if(!layout || typeof layout!=="object") return layout;
+    const removedInstanceIds=new Set((layout.instances||[]).filter(inst=>ids.has(inst.itemId)).map(inst=>inst.id));
+    return {
+      ...layout,
+      instances:(layout.instances||[]).filter(inst=>!ids.has(inst.itemId)),
+      compareSets:(layout.compareSets||[]).map(set=>({
+        ...set,
+        items:(set.items||[]).filter(entry=>!ids.has(typeof entry==="string" ? entry : entry?.itemId)),
+      })),
+      selectedInstId:removedInstanceIds.has(layout.selectedInstId) ? null : layout.selectedInstId,
+    };
+  };
+  state.layout=cleanLayout(state.layout);
+  if(Array.isArray(state.layouts)){
+    state.layouts=state.layouts.map(entry=>{
+      if(!entry || typeof entry!=="object") return entry;
+      if(entry.id===state.activeLayoutId) return {...entry,layout:deepCopy(state.layout)};
+      return {...entry,layout:cleanLayout(entry.layout)};
+    });
+  }
+}
+
+async function uploadModelAssetFile(file){
+  const api=window.GymModelAssets;
+  if(!api?.put) throw new Error("Local 3D model storage is not ready. Refresh the page and try again.");
+  return api.put(file);
+}
+
+async function attachModelAssetToItem(itemId,file){
+  const current=(state.items||[]).find(item=>item.id===itemId);
+  if(!current || !file) return;
+  const stored=await uploadModelAssetFile(file);
+  const latest=(state.items||[]).find(item=>item.id===itemId);
+  if(!latest){
+    await removeUnreferencedModelAsset(stored.ref);
+    return;
+  }
+  const previousRef=String(latest.model3dAssetRef||"");
+  const patch={
+    model3dAssetRef:stored.ref,
+    model3dAssetName:stored.name,
+    model3dAssetSize:stored.size,
+    model3dAssetUpdatedAt:stored.updatedAt,
+    model3dAssetRotation:0,
+  };
+  state.items=(state.items||[]).map(item=>item.id===itemId ? {...item,...patch} : item);
+  if(state.editingId===itemId) state.draft={...state.draft,...patch};
+  render();
+  if(previousRef && previousRef!==stored.ref) removeUnreferencedModelAsset(previousRef);
+}
+
+function detachModelAssetFromItem(itemId){
+  const current=(state.items||[]).find(item=>item.id===itemId);
+  if(!current) return;
+  const previousRef=String(current.model3dAssetRef||"");
+  const patch=emptyModelAssetFields();
+  state.items=(state.items||[]).map(item=>item.id===itemId ? {...item,...patch} : item);
+  if(state.editingId===itemId) state.draft={...state.draft,...patch};
+  render();
+  removeUnreferencedModelAsset(previousRef);
+}
+
+async function attachModelAssetToDraft(file){
+  if(!file) return;
+  const stored=await uploadModelAssetFile(file);
+  const previousPending=pendingDraftModelAssetRef;
+  setPendingDraftModelAsset(stored.ref);
+  state.draft={
+    ...state.draft,
+    model3dAssetRef:stored.ref,
+    model3dAssetName:stored.name,
+    model3dAssetSize:stored.size,
+    model3dAssetUpdatedAt:stored.updatedAt,
+    model3dAssetRotation:0,
+  };
+  render();
+  if(previousPending && previousPending!==stored.ref) removeUnreferencedModelAsset(previousPending);
+}
+
+function detachModelAssetFromDraft(){
+  const currentRef=String(state.draft?.model3dAssetRef||"");
+  const removePending=currentRef && currentRef===pendingDraftModelAssetRef;
+  if(removePending) setPendingDraftModelAsset("");
+  state.draft={...state.draft,...emptyModelAssetFields()};
+  render();
+  if(removePending) removeUnreferencedModelAsset(currentRef);
+}
+
 function readDraftFromForm(){
   const get = (id)=> ($("#"+id)?.value ?? "");
+  const rotationInput=get("f_model3dAssetRotation");
+  const assetRotation=normalizedModelAssetRotation(rotationInput==="" ? state.draft.model3dAssetRotation : rotationInput);
   const payload = {
     name: String(get("f_name")).trim(),
     brand: String(get("f_brand")||"").trim(),
@@ -86,6 +230,14 @@ function readDraftFromForm(){
     color: String(state.draft.color || ""),
     layoutUseImage: !!$("#f_layoutUseImage")?.checked,
     layoutImageDataUrl: String(state.draft.layoutImageDataUrl || ""),
+    model3dFamily: MODEL3D_FAMILIES.some(x=>x.value===get("f_model3dFamily")) ? get("f_model3dFamily") : "auto",
+    model3dProfile: MODEL3D_PROFILES.some(x=>x.value===get("f_model3dProfile")) ? get("f_model3dProfile") : "auto",
+    model3dFacing: get("f_model3dFacing")==="reverse" ? "reverse" : "default",
+    model3dAssetRef: String(state.draft.model3dAssetRef||""),
+    model3dAssetName: String(state.draft.model3dAssetName||"").slice(0,180),
+    model3dAssetSize: Math.max(0,safeNum(state.draft.model3dAssetSize)),
+    model3dAssetUpdatedAt: Math.max(0,safeNum(state.draft.model3dAssetUpdatedAt)),
+    model3dAssetRotation: assetRotation,
   };
   return payload;
 }
@@ -522,22 +674,29 @@ function syncedLayoutsForExport(){
   return lib;
 }
 
+function settingsForExport(){
+  const settings=deepCopy(state.settings||{});
+  delete settings.aiApiKey;
+  return settings;
+}
+
 function exportPayloadFromState(){
   const mode = state.exportMode || "full";
   const scope = state.exportLayoutScope === "all" ? "all" : "active";
   const allLayouts = syncedLayoutsForExport();
   const activeEntry = allLayouts.find(x=>x.id===state.activeLayoutId) || allLayouts[0] || { id: uid("ly"), name: "Layout 1", layout: normalizeLayout(state.layout, state.settings) };
   const selectedLayouts = scope === "all" ? allLayouts : [activeEntry];
+  const exportSettings=settingsForExport();
 
   if(mode === "noLayouts"){
     return {
       filename: `gym-planner-no-layouts-${exportDateTag()}.json`,
       payload: {
-        version: 10,
+        version: 11,
         exportType: "noLayouts",
         exportedAt: new Date().toISOString(),
         tab: state.tab,
-        settings: state.settings,
+        settings: exportSettings,
         categories: state.categories,
         items: state.items,
       },
@@ -549,10 +708,10 @@ function exportPayloadFromState(){
     return {
       filename: `gym-planner-layouts-${filePart}-${exportDateTag()}.json`,
       payload: {
-        version: 10,
+        version: 11,
         exportType: "layoutsOnly",
         exportedAt: new Date().toISOString(),
-        settings: state.settings,
+        settings: exportSettings,
         categories: state.categories,
         items: state.items,
         layout: normalizeLayout(deepCopy(activeEntry.layout), state.settings),
@@ -566,11 +725,11 @@ function exportPayloadFromState(){
   return {
     filename: `gym-planner-export-${filePart}-${exportDateTag()}.json`,
     payload: {
-      version: 10,
+      version: 11,
       exportType: "full",
       exportedAt: new Date().toISOString(),
       tab: state.tab,
-      settings: state.settings,
+      settings: exportSettings,
       categories: state.categories,
       items: state.items,
       layout: normalizeLayout(deepCopy(activeEntry.layout), state.settings),
@@ -726,6 +885,13 @@ function wireTop(){
     render();
   };
 
+  $("#importLabel")?.addEventListener("keydown", (e)=>{
+    if(e.key === "Enter" || e.key === " "){
+      e.preventDefault();
+      $("#importFile")?.click();
+    }
+  });
+
   $("#importFile").onchange = (e)=>{
     const file = e.target.files && e.target.files[0];
     if(!file) return;
@@ -739,6 +905,7 @@ function wireTop(){
       if(trimmed.startsWith("{")){
         try{
           const data = JSON.parse(trimmed);
+          discardPendingDraftModelAsset();
           if(data.settings){
             state.settings = {...DEFAULT_SETTINGS, ...state.settings, ...data.settings};
             state.settings.wishlistVisibleColumns = Array.isArray(state.settings.wishlistVisibleColumns) && state.settings.wishlistVisibleColumns.length ? state.settings.wishlistVisibleColumns : DEFAULT_WISHLIST_COLUMNS.slice();
@@ -746,7 +913,7 @@ function wireTop(){
             state.settings.layoutEditorUnit = (state.settings.layoutEditorUnit === "in" || state.settings.layoutEditorUnit === "ft") ? state.settings.layoutEditorUnit : "ft";
           }
           if(Array.isArray(data.categories)) state.categories = data.categories;
-          if(Array.isArray(data.items)) state.items = data.items;
+          if(Array.isArray(data.items)) state.items = data.items.map(normalizeItemRecord);
 
           if(Array.isArray(data.layouts) && data.layouts.length){
             state.layouts = data.layouts.map(x=>({
@@ -754,8 +921,12 @@ function wireTop(){
               name: x.name || "Layout",
               layout: normalizeLayout(x.layout || x.data || x, state.settings),
             }));
-            state.activeLayoutId = (data.activeLayoutId && state.layouts.some(x=>x.id===data.activeLayoutId)) ? data.activeLayoutId : state.layouts[0].id;
-            state.setActiveLayout(state.activeLayoutId);
+            const importedActiveId = (data.activeLayoutId && state.layouts.some(x=>x.id===data.activeLayoutId)) ? data.activeLayoutId : state.layouts[0].id;
+            // setActiveLayout normally saves the current layout before switching.
+            // During a full import there is no current entry to save, so clear the
+            // pointer first to avoid overwriting the imported active layout.
+            state.activeLayoutId = null;
+            state.setActiveLayout(importedActiveId);
           } else if(data.layout){
             state.layout = normalizeLayout(data.layout, state.settings);
             state.layouts = [{ id: uid("ly"), name: "Layout 1", layout: state.layout }];
@@ -816,6 +987,7 @@ function wireTop(){
           }
           state.tab = "wishlist";
           state.editingId = null;
+          discardPendingDraftModelAsset();
           state.draft = {...DEFAULT_ITEM};
           render();
           alert(`Imported ${added} items from HTML export (images compressed for storage).`);
@@ -898,6 +1070,50 @@ function wireMain(){
       downloadJsonExport(filename, payload);
       state.exportDialogOpen = false;
       render();
+      return;
+    }
+
+    // Shared plan / 3D / first-person controls.
+    if(t.dataset.action==="spatial_mode"){
+      const mode=String(t.dataset.mode||"");
+      if(!["plan","split","3d"].includes(mode)) return;
+      state.layout.spatialViewMode=mode;
+      render();
+      return;
+    }
+    if(t.dataset.action==="toggle_layout_focus"){
+      state.layoutFocusMode=!state.layoutFocusMode;
+      render();
+      return;
+    }
+    if(t.dataset.action==="spatial_frame_selected"){
+      if(typeof frameSelectedGym3D==="function") frameSelectedGym3D();
+      return;
+    }
+    if(t.dataset.action==="spatial_toggle"){
+      const key=String(t.dataset.key||"");
+      if(!["walls","ceiling","clearances","collisions"].includes(key)) return;
+      state.layout.spatial3d={...DEFAULT_LAYOUT.spatial3d,...(state.layout.spatial3d||{}),[key]:!!t.checked};
+      render();
+      return;
+    }
+    if(t.dataset.action==="spatial_walkthrough_open"){
+      state.layout.walkthroughOpen=true;
+      render();
+      return;
+    }
+    if(t.dataset.action==="spatial_walkthrough_close"){
+      try{ if(document.pointerLockElement) document.exitPointerLock(); }catch{}
+      state.layout.walkthroughOpen=false;
+      render();
+      return;
+    }
+    if(t.dataset.action==="spatial_walkthrough_reset"){
+      if(typeof resetGymWalkthrough==="function") resetGymWalkthrough();
+      return;
+    }
+    if(t.dataset.action==="gym3d_lock"){
+      if(typeof startGymWalkthrough==="function") startGymWalkthrough();
       return;
     }
 
@@ -1190,6 +1406,7 @@ function wireMain(){
     // Go to wishlist to add equipment
     if(t.dataset.action==="goToWishlist"){
       e.preventDefault();
+      discardPendingDraftModelAsset();
       state.tab = "wishlist";
       state.editingId = null;
       state.draft = {...DEFAULT_ITEM};
@@ -1206,6 +1423,7 @@ function wireMain(){
 
     // Cancel edit
     if(t.id==="cancelEdit"){
+      discardPendingDraftModelAsset();
       state.editingId = null;
       state.draft = {...DEFAULT_ITEM};
       render();
@@ -1262,18 +1480,16 @@ function wireMain(){
         });
         if(!toRemove.length) return;
         const removeIds = new Set(toRemove.map(it=> it.id));
-        // Drop any placed instances that reference those items so the layout stays clean.
-        if(state.layout && Array.isArray(state.layout.instances)){
-          state.layout.instances = state.layout.instances.filter(inst=> !removeIds.has(inst.itemId));
-        }
-        if(Array.isArray(state.layouts)){
-          state.layouts = state.layouts.map(l=>{
-            if(!l || !Array.isArray(l.instances)) return l;
-            return { ...l, instances: l.instances.filter(inst=> !removeIds.has(inst.itemId)) };
-          });
-        }
+        const assetRefs=toRemove.map(item=>item.model3dAssetRef).filter(Boolean);
+        removeItemReferencesFromAllLayouts(removeIds);
         state.items = (state.items || []).filter(it=> !removeIds.has(it.id));
+        if(removeIds.has(state.editingId)){
+          discardPendingDraftModelAsset();
+          state.editingId=null;
+          state.draft={...DEFAULT_ITEM};
+        }
         render();
+        assetRefs.forEach(removeUnreferencedModelAsset);
       });
       return;
     }
@@ -1366,18 +1582,27 @@ function wireMain(){
       const lower = new Set((state.categories||[]).map(x=>String(x).toLowerCase()));
       if(payload.category && !lower.has(payload.category.toLowerCase())) state.categories.push(payload.category);
 
+      let previousAssetRef="";
+      let saved=false;
       if(state.editingId){
         const existingItem = state.items.find(it=>it.id===state.editingId);
         if(existingItem){
+          previousAssetRef=String(existingItem.model3dAssetRef||"");
           state.items = state.items.map(it=> it.id===state.editingId ? {...existingItem, ...payload, id: state.editingId} : it);
+          saved=true;
         }
       }else{
         const now = Date.now();
         state.items = [{...DEFAULT_ITEM, ...payload, id: uid("item"), createdAt: now}, ...state.items];
+        saved=true;
       }
+      const pendingRef=pendingDraftModelAssetRef;
+      setPendingDraftModelAsset("");
       state.editingId = null;
       state.draft = {...DEFAULT_ITEM};
       render();
+      if(!saved && pendingRef) removeUnreferencedModelAsset(pendingRef);
+      if(previousAssetRef && previousAssetRef!==payload.model3dAssetRef) removeUnreferencedModelAsset(previousAssetRef);
       return;
     }
 
@@ -1418,6 +1643,7 @@ function wireMain(){
       const id = t.dataset.id;
       const item = state.items.find(x=>x.id===id);
       if(!item) return;
+      discardPendingDraftModelAsset();
       state.tab = "wishlist";
       state.editingId = id;
       state.draft = {...DEFAULT_ITEM, ...item};
@@ -1427,13 +1653,16 @@ function wireMain(){
     if(t.dataset.action==="delete"){
       const id = t.dataset.id;
       if(!confirm("Delete this item?")) return;
+      const deletedItem=state.items.find(x=>x.id===id);
       state.items = state.items.filter(x=>x.id!==id);
-      state.layout.instances = (state.layout.instances||[]).filter(inst=>inst.itemId!==id);
+      removeItemReferencesFromAllLayouts(new Set([id]));
       if(state.editingId===id){
+        discardPendingDraftModelAsset();
         state.editingId = null;
         state.draft = {...DEFAULT_ITEM};
       }
       render();
+      removeUnreferencedModelAsset(deletedItem?.model3dAssetRef);
       return;
     }
     if(t.dataset.action==="place"){
@@ -2098,6 +2327,8 @@ function wireMain(){
         f_price:"price", f_fees:"fees",
         f_productLink:"productLink", f_notes:"notes",
         f_rackHolePattern:"rackHolePattern", f_rackCustomSpec:"rackCustomSpec", f_equipmentTags:"equipmentTags",
+        f_model3dFamily:"model3dFamily", f_model3dProfile:"model3dProfile", f_model3dFacing:"model3dFacing",
+        f_model3dAssetRotation:"model3dAssetRotation",
       };
       const key = map[t.id];
       if(key){
@@ -2109,14 +2340,16 @@ function wireMain(){
         if(key==="length" || key==="width" || key==="height" || key==="lengthIn" || key==="widthIn" || key==="heightIn"){
           val = t.value==="" ? "" : safeNum(t.value);
         }
+        if(key==="model3dAssetRotation") val=normalizedModelAssetRotation(val);
         let nextDraft = {...state.draft, [key]: val};
+        if(key === "model3dFamily") nextDraft = {...nextDraft, model3dProfile:"auto"};
         if(key === "unit" && val !== "ft"){
           nextDraft = {...nextDraft, lengthIn:"", widthIn:"", heightIn:""};
         }
         state.draft = nextDraft;
         
         // Re-render for category / unit change (rack fields, ft+inch rows) or product URL (open-link row)
-        if(key === "category" || key === "unit" || key === "productLink"){
+        if(key === "category" || key === "unit" || key === "productLink" || key === "model3dFamily" || key === "model3dProfile"){
           render();
           return;
         }
@@ -2907,6 +3140,11 @@ function wireMain(){
 
   document.addEventListener("keydown", (e)=>{
     if(e.key !== "Escape") return;
+    if(state.layout?.walkthroughOpen && !document.pointerLockElement){
+      state.layout.walkthroughOpen = false;
+      render();
+      return;
+    }
     const box = $("#imgLightbox");
     if(box && box.classList.contains("open")){
       box.classList.remove("open");
@@ -2935,7 +3173,148 @@ function wireLayoutGridContrast(){
   };
 }
 
+function wireSpatialControls(){
+  const updateSpatial=(patch)=>{
+    state.layout.spatial3d={
+      ...DEFAULT_LAYOUT.spatial3d,
+      ...(state.layout.spatial3d||{}),
+      ...patch,
+    };
+    render();
+  };
+
+  const wallColor=$("#spatialWallColor");
+  if(wallColor){
+    wallColor.onchange=()=>{
+      const value=String(wallColor.value||"");
+      updateSpatial({wallColor:["white","black"].includes(value) ? value : DEFAULT_LAYOUT.spatial3d.wallColor});
+    };
+  }
+
+  const floorType=$("#spatialFloorType");
+  if(floorType){
+    floorType.onchange=()=>{
+      const value=String(floorType.value||"");
+      updateSpatial({floorType:["rolled-rubber","rubber-tiles","concrete"].includes(value) ? value : DEFAULT_LAYOUT.spatial3d.floorType});
+    };
+  }
+
+  const fov=$("#spatialFov");
+  if(fov){
+    fov.onchange=()=>{
+      updateSpatial({fovDeg:clamp(Math.round(safeNum(fov.value)||DEFAULT_LAYOUT.spatial3d.fovDeg),55,100)});
+    };
+  }
+
+  const eyeHeight=$("#spatialEyeHeight");
+  if(eyeHeight){
+    eyeHeight.onchange=()=>{
+      updateSpatial({eyeHeightFt:clamp(safeNum(eyeHeight.value)||5.67,4,7)});
+    };
+  }
+
+  const labelMode=$("#spatialLabelMode");
+  if(labelMode){
+    labelMode.onchange=()=>{
+      const value=String(labelMode.value||"");
+      const next=["selected","hover","always","off"].includes(value) ? value : "selected";
+      updateSpatial({labelMode:next,labels:next!=="off"});
+    };
+  }
+}
+
+function wireEquipmentModelControls(){
+  document.querySelectorAll("[data-model-family-item]").forEach(select=>{
+    select.onchange=()=>{
+      const itemId=String(select.dataset.modelFamilyItem||"");
+      const value=String(select.value||"auto");
+      if(!itemId || !MODEL3D_FAMILIES.some(x=>x.value===value)) return;
+      state.items=(state.items||[]).map(item=>item.id===itemId ? {...item,model3dFamily:value,model3dProfile:"auto"} : item);
+      if(state.draft?.id===itemId) state.draft={...state.draft,model3dFamily:value,model3dProfile:"auto"};
+      render();
+    };
+  });
+
+  document.querySelectorAll("[data-model-facing-item]").forEach(select=>{
+    select.onchange=()=>{
+      const itemId=String(select.dataset.modelFacingItem||"");
+      const value=select.value==="reverse" ? "reverse" : "default";
+      if(!itemId) return;
+      state.items=(state.items||[]).map(item=>item.id===itemId ? {...item,model3dFacing:value} : item);
+      if(state.draft?.id===itemId) state.draft={...state.draft,model3dFacing:value};
+      render();
+    };
+  });
+
+  document.querySelectorAll("[data-model-profile-item]").forEach(select=>{
+    select.onchange=()=>{
+      const itemId=String(select.dataset.modelProfileItem||"");
+      const value=String(select.value||"auto");
+      if(!itemId || !MODEL3D_PROFILES.some(x=>x.value===value)) return;
+      state.items=(state.items||[]).map(item=>item.id===itemId ? {...item,model3dProfile:value} : item);
+      if(state.draft?.id===itemId) state.draft={...state.draft,model3dProfile:value};
+      render();
+    };
+  });
+
+  document.querySelectorAll("[data-model-asset-file-item]").forEach(input=>{
+    input.onchange=async()=>{
+      const itemId=String(input.dataset.modelAssetFileItem||"");
+      const file=input.files?.[0];
+      try{ input.value=""; }catch{}
+      if(!itemId || !file) return;
+      input.disabled=true;
+      const status=input.closest("label")?.querySelector("[data-model-asset-label]");
+      if(status) status.textContent="Loading model…";
+      try{
+        await attachModelAssetToItem(itemId,file);
+      }catch(error){
+        input.disabled=false;
+        if(status) status.textContent="Try another .glb";
+        alert(String(error?.message||error||"Could not add that GLB model."));
+      }
+    };
+  });
+
+  document.querySelectorAll("[data-remove-model-asset-item]").forEach(button=>{
+    button.onclick=()=>detachModelAssetFromItem(String(button.dataset.removeModelAssetItem||""));
+  });
+
+  document.querySelectorAll("[data-model-asset-rotation-item]").forEach(select=>{
+    select.onchange=()=>{
+      const itemId=String(select.dataset.modelAssetRotationItem||"");
+      if(!itemId) return;
+      const rotation=normalizedModelAssetRotation(select.value);
+      state.items=(state.items||[]).map(item=>item.id===itemId ? {...item,model3dAssetRotation:rotation} : item);
+      if(state.editingId===itemId) state.draft={...state.draft,model3dAssetRotation:rotation};
+      render();
+    };
+  });
+}
+
 function wireWishlistExtras(){
+  const modelAssetFile=$("#f_model3dAssetFile");
+  if(modelAssetFile){
+    modelAssetFile.onchange=async()=>{
+      const file=modelAssetFile.files?.[0];
+      try{ modelAssetFile.value=""; }catch{}
+      if(!file) return;
+      modelAssetFile.disabled=true;
+      const status=modelAssetFile.closest("label")?.querySelector("[data-model-asset-label]");
+      if(status) status.textContent="Loading model…";
+      try{
+        await attachModelAssetToDraft(file);
+      }catch(error){
+        modelAssetFile.disabled=false;
+        if(status) status.textContent="Try another .glb";
+        alert(String(error?.message||error||"Could not add that GLB model."));
+      }
+    };
+  }
+
+  const removeModelAsset=$("#f_removeModel3dAsset");
+  if(removeModelAsset) removeModelAsset.onclick=detachModelAssetFromDraft;
+
   const layoutUseChk = $("#f_layoutUseImage");
   if(layoutUseChk){
     layoutUseChk.onchange = ()=>{

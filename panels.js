@@ -158,8 +158,8 @@ function wishlistPanel(groups, currency){
       <div class="card">
         <div class="hd">
           <div>
-            <div class="h1">${state.editingId ? "Edit item" : "Add item"}</div>
-            <div class="h2">Track size, power, rack specs, tags, and notes.</div>
+            <div class="h1">${state.editingId ? "Edit equipment" : "Add equipment"}</div>
+            <div class="h2">Capture the details that affect price and fit.</div>
           </div>
           ${state.editingId ? `<button class="btn ghost" id="cancelEdit">Cancel</button>` : ``}
         </div>
@@ -172,7 +172,7 @@ function wishlistPanel(groups, currency){
         <div class="hd">
           <div>
             <div class="h1">Wishlist</div>
-            <div class="h2">Grouped by category • Place items into Layout</div>
+            <div class="h2">Compare options and place equipment into your layout.</div>
           </div>
         </div>
         <div class="bd">
@@ -389,6 +389,55 @@ function itemForm(currency){
         <button type="button" class="btn" id="f_clearLayoutImage">Remove photo</button>
       </div>
       ${d.layoutImageDataUrl ? `<div style="margin-top:10px;"><img src="${escapeAttr(d.layoutImageDataUrl)}" alt="Layout photo preview" style="max-width:100%;max-height:180px;border-radius:12px;border:1px solid var(--border);object-fit:contain;background:var(--chip);" /></div>` : `<div class="muted" style="font-size:12px;margin-top:8px;">No photo yet — choose a file above. Images are compressed and stored in this browser only.</div>`}
+    </div>
+
+    <div class="divider"></div>
+    <div class="kpiBox">
+      <div style="font-weight:900;">3D model calibration</div>
+      <div class="muted" style="font-size:12px;margin-top:6px;line-height:1.45;">Detail profiles were tuned against your saved reference photos. Auto selects the matching profile from the item name; your saved length, width, and height remain the exact source for the floor footprint.</div>
+      <div class="two" style="margin-top:10px;">
+        ${field("Model family", `
+          <select id="f_model3dFamily">
+            ${MODEL3D_FAMILIES.map(x=>`<option value="${escapeAttr(x.value)}" ${String(d.model3dFamily||"auto")===x.value?"selected":""}>${escapeHtml(x.label)}</option>`).join("")}
+          </select>
+        `)}
+        ${field("Reference detail", `
+          <select id="f_model3dProfile">
+            ${equipmentModelProfilesForItem(d).map(x=>`<option value="${escapeAttr(x.value)}" ${String(d.model3dProfile||"auto")===x.value?"selected":""}>${escapeHtml(x.label)}</option>`).join("")}
+          </select>
+        `)}
+      </div>
+      <div style="margin-top:10px;">
+        ${field("Front direction", `
+          <select id="f_model3dFacing">
+            <option value="default" ${String(d.model3dFacing||"default")==="default"?"selected":""}>As placed</option>
+            <option value="reverse" ${String(d.model3dFacing||"")==="reverse"?"selected":""}>Reverse 180°</option>
+          </select>
+        `)}
+      </div>
+      <div class="ok" style="margin-top:10px;">Current shape: <b>${escapeHtml(equipmentModelFamilyLabel(equipmentModelFamily(d)))}</b> • detail: <b>${escapeHtml(equipmentModelProfileLabel(equipmentModelProfile(d)))}</b>${String(d.model3dProfile||"auto")==="auto"?" (matched from item name)":""}.</div>
+
+      <div class="divider"></div>
+      <div class="label"><span style="font-weight:900;">Real 3D model (.glb)</span><span>${itemHasLocal3dModel(d)?"Local model":itemUsesPhotoMatched3d(d)?"Photo-matched reconstruction":"Procedural model"}</span></div>
+      <div class="muted" style="font-size:12px;margin-top:6px;line-height:1.45;">Optional GLB models (25 MB max) are stored locally in this browser and fitted inside the exact saved width, length, and height. If the file is unavailable or invalid, the procedural model remains visible.</div>
+      <div class="row" style="justify-content:flex-start;gap:10px;margin-top:10px;align-items:center;">
+        <label class="btn" style="cursor:pointer;">
+          <span data-model-asset-label aria-live="polite">${itemHasLocal3dModel(d)?"Replace .glb":"Upload .glb"}</span>
+          <input id="f_model3dAssetFile" type="file" accept=".glb,model/gltf-binary" style="display:none;" />
+        </label>
+        ${itemHasLocal3dModel(d)?`<button type="button" class="btn danger" id="f_removeModel3dAsset">Remove model</button>`:""}
+        ${itemHasLocal3dModel(d)?`<span class="pill">${escapeHtml(d.model3dAssetName||"Local GLB")}${d.model3dAssetSize?` • ${escapeHtml(formatFileSize(d.model3dAssetSize))}`:""}</span>`:""}
+      </div>
+      ${itemHasLocal3dModel(d)?`
+        <div style="margin-top:10px;">
+          ${field("Model orientation", `
+            <select id="f_model3dAssetRotation">
+              ${[0,90,180,270].map(angle=>`<option value="${angle}" ${safeNum(d.model3dAssetRotation)===angle?"selected":""}>${angle}°${angle===0?" (as uploaded)":""}</option>`).join("")}
+            </select>
+          `, "Turn the visual model inside the same measured footprint")}
+        </div>
+        <div class="muted" style="font-size:11px;margin-top:6px;">Local-only asset — JSON backups keep the reference, not the GLB file itself.</div>
+      `:""}
     </div>
 
     ${isRackCategory(d.category) ? `
