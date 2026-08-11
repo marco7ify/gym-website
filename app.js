@@ -757,6 +757,14 @@ const MODEL3D_PROFILES = [
   {value:"three-tier-rack", label:"Three-tier dumbbell rack"},
   {value:"adductor-combo", label:"Combo adductor / abductor"},
   {value:"incline-treadmill", label:"Incline treadmill"},
+  {value:"ice-barrel-500", label:"Ice Barrel 500"},
+  {value:"syedee-stair-machine", label:"syedee Stair Machine"},
+  {value:"nordictrack-x16", label:"NordicTrack X16 Treadmill"},
+  {value:"ritfit-gator-bench", label:"RitFit GATOR adjustable bench"},
+  {value:"brightway-hs08-row", label:"Brightway HS08 rowing machine"},
+  {value:"shizhuo-seated-standing-row", label:"Shizhuo seated / standing row"},
+  {value:"wanjia-combo-adductor", label:"Wanjia combo adductor / abductor"},
+  {value:"yindun-three-tier-rack", label:"Yindun three-tier dumbbell rack"},
 ];
 
 const MODEL3D_PROFILE_FAMILY = {
@@ -774,7 +782,29 @@ const MODEL3D_PROFILE_FAMILY = {
   "three-tier-rack":"storage-rack",
   "adductor-combo":"adductor",
   "incline-treadmill":"treadmill",
+  "ice-barrel-500":"cold-plunge",
+  "syedee-stair-machine":"stair-climber",
+  "nordictrack-x16":"treadmill",
+  "ritfit-gator-bench":"bench",
+  "brightway-hs08-row":"rowing-machine",
+  "shizhuo-seated-standing-row":"rowing-machine",
+  "wanjia-combo-adductor":"adductor",
+  "yindun-three-tier-rack":"storage-rack",
 };
+
+const DEDICATED_MODEL_PROFILES = new Set([
+  "ice-barrel-500",
+  "syedee-stair-machine",
+  "nordictrack-x16",
+  "ritfit-gator-bench",
+  "brightway-hs08-row",
+  "shizhuo-seated-standing-row",
+  "wanjia-combo-adductor",
+  "yindun-three-tier-rack",
+  "gazelle-pro",
+  "maxwell-903bh",
+  "rx3-compact-smith",
+]);
 
 function inferEquipmentModelFamily(item){
   const text = `${item?.category||""} ${item?.name||""} ${item?.equipmentTypes||""}`.toLowerCase();
@@ -805,8 +835,29 @@ function equipmentModelFamilyLabel(value){
   return MODEL3D_FAMILIES.find(x=>x.value===value)?.label || "General selectorized machine";
 }
 
+function normalizedEquipmentModelText(value){
+  return String(value||"").toLowerCase().replace(/\s+/g," ").trim();
+}
+
 function inferEquipmentModelProfile(item){
-  const text = `${item?.brand||""} ${item?.name||""} ${item?.category||""}`.toLowerCase();
+  const brand=normalizedEquipmentModelText(item?.brand);
+  const name=normalizedEquipmentModelText(item?.name);
+  const text = `${brand} ${name} ${normalizedEquipmentModelText(item?.category)}`.trim();
+  const exact=(brandPattern,namePattern)=>brandPattern.test(brand) && namePattern.test(name);
+  const wanjiaDimensions=()=>{
+    const fp=footprint(item);
+    return Math.abs(fp.L-4.99)<=.02 && Math.abs(fp.W-2.38)<=.02 && Math.abs(fp.H-4.61)<=.02;
+  };
+
+  if(exact(/\bice barrel\b/,/\bice barrel 500\b/)) return "ice-barrel-500";
+  if(exact(/\bsyedee\b/,/\bstair machine\b/)) return "syedee-stair-machine";
+  if(exact(/\bnordictrack\b/,/\bx16 treadmill\b/)) return "nordictrack-x16";
+  if(exact(/\britfit\b/,/\britfit gator 1600lb adjustable weight bench\b/)) return "ritfit-gator-bench";
+  if(exact(/\bshandong brightway fitness\b/,/\bhs08\b.*\browing machine\b/)) return "brightway-hs08-row";
+  if(exact(/\bdezhou shizhuo fitness technology co\.?\s*,?\s*ltd\.?\b/,/\bseated\s*\/\s*standing row\b/)) return "shizhuo-seated-standing-row";
+  if(exact(/\bshandong wanjia fitness equipment\b/,/\bcombo adductor\s*&\s*abductor\b/) && wanjiaDimensions()) return "wanjia-combo-adductor";
+  if(exact(/\bdezhou yindun seiko technology co\.?\s*,?\s*ltd\.?\b/,/\bthree-tier dumbbell rack\b/)) return "yindun-three-tier-rack";
+
   if(/rx3 tornado compact smith/.test(text)) return "rx3-compact-smith";
   if(/stair machine|stairmill|stair climber/.test(text)) return "commercial-stair";
   if(/hs08/.test(text)) return "selectorized-seated-row";
@@ -837,7 +888,7 @@ function equipmentModelProfileLabel(value){
 }
 
 function itemUsesPhotoMatched3d(item){
-  return !itemHasLocal3dModel(item) && equipmentModelProfile(item)!=="standard";
+  return !itemHasLocal3dModel(item) && DEDICATED_MODEL_PROFILES.has(equipmentModelProfile(item));
 }
 
 function equipmentModelProfilesForItem(item){

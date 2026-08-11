@@ -6,7 +6,7 @@
   while(Date.now()<deadline){
     const ready=frame.contentDocument?.readyState==="complete";
     const scripts=ready ? Array.from(frame.contentDocument.querySelectorAll("body script[src]")) : [];
-    if(scripts.length>=8) break;
+    if(scripts.length>=9) break;
     await new Promise(resolve=>setTimeout(resolve,50));
   }
 
@@ -19,14 +19,15 @@
     .map(script=>leafUrl(script.src));
 
   GymTests.test("loads the current runtime entry URL",()=>{
-    GymTests.equal(leafUrl(runtimeScript?.src||""),"gltf-runtime.js?v=25");
+    GymTests.equal(leafUrl(runtimeScript?.src||""),"gltf-runtime.js?v=26");
   });
 
   GymTests.test("loads every classic production asset at its current cache URL",()=>{
     GymTests.deepEqual(classicScripts,[
       "model-assets.js?v=4",
       "wall-features.js?v=2",
-      "app.js?v=80",
+      "app.js?v=81",
+      "equipment-models.js?v=1",
       "view3d.js?v=33",
       "panels.js?v=73",
       "layout.js?v=83",
