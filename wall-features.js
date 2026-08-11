@@ -249,7 +249,7 @@
     return {valid:reasons.length===0,reasons};
   }
 
-  const LAYOUT3_STARTER=[
+  const LAYOUT3_LEGACY_STARTER=[
     {id:"wf_l3_primary_mirror",kind:"mirror",label:"Primary training mirror",wall:"bottom",startFt:2,startIn:0,bottomFt:1,bottomIn:6,widthFt:5,widthIn:0,heightFt:5,heightIn:6,color:"#cbd5e1",brightnessPct:0},
     {id:"wf_l3_aisle_mirror",kind:"mirror",label:"Secondary aisle mirror",wall:"right",startFt:11,startIn:0,bottomFt:1,bottomIn:6,widthFt:4,widthIn:0,heightFt:5,heightIn:6,color:"#cbd5e1",brightnessPct:0},
     {id:"wf_l3_gazelle_slats",kind:"slat",label:"Gazelle focal slat wall",wall:"bottom",startFt:12,startIn:9,bottomFt:0,bottomIn:0,widthFt:6,widthIn:9,heightFt:8,heightIn:6,color:"#8f5f3a",brightnessPct:0},
@@ -259,9 +259,23 @@
     {id:"wf_l3_cardio_strip",kind:"led",label:"Cardio ambient strip",wall:"top",startFt:2,startIn:9,bottomFt:8,bottomIn:4,widthFt:9,widthIn:6,heightFt:0,heightIn:1,color:"#ffd7aa",brightnessPct:70},
   ];
 
+  const LAYOUT3_STARTER=[
+    {id:"wf_l3_primary_mirror",kind:"mirror",label:"Primary training mirror",wall:"left",startFt:0,startIn:0,bottomFt:1,bottomIn:0,widthFt:8,widthIn:9,heightFt:7,heightIn:6,color:"#cbd5e1",brightnessPct:0},
+    {id:"wf_l3_aisle_mirror",kind:"mirror",label:"Secondary aisle mirror",wall:"right",startFt:11,startIn:0,bottomFt:1,bottomIn:6,widthFt:4,widthIn:0,heightFt:5,heightIn:6,color:"#cbd5e1",brightnessPct:0},
+    {id:"wf_l3_gazelle_slats",kind:"slat",label:"Cold-plunge slat wall",wall:"left",startFt:9,startIn:0,bottomFt:0,bottomIn:0,widthFt:5,widthIn:0,heightFt:8,heightIn:6,color:"#8f5f3a",brightnessPct:0},
+    {id:"wf_l3_slat_led_left",kind:"led",label:"Slat frame, upper run edge",wall:"left",startFt:8,startIn:11,bottomFt:0,bottomIn:4,widthFt:0,widthIn:1,heightFt:8,heightIn:0,color:"#ffb36b",brightnessPct:80},
+    {id:"wf_l3_slat_led_right",kind:"led",label:"Slat frame, lower run edge",wall:"left",startFt:14,startIn:1,bottomFt:0,bottomIn:4,widthFt:0,widthIn:1,heightFt:8,heightIn:0,color:"#ffb36b",brightnessPct:80},
+    {id:"wf_l3_mirror_wash",kind:"led",label:"Mirror wash",wall:"left",startFt:0,startIn:0,bottomFt:8,bottomIn:7,widthFt:8,widthIn:9,heightFt:0,heightIn:1,color:"#ffd7aa",brightnessPct:65},
+    {id:"wf_l3_cardio_strip",kind:"led",label:"Cardio ambient strip",wall:"top",startFt:2,startIn:9,bottomFt:8,bottomIn:4,widthFt:9,widthIn:6,heightFt:0,heightIn:1,color:"#ffd7aa",brightnessPct:70},
+  ];
+
+  function layout3LegacyStarter(){
+    return LAYOUT3_LEGACY_STARTER.map(feature=>({...feature}));
+  }
+
   function layout3Starter(){
     return LAYOUT3_STARTER.map(feature=>({...feature}));
   }
 
-  window.GymWallFeatures=Object.freeze({KINDS,SIDES,DEFAULTS,totalFt,splitFtIn,start,bottom,width,height,wallLength,floorElevationAt,normalize,planRect,worldTransform,validate,layout3Starter});
+  window.GymWallFeatures=Object.freeze({KINDS,SIDES,DEFAULTS,totalFt,splitFtIn,start,bottom,width,height,wallLength,floorElevationAt,normalize,planRect,worldTransform,validate,layout3LegacyStarter,layout3Starter});
 })();

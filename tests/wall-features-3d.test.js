@@ -115,10 +115,10 @@ GymTests.test("builds the exact seven seeded wall features with real material an
     GymTests.deepEqual(
       frameMeshes.map(mesh=>({width:mesh.geometry.parameters.width,height:mesh.geometry.parameters.height,depth:mesh.geometry.parameters.depth})),
       [
-        {width:5,height:.09,depth:.105},
-        {width:5,height:.09,depth:.105},
-        {width:.09,height:5.32,depth:.105},
-        {width:.09,height:5.32,depth:.105},
+        {width:8.75,height:.09,depth:.105},
+        {width:8.75,height:.09,depth:.105},
+        {width:.09,height:7.32,depth:.105},
+        {width:.09,height:7.32,depth:.105},
       ]
     );
 
@@ -126,9 +126,9 @@ GymTests.test("builds the exact seven seeded wall features with real material an
     const feltMaterial=slat.userData.selectionMaterials[0];
     const felt=meshes(slat).find(mesh=>mesh.material===feltMaterial);
     const woodSlats=meshes(slat).filter(mesh=>mesh.material!==feltMaterial).sort((a,b)=>a.position.x-b.position.x);
-    GymTests.equal(slat.userData.slatCount,32);
+    GymTests.equal(slat.userData.slatCount,24);
     GymTests.assert(slat.userData.slatCount>=3 && slat.userData.slatCount<=60);
-    GymTests.equal(woodSlats.length,32);
+    GymTests.equal(woodSlats.length,24);
     GymTests.closeTo(felt.geometry.parameters.depth,1/12,1e-9);
     GymTests.closeTo((woodSlats[1].position.x-woodSlats[0].position.x)*12,2.5,.05);
     GymTests.equal(felt.material.roughness,.96);

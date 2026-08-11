@@ -75,3 +75,166 @@ GymTests.test("plans three rows and three bays as six grid lines",()=>{
     GymTests.closeTo(line.z2,19.5,1e-9);
   });
 });
+
+function garageMigrationContext(fixture,layout,{name=fixture.name,hadWallFeatures=true,profileKeys}={}){
+  const byId=new Map(fixture.items.map(item=>[item.id,item]));
+  return {
+    name,
+    room:wallFeatureRoomData(layout,fixture.settings),
+    profileKeys:profileKeys||[...new Set(layout.instances.map(inst=>byId.get(inst.itemId)).filter(Boolean).map(equipmentModelProfile))].sort(),
+    hadWallFeatures,
+    legacyFeatures:GymWallFeatures.layout3LegacyStarter(),
+    starterFeatures:GymWallFeatures.layout3Starter(),
+  };
+}
+
+GymTests.test("migrates the complete legacy Layout 3 once",()=>{
+  const fixture=legacyGarageLayout3Fixture();
+  const first=normalizeNamedLayout(fixture.name,fixture.layout,fixture.settings,fixture.items);
+  const second=normalizeNamedLayout(fixture.name,deepCopy(first),fixture.settings,fixture.items);
+  GymTests.equal(first.garageWallRevision,1);
+  GymTests.equal(first.areas.filter(area=>area.kind==="garagedoor").length,1);
+  GymTests.deepEqual(first.wallFeatures.reduce((counts,feature)=>({...counts,[feature.kind]:(counts[feature.kind]||0)+1}),{}),{mirror:2,slat:1,led:4});
+  GymTests.equal(first.wallFeatures.some(feature=>feature.wall==="bottom"),false);
+  GymTests.deepEqual(second,first);
+});
+
+GymTests.test("installs the refreshed starter for an exact-profile pre-wall-feature layout",()=>{
+  const fixture=legacyGarageLayout3Fixture();
+  delete fixture.layout.wallFeatures;
+  const normalized=normalizeNamedLayout(fixture.name,fixture.layout,fixture.settings,fixture.items);
+  GymTests.deepEqual(normalized.wallFeatures,GymWallFeatures.layout3Starter());
+});
+
+GymTests.test("migrates only the five explicitly retained known wall features",()=>{
+  const fixture=legacyGarageLayout3Fixture();
+  fixture.items=[];
+  fixture.layout.instances=[];
+  fixture.layout.wallFeatures=fixture.layout.wallFeatures.slice(0,5);
+  const normalized=normalizeNamedLayout(fixture.name,fixture.layout,fixture.settings,fixture.items);
+  GymTests.equal(normalized.garageWallRevision,1);
+  GymTests.deepEqual(normalized.wallFeatures.map(feature=>feature.id),GymWallFeatures.layout3Starter().slice(0,5).map(feature=>feature.id));
+});
+
+GymTests.test("keeps a customized known wall feature byte-equal and reports its door overlap",()=>{
+  const fixture=legacyGarageLayout3Fixture();
+  fixture.layout.wallFeatures[0].color="#112233";
+  const canonical=normalizeLayout({...deepCopy(fixture.layout),garageWallRevision:1},fixture.settings,{name:fixture.name,items:fixture.items});
+  const expected=deepCopy(canonical.wallFeatures[0]);
+  const normalized=normalizeNamedLayout(fixture.name,fixture.layout,fixture.settings,fixture.items);
+  const actual=normalized.wallFeatures.find(feature=>feature.id===expected.id);
+  GymTests.deepEqual(actual,expected);
+  const validation=GymWallFeatures.validate(actual,normalized,wallFeatureRoomData(normalized,fixture.settings));
+  GymTests.assert(validation.reasons.some(reason=>reason.code==="door-overlap"),"Expected the preserved customized feature to overlap the new door");
+});
+
+GymTests.test("does not recreate a refreshed wall feature deleted after migration",()=>{
+  const fixture=legacyGarageLayout3Fixture();
+  const migrated=normalizeNamedLayout(fixture.name,fixture.layout,fixture.settings,fixture.items);
+  migrated.wallFeatures=migrated.wallFeatures.filter(feature=>feature.id!=="wf_l3_primary_mirror");
+  const normalized=normalizeNamedLayout(fixture.name,migrated,fixture.settings,fixture.items);
+  GymTests.equal(normalized.garageWallRevision,1);
+  GymTests.equal(normalized.wallFeatures.some(feature=>feature.id==="wf_l3_primary_mirror"),false);
+});
+
+GymTests.test("reuses a matching resolved manual garage and canonicalizes every seeded field",()=>{
+  const fixture=legacyGarageLayout3Fixture();
+  const canonical=normalizeLayout({...deepCopy(fixture.layout),garageWallRevision:1},fixture.settings,{name:fixture.name,items:fixture.items});
+  delete canonical.garageWallRevision;
+  canonical.areas.push({
+    id:"manual_garage",kind:"garagedoor",label:"Old opening",xFt:1,xIn:11,yFt:18,yIn:6,widthFt:16,widthIn:0,heightFt:1,heightIn:0,
+    garageDoorHeightFt:9,garageDoorHeightIn:0,garageDoorStyle:"plain",garageDoorColor:"#ffffff",
+    blocksPlacement:true,subtractsSpace:true,installerNote:"preserve me",
+  });
+  const migrated=GymGarageDoors.migrateLayout3(canonical,garageMigrationContext(fixture,canonical));
+  const actual=migrated.areas.find(area=>area.id==="manual_garage");
+  GymTests.deepEqual(actual,{...GymGarageDoors.seededLayout3Area(),id:"manual_garage",installerNote:"preserve me"});
+  GymTests.equal(migrated.areas.filter(area=>area.kind==="garagedoor").length,1);
+});
+
+GymTests.test("preserves a distinct manual garage while adding the stable Layout 3 seed",()=>{
+  const fixture=legacyGarageLayout3Fixture();
+  const canonical=normalizeLayout({...deepCopy(fixture.layout),garageWallRevision:1},fixture.settings,{name:fixture.name,items:fixture.items});
+  delete canonical.garageWallRevision;
+  const manual={id:"manual_side_garage",kind:"garagedoor",label:"Side opening",xFt:0,xIn:0,yFt:14,yIn:3,widthFt:1,widthIn:0,heightFt:5,heightIn:3,custom:"keep"};
+  canonical.areas.push(deepCopy(manual));
+  const migrated=GymGarageDoors.migrateLayout3(canonical,garageMigrationContext(fixture,canonical));
+  GymTests.deepEqual(migrated.areas.find(area=>area.id===manual.id),manual);
+  GymTests.deepEqual(migrated.areas.find(area=>area.id==="area_l3_bottom_garage_v1"),GymGarageDoors.seededLayout3Area());
+});
+
+GymTests.test("uses the exact equipment profile signal after rename without legacy wall features",()=>{
+  const fixture=legacyGarageLayout3Fixture();
+  fixture.name="Renovated gym";
+  fixture.layout.wallFeatures=[];
+  const normalized=normalizeNamedLayout(fixture.name,fixture.layout,fixture.settings,fixture.items);
+  GymTests.equal(normalized.garageWallRevision,1);
+  GymTests.equal(normalized.areas.filter(area=>area.kind==="garagedoor").length,1);
+  GymTests.deepEqual(normalized.wallFeatures,[]);
+});
+
+GymTests.test("uses all seven legacy material signatures without name or equipment profiles",()=>{
+  const fixture=legacyGarageLayout3Fixture();
+  fixture.name="Renovated gym";
+  fixture.items=[];
+  fixture.layout.instances=[];
+  const normalized=normalizeNamedLayout(fixture.name,fixture.layout,fixture.settings,fixture.items);
+  GymTests.equal(normalized.garageWallRevision,1);
+  GymTests.equal(normalized.areas.filter(area=>area.kind==="garagedoor").length,1);
+});
+
+GymTests.test("does not migrate an unrelated name-only Layout 3",()=>{
+  const fixture=legacyGarageLayout3Fixture();
+  const unrelated={instances:[],areas:[],wallFeatures:[]};
+  const before=deepCopy(unrelated);
+  const migrated=GymGarageDoors.migrateLayout3(unrelated,garageMigrationContext(fixture,unrelated,{name:"Layout 3",profileKeys:[]}));
+  GymTests.deepEqual(migrated,before);
+});
+
+GymTests.test("does not count repeated copies of one known ID as five known Layout 3 IDs",()=>{
+  const fixture=legacyGarageLayout3Fixture();
+  const repeated=Array.from({length:5},(_,index)=>({...fixture.layout.wallFeatures[0],label:`Copy ${index}`}));
+  const source={instances:[],areas:[],wallFeatures:repeated};
+  const migrated=GymGarageDoors.migrateLayout3(source,garageMigrationContext(fixture,source,{name:"Layout 3",profileKeys:[]}));
+  GymTests.deepEqual(migrated,source);
+});
+
+GymTests.test("leaves Layouts 1 and 2 byte-equal",()=>{
+  const fixture=legacyGarageLayout3Fixture();
+  ["Layout 1","Layout 2"].forEach(name=>{
+    const source={marker:name,instances:[],areas:[],wallFeatures:[]};
+    const migrated=GymGarageDoors.migrateLayout3(source,garageMigrationContext(fixture,source,{name,profileKeys:[]}));
+    GymTests.deepEqual(migrated,source);
+  });
+});
+
+GymTests.test("preserves every canonical non-target Layout 3 record through repeat migration",()=>{
+  const fixture=legacyGarageLayout3Fixture();
+  fixture.layout.wallFeatures.push({id:"wf_unrelated",kind:"mirror",label:"Keep me",wall:"top",startFt:16,startIn:0,bottomFt:2,bottomIn:0,widthFt:2,widthIn:0,heightFt:3,heightIn:0,color:"#abcdef",brightnessPct:0});
+  const baseline=normalizeLayout({...deepCopy(fixture.layout),garageWallRevision:1},fixture.settings,{name:fixture.name,items:fixture.items});
+  delete baseline.garageWallRevision;
+  const snapshot={
+    instances:deepCopy(baseline.instances),
+    areas:deepCopy(baseline.areas),
+    outlets:deepCopy(baseline.outlets),
+    wallExtensions:deepCopy(baseline.wallExtensions),
+    ceilingZones:deepCopy(baseline.ceilingZones),
+    floorZones:deepCopy(baseline.floorZones),
+    flooringPieces:deepCopy(baseline.flooringPieces),
+    spatial3d:deepCopy(baseline.spatial3d),
+    unrelated:deepCopy(baseline.wallFeatures.find(feature=>feature.id==="wf_unrelated")),
+  };
+  const first=GymGarageDoors.migrateLayout3(baseline,garageMigrationContext(fixture,baseline));
+  const second=GymGarageDoors.migrateLayout3(first,garageMigrationContext(fixture,first));
+  [first,second].forEach(migrated=>{
+    GymTests.deepEqual(migrated.instances,snapshot.instances);
+    GymTests.deepEqual(migrated.areas.filter(area=>area.kind!=="garagedoor"),snapshot.areas);
+    GymTests.deepEqual(migrated.outlets,snapshot.outlets);
+    GymTests.deepEqual(migrated.wallExtensions,snapshot.wallExtensions);
+    GymTests.deepEqual(migrated.ceilingZones,snapshot.ceilingZones);
+    GymTests.deepEqual(migrated.floorZones,snapshot.floorZones);
+    GymTests.deepEqual(migrated.flooringPieces,snapshot.flooringPieces);
+    GymTests.deepEqual(migrated.spatial3d,snapshot.spatial3d);
+    GymTests.deepEqual(migrated.wallFeatures.find(feature=>feature.id==="wf_unrelated"),snapshot.unrelated);
+  });
+});

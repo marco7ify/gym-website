@@ -24,6 +24,23 @@ function availableLayoutName(preferredName,layouts,excludeId=null){
   }
 }
 
+function normalizeImportedLayoutPayload(data,settings,items,makeId=()=>uid("ly")){
+  if(Array.isArray(data.layouts)&&data.layouts.length){
+    const layouts=data.layouts.map(entry=>({
+      id:entry.id||makeId(),
+      name:entry.name||"Layout",
+      layout:normalizeNamedLayout(entry.name,entry.layout||entry.data||entry,settings,items),
+    }));
+    const activeLayoutId=data.activeLayoutId&&layouts.some(entry=>entry.id===data.activeLayoutId)?data.activeLayoutId:layouts[0].id;
+    return {layouts,activeLayoutId,layout:layouts.find(entry=>entry.id===activeLayoutId).layout};
+  }
+  if(!data.layout) return null;
+  const name=data.layoutName||data.name||"Layout 1";
+  const id=makeId();
+  const layout=normalizeNamedLayout(name,data.layout,settings,items);
+  return {layouts:[{id,name,layout}],activeLayoutId:id,layout};
+}
+
 function performLayoutLibraryAction(action,appState=state,options={}){
   const requestName=options.requestName||requestLayoutName;
   const makeId=options.makeId||(()=>uid("ly"));
@@ -883,7 +900,7 @@ function exportPayloadFromState(){
     return {
       filename: `gym-planner-no-layouts-${exportDateTag()}.json`,
       payload: {
-        version: 12,
+        version: 13,
         exportType: "noLayouts",
         exportedAt: new Date().toISOString(),
         tab: state.tab,
@@ -899,7 +916,7 @@ function exportPayloadFromState(){
     return {
       filename: `gym-planner-layouts-${filePart}-${exportDateTag()}.json`,
       payload: {
-        version: 12,
+        version: 13,
         exportType: "layoutsOnly",
         exportedAt: new Date().toISOString(),
         settings: exportSettings,
@@ -916,7 +933,7 @@ function exportPayloadFromState(){
   return {
     filename: `gym-planner-export-${filePart}-${exportDateTag()}.json`,
     payload: {
-      version: 12,
+      version: 13,
       exportType: "full",
       exportedAt: new Date().toISOString(),
       tab: state.tab,
@@ -1106,22 +1123,14 @@ function wireTop(){
           if(Array.isArray(data.categories)) state.categories = data.categories;
           if(Array.isArray(data.items)) state.items = data.items.map(normalizeItemRecord);
 
-          if(Array.isArray(data.layouts) && data.layouts.length){
-            state.layouts = data.layouts.map(x=>({
-              id: x.id || uid("ly"),
-              name: x.name || "Layout",
-              layout: normalizeNamedLayout(x.name, x.layout || x.data || x, state.settings),
-            }));
-            const importedActiveId = (data.activeLayoutId && state.layouts.some(x=>x.id===data.activeLayoutId)) ? data.activeLayoutId : state.layouts[0].id;
+          const importedLayouts=normalizeImportedLayoutPayload(data,state.settings,state.items);
+          if(importedLayouts){
+            state.layouts=importedLayouts.layouts;
             // setActiveLayout normally saves the current layout before switching.
             // During a full import there is no current entry to save, so clear the
             // pointer first to avoid overwriting the imported active layout.
             state.activeLayoutId = null;
-            state.setActiveLayout(importedActiveId);
-          } else if(data.layout){
-            state.layout = normalizeLayout(data.layout, state.settings);
-            state.layouts = [{ id: uid("ly"), name: "Layout 1", layout: state.layout }];
-            state.activeLayoutId = state.layouts[0].id;
+            state.setActiveLayout(importedLayouts.activeLayoutId);
           }
           state.tab = data.tab==="ingest" ? "wishlist" : (data.tab || state.tab);
           state.editingId = null;

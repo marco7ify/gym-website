@@ -4,6 +4,15 @@
   const STYLE="raised-panel";
   const COLOR="#191b1d";
   const EPSILON=.002;
+  const ROOM_TOLERANCE=1/12;
+  const TARGET_WIDTH=19+10/12;
+  const TARGET_LENGTH=19+6/12;
+  const TARGET_PROFILES=Object.freeze([
+    "brightway-hs08-row","gazelle-pro","ice-barrel-500","maxwell-903bh",
+    "nordictrack-x16","ritfit-gator-bench","rx3-compact-smith",
+    "shizhuo-seated-standing-row","syedee-stair-machine",
+    "wanjia-combo-adductor","yindun-three-tier-rack",
+  ].sort());
   const SEEDED_AREA=Object.freeze({
     id:"area_l3_bottom_garage_v1",kind:"garagedoor",label:"16 ft raised-panel garage door",
     xFt:1,xIn:11,yFt:18,yIn:6,widthFt:16,widthIn:0,heightFt:1,heightIn:0,
@@ -143,8 +152,84 @@
     return lines;
   }
 
+  function sameMeasurement(left,right,key){
+    return Math.abs(total(left,key)-total(right,key))<=1e-9;
+  }
+
+  function matchesLegacyFeature(feature,legacy){
+    return feature?.kind===legacy?.kind&&feature?.wall===legacy?.wall&&
+      ["start","bottom","width","height"].every(key=>sameMeasurement(feature,legacy,key))&&
+      String(feature?.color||"").toLowerCase()===String(legacy?.color||"").toLowerCase()&&
+      number(feature?.brightnessPct)===number(legacy?.brightnessPct);
+  }
+
+  function normalizedName(value){
+    return String(value||"").trim().toLowerCase().replace(/\s+/g," ");
+  }
+
+  function sameProfileSet(profileKeys){
+    const actual=[...new Set(Array.isArray(profileKeys)?profileKeys:[])].sort();
+    return actual.length===TARGET_PROFILES.length&&actual.every((key,index)=>key===TARGET_PROFILES[index]);
+  }
+
+  function areaRect(area){
+    return {x:total(area,"x"),y:total(area,"y"),w:total(area,"width"),h:total(area,"height")};
+  }
+
+  function migrateLayout3(layout,context={}){
+    if(!layout||typeof layout!=="object"||number(layout.garageWallRevision)>=REVISION) return layout;
+    const room=context.room||{};
+    const roomMatches=Math.abs(number(room.W)-TARGET_WIDTH)<=ROOM_TOLERANCE&&Math.abs(number(room.L)-TARGET_LENGTH)<=ROOM_TOLERANCE;
+    if(!roomMatches) return layout;
+
+    const sourceFeatures=Array.isArray(layout.wallFeatures)?layout.wallFeatures:[];
+    const legacyFeatures=Array.isArray(context.legacyFeatures)?context.legacyFeatures:[];
+    const starterFeatures=Array.isArray(context.starterFeatures)?context.starterFeatures:[];
+    const knownIds=new Set(legacyFeatures.map(feature=>feature?.id).filter(Boolean));
+    const allLegacySignatures=legacyFeatures.length===7&&legacyFeatures.every(legacy=>sourceFeatures.some(feature=>matchesLegacyFeature(feature,legacy)));
+    const namedKnownIds=normalizedName(context.name)==="layout 3"&&new Set(sourceFeatures.map(feature=>feature?.id).filter(id=>knownIds.has(id))).size>=5;
+    if(!sameProfileSet(context.profileKeys)&&!allLegacySignatures&&!namedKnownIds) return layout;
+
+    const next={...layout};
+    const areas=Array.isArray(layout.areas)?layout.areas.slice():[];
+    const boundaries=boundarySegments(Array.isArray(room.rects)?room.rects:[]);
+    const target=seededLayout3Area();
+    const targetResolution=resolveOpening(areaRect(target),boundaries);
+    let matchingIndex=-1;
+    if(targetResolution.ok){
+      matchingIndex=areas.findIndex(area=>{
+        if(area?.kind!=="garagedoor") return false;
+        const resolution=resolveOpening(areaRect(area),boundaries,{areaId:area.id,label:area.label});
+        return resolution.ok&&resolution.wall==="bottom"&&
+          Math.abs(resolution.centerX-targetResolution.centerX)<=1/12&&
+          Math.abs(resolution.widthFt-targetResolution.widthFt)<=1/12;
+      });
+    }
+    if(matchingIndex>=0){
+      const existing=areas[matchingIndex];
+      areas[matchingIndex]={...existing,...target,id:existing.id};
+    }else{
+      areas.push(target);
+    }
+    next.areas=areas;
+
+    if(context.hadWallFeatures===false){
+      next.wallFeatures=starterFeatures.map(feature=>({...feature}));
+    }else{
+      const legacyById=new Map(legacyFeatures.map((feature,index)=>[feature.id,{feature,index}]));
+      next.wallFeatures=sourceFeatures.map(feature=>{
+        const match=legacyById.get(feature?.id);
+        const starter=match&&starterFeatures[match.index];
+        if(!match||!starter||!matchesLegacyFeature(feature,match.feature)) return feature;
+        return {...feature,...starter,label:feature.label};
+      });
+    }
+    next.garageWallRevision=REVISION;
+    return next;
+  }
+
   window.GymGarageDoors=Object.freeze({
     REVISION,seededLayout3Area,normalizeArea,blocksPlacement,subtractsSpace,
-    boundarySegments,resolveOpening,planPanelLines,
+    boundarySegments,resolveOpening,planPanelLines,migrateLayout3,
   });
 })();

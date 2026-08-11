@@ -1212,8 +1212,10 @@ function wallFeatureRoomData(layout, settings){
  * exist yet (e.g. while building initial `state`) so old `roomBlocks` migration does not
  * touch `state` (TDZ ReferenceError).
  */
-function normalizeLayout(l, settingsForRoomMigration){
-  const base = {...DEFAULT_LAYOUT, ...(l||{})};
+function normalizeLayout(l, settingsForRoomMigration, {name="",items=[]}={}){
+  const source=l&&typeof l==="object" ? l : {};
+  const hadWallFeatures=Object.prototype.hasOwnProperty.call(source,"wallFeatures");
+  const base = {...DEFAULT_LAYOUT, ...source};
   base.instances = Array.isArray(base.instances) ? base.instances : [];
   base.areas = Array.isArray(base.areas) ? base.areas : [];
   base.outlets = Array.isArray(base.outlets) ? base.outlets : [];
@@ -1222,6 +1224,7 @@ function normalizeLayout(l, settingsForRoomMigration){
   base.floorZones = Array.isArray(base.floorZones) ? base.floorZones : [];
   base.flooringPieces = Array.isArray(base.flooringPieces) ? base.flooringPieces : [];
   base.wallFeatures = Array.isArray(base.wallFeatures) ? base.wallFeatures : [];
+  base.garageWallRevision=Math.max(0,Math.floor(safeNum(base.garageWallRevision)));
   base.spatialViewMode = ["plan", "split", "3d"].includes(base.spatialViewMode) ? base.spatialViewMode : "plan";
   const sourceSpatial3d = base.spatial3d && typeof base.spatial3d === "object" ? base.spatial3d : {};
   base.spatial3d = {
@@ -1378,7 +1381,15 @@ function normalizeLayout(l, settingsForRoomMigration){
     }else if(radFtEmpty){
       o.doorRadiusFt = 0;
     }
-    return o;
+    if(o.kind==="garagedoor"){
+      delete o.doorOrientation;
+      delete o.doorSwing;
+      delete o.doorHinge;
+      delete o.doorRadiusFt;
+      delete o.doorRadiusIn;
+      delete o.doorClearEnabled;
+    }
+    return GymGarageDoors.normalizeArea(a,o);
   });
 
   base.outlets = base.outlets.map(o=>({
@@ -1480,24 +1491,29 @@ function normalizeLayout(l, settingsForRoomMigration){
       wallFeatureIds.add(id);
       return GymWallFeatures.normalize({...feature,id},wallFeatureRoom,()=>id,base);
     });
-  const selectedWallFeatureId=typeof base.selectedWallFeatureId==="string"
-    ? base.selectedWallFeatureId.trim()
+  const byId=new Map((items||[]).map(item=>[item.id,item]));
+  const profileKeys=[...new Set(base.instances.map(inst=>byId.get(inst.itemId)).filter(Boolean).map(equipmentModelProfile))].sort();
+  const migrated=GymGarageDoors.migrateLayout3(base,{
+    name,
+    room:wallFeatureRoom,
+    profileKeys,
+    hadWallFeatures,
+    legacyFeatures:GymWallFeatures.layout3LegacyStarter(),
+    starterFeatures:GymWallFeatures.layout3Starter(),
+  });
+  const migratedWallFeatureIds=new Set(migrated.wallFeatures.map(feature=>feature.id));
+  const selectedWallFeatureId=typeof migrated.selectedWallFeatureId==="string"
+    ? migrated.selectedWallFeatureId.trim()
     : "";
-  base.selectedWallFeatureId=wallFeatureIds.has(selectedWallFeatureId)
+  migrated.selectedWallFeatureId=migratedWallFeatureIds.has(selectedWallFeatureId)
     ? selectedWallFeatureId
     : null;
 
-  return base;
+  return migrated;
 }
 
-function normalizeNamedLayout(name, rawLayout, settings){
-  const source=rawLayout && typeof rawLayout==="object" ? rawLayout : {};
-  const hadWallFeatures=Object.prototype.hasOwnProperty.call(source,"wallFeatures");
-  const normalized=normalizeLayout(source,settings);
-  if(!hadWallFeatures && String(name||"").trim().toLowerCase()==="layout 3"){
-    normalized.wallFeatures=GymWallFeatures.layout3Starter();
-  }
-  return normalized;
+function normalizeNamedLayout(name, rawLayout, settings, items=[]){
+  return normalizeLayout(rawLayout,settings,{name,items});
 }
 
 function loadInitialSettings(){
@@ -1588,19 +1604,19 @@ const state = {
     state.layouts = lib.map(x=>({
       id: x.id || uid("ly"),
       name: x.name || "Layout",
-      layout: normalizeNamedLayout(x.name, x.layout || x.data || x, state.settings),
+      layout: normalizeNamedLayout(x.name, x.layout || x.data || x, state.settings, state.items),
     }));
   } else {
     state.layouts = [{
       id: uid("ly"),
       name: "Layout 1",
-      layout: normalizeLayout(state.layout, state.settings),
+      layout: normalizeLayout(state.layout, state.settings, {name:"Layout 1",items:state.items}),
     }];
   }
 
   state.activeLayoutId = (active && state.layouts.some(x=>x.id===active)) ? active : state.layouts[0].id;
   const activeEntry = state.layouts.find(x=>x.id===state.activeLayoutId) || state.layouts[0];
-  state.layout = normalizeLayout(activeEntry.layout, state.settings);
+  state.layout = normalizeLayout(activeEntry.layout, state.settings, {name:activeEntry.name,items:state.items});
 
   function setActiveLayout(id){
     if(Array.isArray(state.layouts) && state.layouts.length){
@@ -1610,7 +1626,7 @@ const state = {
 
     const next = state.layouts.find(x=>x.id===id) || state.layouts[0];
     state.activeLayoutId = next.id;
-    state.layout = normalizeLayout(next.layout, state.settings);
+    state.layout = normalizeLayout(next.layout, state.settings, {name:next.name,items:state.items});
 
     state.layout.selectedInstId = null;
     state.layout.selectedAreaId = null;
@@ -1693,15 +1709,19 @@ function room(){
   return { L: baseL, W: baseW, clearance, rects, validRects: [...rects, staging], bounds, staging, area };
 }
 
+function areaSubtractsSpace(area,settings=state.settings){
+  const enabled=new Set(Array.isArray(settings.reservedAreaKindsSubtractSpace)?settings.reservedAreaKindsSubtractSpace:["walkway","door","garagedoor","nogospace","cutout"]);
+  return GymGarageDoors.subtractsSpace(area,enabled);
+}
+function areaBlocksPlacement(area,settings=state.settings){
+  const enabled=new Set(Array.isArray(settings.reservedAreaKindsBlockPlacement)?settings.reservedAreaKindsBlockPlacement:["walkway","door","garagedoor","nogospace","cutout"]);
+  return GymGarageDoors.blocksPlacement(area,enabled);
+}
+
 function reservedSqFt(){
-  const enabledKinds = new Set(
-    Array.isArray(state.settings.reservedAreaKindsSubtractSpace)
-      ? state.settings.reservedAreaKindsSubtractSpace
-      : ["walkway", "door", "garagedoor", "nogospace", "cutout"]
-  );
   let sum = 0;
   for(const a of (state.layout.areas||[])){
-    if(!enabledKinds.has(a.kind)) continue;
+    if(!areaSubtractsSpace(a)) continue;
     const w = areaWidthTotalFt(a);
     const h = areaHeightTotalFt(a);
     sum += w*h;
@@ -2555,14 +2575,8 @@ function isInvalidPlacement(instId, baseRect, effRect){
   // If fully in staging/parking zone, allow free overlap (acts like a holding area)
   if(rectInsideRect(baseRect, r.staging || layoutStagingRect(r))) return false;
   
-  const blockedKinds = new Set(
-    Array.isArray(state.settings.reservedAreaKindsBlockPlacement)
-      ? state.settings.reservedAreaKindsBlockPlacement
-      : ["walkway", "door", "garagedoor", "nogospace", "cutout"]
-  );
-  
   for(const a of state.layout.areas||[]){
-    if(!blockedKinds.has(a.kind)) continue;
+    if(!areaBlocksPlacement(a)) continue;
     if(rectsOverlap(baseRect, areaRect(a))) return true;
     const dc = doorClearanceRect(a);
     if(dc && rectsOverlap(baseRect, dc)) return true;
@@ -2589,14 +2603,8 @@ function hardPlacementConflict(instId, baseRect){
   // Free-placement zone: anything inside staging is always hard-valid.
   if(rectInsideRect(baseRect, r.staging || layoutStagingRect(r))) return null;
 
-  const blockedKinds = new Set(
-    Array.isArray(state.settings.reservedAreaKindsBlockPlacement)
-      ? state.settings.reservedAreaKindsBlockPlacement
-      : ["walkway", "door", "garagedoor", "nogospace", "cutout"]
-  );
-
   for(const a of state.layout.areas||[]){
-    if(!blockedKinds.has(a.kind)) continue;
+    if(!areaBlocksPlacement(a)) continue;
     const areaName=String(a.label||"").trim() || kindMeta(a.kind).label;
     if(rectsOverlap(baseRect, areaRect(a))){
       return {kind:"reserved-area", areaId:a.id, message:`Can’t rotate here — it would overlap ${areaName}.`};

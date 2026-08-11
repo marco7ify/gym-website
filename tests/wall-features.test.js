@@ -259,26 +259,66 @@ GymTests.test("provides seven independent Layout 3 starter records", () => {
     bottomFt:feature.bottomFt,bottomIn:feature.bottomIn,widthFt:feature.widthFt,widthIn:feature.widthIn,
     heightFt:feature.heightFt,heightIn:feature.heightIn,color:feature.color,brightnessPct:feature.brightnessPct,
   })),[
-    {id:"wf_l3_primary_mirror",kind:"mirror",wall:"bottom",startFt:2,startIn:0,bottomFt:1,bottomIn:6,widthFt:5,widthIn:0,heightFt:5,heightIn:6,color:"#cbd5e1",brightnessPct:0},
+    {id:"wf_l3_primary_mirror",kind:"mirror",wall:"left",startFt:0,startIn:0,bottomFt:1,bottomIn:0,widthFt:8,widthIn:9,heightFt:7,heightIn:6,color:"#cbd5e1",brightnessPct:0},
     {id:"wf_l3_aisle_mirror",kind:"mirror",wall:"right",startFt:11,startIn:0,bottomFt:1,bottomIn:6,widthFt:4,widthIn:0,heightFt:5,heightIn:6,color:"#cbd5e1",brightnessPct:0},
-    {id:"wf_l3_gazelle_slats",kind:"slat",wall:"bottom",startFt:12,startIn:9,bottomFt:0,bottomIn:0,widthFt:6,widthIn:9,heightFt:8,heightIn:6,color:"#8f5f3a",brightnessPct:0},
-    {id:"wf_l3_slat_led_left",kind:"led",wall:"bottom",startFt:12,startIn:7,bottomFt:0,bottomIn:4,widthFt:0,widthIn:1,heightFt:8,heightIn:0,color:"#ffb36b",brightnessPct:80},
-    {id:"wf_l3_slat_led_right",kind:"led",wall:"bottom",startFt:19,startIn:7,bottomFt:0,bottomIn:4,widthFt:0,widthIn:1,heightFt:8,heightIn:0,color:"#ffb36b",brightnessPct:80},
-    {id:"wf_l3_mirror_wash",kind:"led",wall:"bottom",startFt:2,startIn:0,bottomFt:7,bottomIn:3,widthFt:5,widthIn:0,heightFt:0,heightIn:1,color:"#ffd7aa",brightnessPct:65},
+    {id:"wf_l3_gazelle_slats",kind:"slat",wall:"left",startFt:9,startIn:0,bottomFt:0,bottomIn:0,widthFt:5,widthIn:0,heightFt:8,heightIn:6,color:"#8f5f3a",brightnessPct:0},
+    {id:"wf_l3_slat_led_left",kind:"led",wall:"left",startFt:8,startIn:11,bottomFt:0,bottomIn:4,widthFt:0,widthIn:1,heightFt:8,heightIn:0,color:"#ffb36b",brightnessPct:80},
+    {id:"wf_l3_slat_led_right",kind:"led",wall:"left",startFt:14,startIn:1,bottomFt:0,bottomIn:4,widthFt:0,widthIn:1,heightFt:8,heightIn:0,color:"#ffb36b",brightnessPct:80},
+    {id:"wf_l3_mirror_wash",kind:"led",wall:"left",startFt:0,startIn:0,bottomFt:8,bottomIn:7,widthFt:8,widthIn:9,heightFt:0,heightIn:1,color:"#ffd7aa",brightnessPct:65},
     {id:"wf_l3_cardio_strip",kind:"led",wall:"top",startFt:2,startIn:9,bottomFt:8,bottomIn:4,widthFt:9,widthIn:6,heightFt:0,heightIn:1,color:"#ffd7aa",brightnessPct:70},
   ]);
   starter[0].color="#000000";
   GymTests.equal(GymWallFeatures.layout3Starter()[0].color,"#cbd5e1");
 });
 
-GymTests.test("seeds starter wall features only for legacy named Layout 3 records", () => {
+GymTests.test("retains seven independent legacy Layout 3 starter records", () => {
+  const legacy=GymWallFeatures.layout3LegacyStarter();
+  GymTests.deepEqual(legacy,GARAGE_LAYOUT3_LEGACY_FEATURES);
+  legacy[0].wall="left";
+  GymTests.equal(GymWallFeatures.layout3LegacyStarter()[0].wall,"bottom");
+});
+
+GymTests.test("does not seed Layout 3 starters without the required room signature", () => {
   const old=normalizeNamedLayout("Layout 3",{instances:[],areas:[]},DEFAULT_SETTINGS);
   const intentionallyEmpty=normalizeNamedLayout("Layout 3",{instances:[],areas:[],wallFeatures:[]},DEFAULT_SETTINGS);
   const other=normalizeNamedLayout("Layout 2",{instances:[],areas:[]},DEFAULT_SETTINGS);
 
-  GymTests.equal(old.wallFeatures.length,7);
+  GymTests.equal(old.wallFeatures.length,0);
   GymTests.equal(intentionallyEmpty.wallFeatures.length,0);
   GymTests.equal(other.wallFeatures.length,0);
+});
+
+GymTests.test("architectural override beats globally enabled garage blocking",()=>{
+  const previous={layout:state.layout,settings:state.settings};
+  try{
+    state.settings={...deepCopy(DEFAULT_SETTINGS),reservedAreaKindsBlockPlacement:["garagedoor"],reservedAreaKindsSubtractSpace:["garagedoor"]};
+    state.layout=normalizeLayout({...deepCopy(DEFAULT_LAYOUT),areas:[GymGarageDoors.seededLayout3Area()]},state.settings);
+    const overlap={x:7.5,y:18.5,w:2.38,h:1};
+    GymTests.equal(isInvalidPlacement("candidate",overlap,overlap),false);
+    GymTests.equal(reservedSqFt(),0);
+  }finally{
+    state.layout=previous.layout; state.settings=previous.settings;
+  }
+});
+
+GymTests.test("normalizes full-library and lone-layout imports through the same migration route",()=>{
+  const fixture=legacyGarageLayout3Fixture();
+  fixture.layout.compareSets=[{id:"cmp_import",name:"Default",items:[]}];
+  fixture.layout.activeCompareSetId="cmp_import";
+  const full=normalizeImportedLayoutPayload({
+    layouts:[{id:"ly_import",name:fixture.name,layout:deepCopy(fixture.layout)}],
+    activeLayoutId:"ly_import",
+  },fixture.settings,fixture.items,()=>"ly_import");
+  const lone=normalizeImportedLayoutPayload({
+    layoutName:fixture.name,
+    layout:deepCopy(fixture.layout),
+  },fixture.settings,fixture.items,()=>"ly_import");
+  GymTests.deepEqual(full,lone);
+  GymTests.equal(full.layout.garageWallRevision,1);
+});
+
+GymTests.test("returns null when an import payload contains no layout data",()=>{
+  GymTests.equal(normalizeImportedLayoutPayload({},DEFAULT_SETTINGS,[],()=>"ly_unused"),null);
 });
 
 GymTests.test("normalizes wall features and keeps only a valid feature selection", () => {
@@ -457,6 +497,59 @@ GymTests.test("a duplicate action selects an independent layout copy", () => {
   GymTests.equal(appState.layout.instances.length,1);
   appState.layout.wallFeatures[0].color="#000000";
   GymTests.equal(appState.layouts[0].layout.wallFeatures[0].color,"#cbd5e1");
+});
+
+GymTests.test("duplicating a refreshed Layout 3 preserves its revision, garage, and features byte-for-byte",()=>{
+  const fixture=legacyGarageLayout3Fixture();
+  const refreshed=normalizeNamedLayout(fixture.name,fixture.layout,fixture.settings,fixture.items);
+  const snapshot={
+    revision:refreshed.garageWallRevision,
+    garage:deepCopy(refreshed.areas.find(area=>area.kind==="garagedoor")),
+    features:deepCopy(refreshed.wallFeatures),
+  };
+  const appState={
+    settings:fixture.settings,
+    items:fixture.items,
+    layouts:[{id:"ly_3",name:fixture.name,layout:deepCopy(refreshed)}],
+    activeLayoutId:"ly_3",
+    layout:deepCopy(refreshed),
+    tab:"layout",
+    _roomCache:{stale:true},
+  };
+  const changed=performLayoutLibraryAction("duplicate",appState,{requestName:()=>"Layout 3 copy",makeId:()=>"ly_copy"});
+  const duplicate=appState.layouts.find(entry=>entry.id==="ly_copy").layout;
+  GymTests.equal(changed,true);
+  GymTests.equal(duplicate.garageWallRevision,snapshot.revision);
+  GymTests.deepEqual(duplicate.areas.find(area=>area.kind==="garagedoor"),snapshot.garage);
+  GymTests.deepEqual(duplicate.wallFeatures,snapshot.features);
+});
+
+GymTests.test("all export modes emit version 13 without an AI API key",()=>{
+  const fixture=legacyGarageLayout3Fixture();
+  const refreshed=normalizeNamedLayout(fixture.name,fixture.layout,fixture.settings,fixture.items);
+  const previous={
+    exportMode:state.exportMode,exportLayoutScope:state.exportLayoutScope,settings:state.settings,
+    items:state.items,categories:state.categories,layouts:state.layouts,activeLayoutId:state.activeLayoutId,
+    layout:state.layout,tab:state.tab,
+  };
+  try{
+    state.exportLayoutScope="active";
+    state.settings={...fixture.settings,aiApiKey:"secret-test-key"};
+    state.items=fixture.items;
+    state.categories=["Strength"];
+    state.layouts=[{id:"ly_3",name:fixture.name,layout:deepCopy(refreshed)}];
+    state.activeLayoutId="ly_3";
+    state.layout=deepCopy(refreshed);
+    state.tab="layout";
+    ["noLayouts","layoutsOnly","full"].forEach(mode=>{
+      state.exportMode=mode;
+      const payload=exportPayloadFromState().payload;
+      GymTests.equal(payload.version,13);
+      GymTests.equal(Object.prototype.hasOwnProperty.call(payload.settings,"aiApiKey"),false);
+    });
+  }finally{
+    Object.assign(state,previous);
+  }
 });
 
 GymTests.test("repeated unsupported-prompt duplicates receive unique names", () => {

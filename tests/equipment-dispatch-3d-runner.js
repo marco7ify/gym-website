@@ -19,8 +19,9 @@ function loadClassicScript(src){
 try{
   for(const src of [
     "./test-harness.js",
-    "../wall-features.js?v=2",
-    "../app.js?v=83",
+    "../wall-features.js?v=garage-migration-task2-1",
+    "../garage-doors.js?v=garage-migration-task2-2",
+    "../app.js?v=garage-migration-task2-1",
     "../equipment-models.js?v=2",
     "../view3d.js?v=37",
     "./equipment-dispatch-3d.test.js?v=7",
