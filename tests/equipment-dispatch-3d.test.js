@@ -71,6 +71,36 @@
     GymTests.assert(Math.abs(actual-expected)<=.001,`${message}: expected ${expected}, received ${actual}`);
   }
 
+  GymTests.test("keeps semantic metadata and interaction targets on every model primitive",()=>{
+    const fixture=createEquipmentDispatchFixture({items:[],instances:[]});
+    try{
+      const {view}=fixture;
+      const group=new THREE.Group();
+      const material=view.material({color:0xffffff});
+      const options={instId:"semantic",partTag:"probe-part",side:"left",partIndex:2};
+      const polygon=[
+        {x:.46,y:.035},{x:.46,y:.16},{x:.27,y:.18},
+        {x:-.27,y:.61},{x:-.43,y:.61},{x:-.43,y:.035},
+      ];
+      const primitives=[
+        view.box(group,{x:.1,y:.1,z:.1},{x:0,y:0,z:0},material,options),
+        view.cylinder(group,.05,.1,{x:0,y:0,z:0},material,options),
+        view.beam(group,{x:0,y:0,z:0},{x:0,y:.1,z:0},.05,.05,material,options),
+        view.tube(group,{x:0,y:0,z:0},{x:0,y:.1,z:0},.05,material,options),
+      ];
+      const panel=view.extrudedPanel(group,polygon,.08,{x:0,y:0,z:0},material,options);
+      primitives.concat(panel).forEach(mesh=>{
+        GymTests.deepEqual(mesh.userData,{instId:"semantic",partTag:"probe-part",side:"left",partIndex:2});
+        GymTests.assert(view.clickTargets.includes(mesh));
+      });
+      GymTests.equal(panel.userData.partTag,"probe-part");
+      GymTests.equal(panel.userData.side,"left");
+      GymTests.equal(panel.userData.partIndex,2);
+      GymTests.assert(view.clickTargets.includes(panel));
+      GymTests.assert(view.disposables.includes(panel.geometry));
+    }finally{ fixture.destroy(); }
+  });
+
   function frameFocus(group){
     const footprint=group.userData.worldFootprint;
     return {

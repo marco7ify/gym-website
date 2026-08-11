@@ -357,6 +357,15 @@ class Gym3DView {
     return geometry;
   }
 
+  applyPartMetadata(mesh,options={}){
+    if(options.instId) mesh.userData.instId=options.instId;
+    if(options.partTag) mesh.userData.partTag=String(options.partTag);
+    if(options.side!==undefined) mesh.userData.side=String(options.side);
+    if(options.partIndex!==undefined) mesh.userData.partIndex=Number(options.partIndex);
+    if(options.instId) this.clickTargets.push(mesh);
+    return mesh;
+  }
+
   box(parent, size, position, material, options={}){
     const mesh = new THREE.Mesh(this.geometry(new THREE.BoxGeometry(size.x, size.y, size.z)), material);
     mesh.position.set(position.x, position.y, position.z);
@@ -365,10 +374,7 @@ class Gym3DView {
     if(options.rotationX) mesh.rotation.x = options.rotationX;
     if(options.rotationY) mesh.rotation.y = options.rotationY;
     if(options.rotationZ) mesh.rotation.z = options.rotationZ;
-    if(options.instId){
-      mesh.userData.instId = options.instId;
-      this.clickTargets.push(mesh);
-    }
+    this.applyPartMetadata(mesh,options);
     parent.add(mesh);
     return mesh;
   }
@@ -382,10 +388,7 @@ class Gym3DView {
     mesh.rotation.set(options.rotationX||0,options.rotationY||0,options.rotationZ||0);
     mesh.castShadow = options.castShadow !== false;
     mesh.receiveShadow = options.receiveShadow !== false;
-    if(options.instId){
-      mesh.userData.instId = options.instId;
-      this.clickTargets.push(mesh);
-    }
+    this.applyPartMetadata(mesh,options);
     parent.add(mesh);
     return mesh;
   }
@@ -403,10 +406,7 @@ class Gym3DView {
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),direction.normalize());
     mesh.castShadow=options.castShadow!==false;
     mesh.receiveShadow=options.receiveShadow!==false;
-    if(options.instId){
-      mesh.userData.instId=options.instId;
-      this.clickTargets.push(mesh);
-    }
+    this.applyPartMetadata(mesh,options);
     parent.add(mesh);
     return mesh;
   }
@@ -424,10 +424,25 @@ class Gym3DView {
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),direction.normalize());
     mesh.castShadow=options.castShadow!==false;
     mesh.receiveShadow=options.receiveShadow!==false;
-    if(options.instId){
-      mesh.userData.instId=options.instId;
-      this.clickTargets.push(mesh);
-    }
+    this.applyPartMetadata(mesh,options);
+    parent.add(mesh);
+    return mesh;
+  }
+
+  extrudedPanel(parent,points,depth,position,material,options={}){
+    const shape=new THREE.Shape();
+    points.forEach((point,index)=>index
+      ? shape.lineTo(point.x,point.y)
+      : shape.moveTo(point.x,point.y));
+    shape.closePath();
+    const geometry=this.geometry(new THREE.ExtrudeGeometry(shape,{depth,bevelEnabled:false,steps:1,curveSegments:1}));
+    geometry.translate(0,0,-depth/2);
+    const mesh=new THREE.Mesh(geometry,material);
+    mesh.position.set(position.x,position.y,position.z);
+    mesh.rotation.set(options.rotationX||0,options.rotationY||0,options.rotationZ||0);
+    mesh.castShadow=options.castShadow!==false;
+    mesh.receiveShadow=options.receiveShadow!==false;
+    this.applyPartMetadata(mesh,options);
     parent.add(mesh);
     return mesh;
   }

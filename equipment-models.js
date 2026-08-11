@@ -10,7 +10,9 @@
     const addCylinder=(radius,length,pos,mat,options={})=>view.cylinder(group,radius,length,pos,mat,{...options,instId:inst.id});
     const addBeam=(start,end,width,mat,depth=width,options={})=>view.beam(group,start,end,width,depth,mat,{...options,instId:inst.id});
     const addTube=(start,end,radius,mat,segments=14,options={})=>view.tube(group,start,end,radius,mat,{...options,instId:inst.id,segments});
-    return {w,d,h,material,addBox,addCylinder,addBeam,addTube};
+    const addExtrudedPanel=(points,depth,pos,mat,options={})=>
+      view.extrudedPanel(group,points,depth,pos,mat,{...options,instId:inst.id});
+    return {w,d,h,material,addBox,addCylinder,addBeam,addTube,addExtrudedPanel};
   }
 
   function build(profile,view,group,inst,base,height){
