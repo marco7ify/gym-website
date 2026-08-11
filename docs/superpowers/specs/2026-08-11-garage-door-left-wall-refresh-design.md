@@ -1,7 +1,7 @@
 # Garage Door and Left-Wall Refresh Design
 
 **Date:** 2026-08-11
-**Status:** Approved direction, ready for written-spec review
+**Status:** Approved
 
 ## Summary
 
