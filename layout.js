@@ -842,7 +842,7 @@ function layoutPanel(rows, currency){
   const selectedEquipmentToolbar = selectedInst && selectedItem && spatialMode!=="3d" ? `
     <div class="selectedEquipmentToolbar" role="group" aria-label="Selected equipment actions">
       <span class="selectedEquipmentToolbarLabel">Selected: ${escapeHtml(selectedItem.name||"Equipment")}</span>
-      <button type="button" class="planRotateBtn" data-action="rotateInst" data-id="${escapeAttr(selectedInst.id)}" aria-keyshortcuts="R">↻ Rotate 90° <kbd>R</kbd></button>
+      <button type="button" class="planRotateBtn" data-action="rotateInst" data-id="${escapeAttr(selectedInst.id)}" data-focus-key="plan-toolbar-rotate:${escapeAttr(selectedInst.id)}" aria-keyshortcuts="R">↻ Rotate 90° <kbd>R</kbd></button>
       ${selectedStatus ? `<div class="selectedEquipmentStatus ${escapeAttr(selectedStatus.tone||"success")}">${escapeHtml(selectedStatus.message||"")}</div>` : ""}
     </div>
   ` : "";
@@ -1340,7 +1340,7 @@ function selectedEquipmentPanel(inst){
           <div class="h2">${escapeHtml(item.name||"Item")}${item.brand?` • ${escapeHtml(item.brand)}`:""}</div>
         </div>
         <div class="row selectedEquipmentHeaderActions" style="justify-content:flex-end;gap:8px;flex-wrap:wrap;">
-          <button type="button" class="planRotateBtn" data-action="rotateInst" data-id="${escapeAttr(inst.id)}" aria-keyshortcuts="R">↻ Rotate 90° <kbd>R</kbd></button>
+          <button type="button" class="planRotateBtn" data-action="rotateInst" data-id="${escapeAttr(inst.id)}" data-focus-key="inspector-rotate:${escapeAttr(inst.id)}" aria-keyshortcuts="R">↻ Rotate 90° <kbd>R</kbd></button>
           <button type="button" class="btn danger" data-action="removeInst" data-id="${escapeAttr(inst.id)}">Remove</button>
         </div>
       </div>

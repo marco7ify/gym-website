@@ -2596,18 +2596,21 @@ function captureFocus(){
   if(!el) return null;
   const tag = (el.tagName||"").toLowerCase();
   const textControl=["input","textarea","select"].includes(tag);
-  const hasStableButtonTarget=tag==="button" && !!(el.id || (el.dataset?.action && el.dataset?.id));
+  const focusKey=el.dataset?.focusKey || "";
+  const hasStableButtonTarget=tag==="button" && !!(el.id || focusKey || (el.dataset?.action && el.dataset?.id));
   if(!textControl && !hasStableButtonTarget) return null;
 
-  const info = { tag, id: el.id || null, selector: null, selection: null };
+  const info = { tag, id: el.id || null, focusKey: focusKey || null, selector: null, selection: null };
   if(!info.id){
-    const act = el.dataset && el.dataset.action ? el.dataset.action : "";
-    const did = el.dataset && el.dataset.id ? el.dataset.id : "";
-    if(act || did){
-      const parts = [];
-      if(act) parts.push(`[data-action="${cssEscapeAttrForSelector(act)}"]`);
-      if(did) parts.push(`[data-id="${cssEscapeAttrForSelector(did)}"]`);
-      info.selector = parts.join("");
+    if(!info.focusKey){
+      const act = el.dataset && el.dataset.action ? el.dataset.action : "";
+      const did = el.dataset && el.dataset.id ? el.dataset.id : "";
+      if(act || did){
+        const parts = [];
+        if(act) parts.push(`[data-action="${cssEscapeAttrForSelector(act)}"]`);
+        if(did) parts.push(`[data-id="${cssEscapeAttrForSelector(did)}"]`);
+        info.selector = parts.join("");
+      }
     }
   }
   if(textControl && typeof el.selectionStart === "number"){
@@ -2620,6 +2623,7 @@ function restoreFocus(info){
   if(!info) return;
   let el = null;
   if(info.id) el = document.getElementById(info.id);
+  else if(info.focusKey) el = document.querySelector(`[data-focus-key="${cssEscapeAttrForSelector(info.focusKey)}"]`);
   else if(info.selector) el = document.querySelector(info.selector);
 
   if(el){

@@ -2778,10 +2778,9 @@ function wireMain(){
           return;
         }
         if(actionEl && actionEl.dataset.action==="rotateInst"){
-          const id = actionEl.dataset.id;
-          e.preventDefault();
-          e.stopPropagation();
-          rotateLayoutInstance90(id);
+          // The delegated click route is the sole pointer activation path for
+          // this SVG action. Returning here keeps the gesture out of drag
+          // handling without rotating once on pointerdown and again on click.
           return;
         }
         // Photo-hint shortcut (fires global click handler; we stop here to

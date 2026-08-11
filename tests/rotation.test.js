@@ -411,9 +411,9 @@ GymTests.test("delegated rotate click uses the guarded rotation command",()=>{
   }));
 });
 
-GymTests.test("SVG rotate pointer uses the guarded rotation command once",()=>{
+GymTests.test("one SVG pointer gesture reaches the shared rotation command exactly once",()=>{
   const item={...placementFixtureItem("item_target","Treadmill"),length:5,width:2};
-  const inst=placementFixtureInstance("target",item.id,18,1);
+  const inst=placementFixtureInstance("target",item.id,4,4);
   const previousTab=state.tab;
   withPlacementFixture({items:[item],instances:[inst]},()=>withRotationRender(()=>{
     state.tab="layout";
@@ -424,23 +424,20 @@ GymTests.test("SVG rotate pointer uses the guarded rotation command once",()=>{
     button.dataset.id=inst.id;
     svg.appendChild(button);
     document.body.appendChild(svg);
-    const event={
+    const pointerdown={
       target:button,
-      prevented:false,
-      stopped:false,
-      preventDefault(){ this.prevented=true; },
-      stopPropagation(){ this.stopped=true; },
+      preventDefault(){},
+      stopPropagation(){},
     };
     try{
       wireMain();
-      svg.onpointerdown(event);
+      svg.onpointerdown(pointerdown);
+      button.dispatchEvent(new MouseEvent("click",{bubbles:true,cancelable:true}));
     }finally{
       svg.remove();
       state.tab=previousTab;
     }
-    GymTests.equal(event.prevented,true);
-    GymTests.equal(event.stopped,true);
-    GymTests.equal(state.layout.instances[0].rotated,false);
+    GymTests.equal(state.layout.instances[0].rotated,true);
     GymTests.equal(window.__rotationRenderCount,1);
   }));
 });
@@ -489,7 +486,7 @@ GymTests.test("selected Split layout renders the accessible rotation toolbar",()
   withRotationUiFixture({...fixture,spatialViewMode:"split"},()=>{
     const markup=layoutPanel(state.items,state.settings.currency);
     GymTests.assert(markup.includes('class="selectedEquipmentToolbar"'));
-    GymTests.assert(markup.includes('data-action="rotateInst" data-id="target"'));
+    GymTests.assert(markup.includes('data-action="rotateInst" data-id="target" data-focus-key="plan-toolbar-rotate:target"'));
     GymTests.assert(markup.includes('aria-keyshortcuts="R"'));
   });
 });
@@ -517,7 +514,7 @@ GymTests.test("selected inspector uses the full-text native rotation button besi
   const fixture=rotationUiFixture();
   withRotationUiFixture(fixture,()=>{
     const markup=selectedEquipmentPanel(state.layout.instances[0]);
-    GymTests.assert(markup.includes('class="planRotateBtn" data-action="rotateInst" data-id="target" aria-keyshortcuts="R"'));
+    GymTests.assert(markup.includes('class="planRotateBtn" data-action="rotateInst" data-id="target" data-focus-key="inspector-rotate:target" aria-keyshortcuts="R"'));
     GymTests.assert(markup.includes('↻ Rotate 90° <kbd>R</kbd>'));
     GymTests.equal(markup.includes('>Rotate</button>'),false);
   });
@@ -532,20 +529,48 @@ GymTests.test("selected SVG rotate affordance is keyboard-accessible",()=>{
   });
 });
 
-GymTests.test("focused inspector Rotate button survives a successful render",()=>{
+GymTests.test("Plan and Split render distinct stable focus identities for duplicate Rotate buttons",()=>{
+  const fixture=rotationUiFixture();
+  ["plan","split"].forEach(spatialViewMode=>withRotationUiFixture({...fixture,spatialViewMode},()=>{
+    const holder=document.createElement("div");
+    holder.innerHTML=layoutPanel(state.items,state.settings.currency);
+    document.body.appendChild(holder);
+    try{
+      const inspector=holder.querySelector(".selectedEquipmentHeaderActions .planRotateBtn");
+      const toolbar=holder.querySelector(".selectedEquipmentToolbar .planRotateBtn");
+      GymTests.assert(!!inspector,`${spatialViewMode} inspector Rotate button`);
+      GymTests.assert(!!toolbar,`${spatialViewMode} toolbar Rotate button`);
+      GymTests.assert(!!inspector.dataset.focusKey,`${spatialViewMode} inspector focus key`);
+      GymTests.assert(!!toolbar.dataset.focusKey,`${spatialViewMode} toolbar focus key`);
+      GymTests.equal(inspector.dataset.focusKey===toolbar.dataset.focusKey,false,`${spatialViewMode} focus keys differ`);
+    }finally{
+      holder.remove();
+    }
+  }));
+});
+
+GymTests.test("each duplicate Rotate button restores focus to its own rendered control",()=>{
+  const fixture=rotationUiFixture();
   const holder=document.createElement("div");
-  holder.innerHTML='<button type="button" class="planRotateBtn" data-action="rotateInst" data-id="target">↻ Rotate 90°</button>';
-  document.body.appendChild(holder);
-  try{
-    const before=holder.querySelector("button");
-    before.focus();
-    const focus=captureFocus();
-    holder.innerHTML='<button type="button" class="planRotateBtn" data-action="rotateInst" data-id="target">↻ Rotate 90°</button>';
-    restoreFocus(focus);
-    GymTests.equal(document.activeElement,holder.querySelector("button"));
-  }finally{
-    holder.remove();
-  }
+  withRotationUiFixture(fixture,()=>{
+    holder.innerHTML=layoutPanel(state.items,state.settings.currency);
+    document.body.appendChild(holder);
+    try{
+      [
+        ".selectedEquipmentHeaderActions .planRotateBtn",
+        ".selectedEquipmentToolbar .planRotateBtn",
+      ].forEach(selector=>{
+        const before=holder.querySelector(selector);
+        before.focus();
+        const focus=captureFocus();
+        holder.innerHTML=layoutPanel(state.items,state.settings.currency);
+        restoreFocus(focus);
+        GymTests.equal(document.activeElement,holder.querySelector(selector),selector);
+      });
+    }finally{
+      holder.remove();
+    }
+  });
 });
 
 function rotationShortcutEvent(overrides={}){
