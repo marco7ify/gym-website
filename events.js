@@ -10,6 +10,49 @@ function refreshInstInvalid(id){
   });
 }
 
+function wallFeatureDragPatch(feature, originStartFt, deltaFt, roomData){
+  const maxStart=Math.max(0,GymWallFeatures.wallLength(feature, roomData)-GymWallFeatures.width(feature));
+  const parts=splitTotalFtToFtIn(clamp(safeNum(originStartFt)+safeNum(deltaFt),0,maxStart));
+  return {startFt:parts.ft,startIn:parts.inch};
+}
+
+function resetWallFeatureDrag(){
+  if(!state.drag || state.drag.type!=="wallfeature") return;
+  const handlers=state._wallFeatureDragHandlers;
+  if(handlers){
+    window.removeEventListener("pointermove",handlers.move);
+    window.removeEventListener("pointerup",handlers.finish);
+    window.removeEventListener("pointercancel",handlers.finish);
+    window.removeEventListener("lostpointercapture",handlers.finish,true);
+    state._wallFeatureDragHandlers=null;
+  }
+  state.drag={active:false,type:null,id:null,start:{x:0,y:0},origin:{x:0,y:0},invalid:false};
+  render();
+}
+
+function startWallFeatureDrag(pointerId){
+  const move=(event)=>{
+    if(event.pointerId!==pointerId || !state.drag?.active || state.drag.type!=="wallfeature") return;
+    const svg=$("#layoutSvg");
+    const feature=(state.layout.wallFeatures||[]).find(x=>x.id===state.drag.id);
+    if(!svg || !feature){ resetWallFeatureDrag(); return; }
+    const point=clientToSvgPoint(svg,event.clientX,event.clientY);
+    const delta=(feature.wall==="top" || feature.wall==="bottom")
+      ? point.x-state.drag.start.x
+      : point.y-state.drag.start.y;
+    patchWallFeature(feature.id,wallFeatureDragPatch(feature,state.drag.origin.startFt,delta,wallFeatureRoomData(state.layout,state.settings)));
+  };
+  const finish=(event)=>{
+    if(event.type!=="lostpointercapture" && event.pointerId!==pointerId) return;
+    resetWallFeatureDrag();
+  };
+  state._wallFeatureDragHandlers={move,finish};
+  window.addEventListener("pointermove",move);
+  window.addEventListener("pointerup",finish);
+  window.addEventListener("pointercancel",finish);
+  window.addEventListener("lostpointercapture",finish,true);
+}
+
 /** "+ in" buttons: set a sub-foot inch field to 1 so the inch input appears. */
 function applyLayoutShowIn(dim, id){
   const d = String(dim||"");
@@ -2747,6 +2790,9 @@ function wireMain(){
           if(!feature) return;
           state.layout.selectedWallFeatureId=id;
           state.drag={active:true,type:"wallfeature",id,start:p,origin:{startFt:GymWallFeatures.start(feature),wall:feature.wall},invalid:false};
+          startWallFeatureDrag(e.pointerId);
+          render();
+          return;
         }else if(type==="area"){
           const area = (state.layout.areas||[]).find(a=>a.id===id);
           if(!area) return;
@@ -2813,6 +2859,7 @@ function wireMain(){
 
       svg.onpointermove = (e)=>{
         if(!state.drag.active) return;
+        if(state.drag.type==="wallfeature") return;
         const p = clientToSvgPoint(svg, e.clientX, e.clientY);
         const dx = p.x - state.drag.start.x;
         const dy = p.y - state.drag.start.y;
@@ -3005,18 +3052,6 @@ function wireMain(){
           return;
         }
 
-        if(state.drag.type==="wallfeature"){
-          const feature=(state.layout.wallFeatures||[]).find(x=>x.id===state.drag.id);
-          if(!feature) return;
-          const alongTopBottom=feature.wall==="top" || feature.wall==="bottom";
-          const delta=alongTopBottom ? dx : dy;
-          const roomData=wallFeatureRoomData(state.layout, state.settings);
-          const maxStart=Math.max(0,GymWallFeatures.wallLength(feature, roomData)-GymWallFeatures.width(feature));
-          const parts=splitTotalFtToFtIn(clamp(state.drag.origin.startFt+delta,0,maxStart));
-          patchWallFeature(feature.id,{startFt:parts.ft,startIn:parts.inch});
-          return;
-        }
-
         if(state.drag.type==="compareDrag"){
           const d = state.drag;
           const set = getActiveCompareSet();
@@ -3066,6 +3101,7 @@ function wireMain(){
 
       svg.onpointerup = (e)=>{
         if(!state.drag.active) return;
+        if(state.drag.type==="wallfeature") return;
         const drag = state.drag;
         svg.releasePointerCapture(e.pointerId);
 
@@ -3104,12 +3140,6 @@ function wireMain(){
         }
 
         if(drag.type==="flooring"){
-          state.drag = {active:false, type:null, id:null, start:{x:0,y:0}, origin:{x:0,y:0}, invalid:false};
-          render();
-          return;
-        }
-
-        if(drag.type==="wallfeature"){
           state.drag = {active:false, type:null, id:null, start:{x:0,y:0}, origin:{x:0,y:0}, invalid:false};
           render();
           return;

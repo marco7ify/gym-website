@@ -17,6 +17,15 @@ function wallFeatureDisplayName(kind){
   return ({mirror:"Mirror",slat:"Wood slat panel",led:"LED strip"})[kind] || "Wall feature";
 }
 
+function spatialFrameSelectedControl(selection){
+  const hasSelection=!!(selection.selectedInstId || selection.selectedAreaId || selection.selectedWallFeatureId);
+  if(!hasSelection || selection.spatialMode==="plan") return "";
+  if(selection.selectedWallFeatureId && !selection.selectedInstId && !selection.selectedAreaId){
+    return `<span class="wallFeatureFrameControl"><button type="button" class="focusCanvasBtn" disabled aria-disabled="true" aria-describedby="wallFeatureFrameHelp">Frame selected</button><span id="wallFeatureFrameHelp" class="wallFeatureFrameHelp">Wall-feature framing will be available with the 3D wall feature view.</span></span>`;
+  }
+  return `<button type="button" class="focusCanvasBtn" data-action="spatial_frame_selected">Frame selected</button>`;
+}
+
 function wallFeatureSvg(feature, roomData, selected=false, validation={valid:true,reasons:[]}){
   const rect=GymWallFeatures.planRect(feature, roomData);
   const kind=feature.kind;
@@ -1009,7 +1018,7 @@ function layoutPanel(rows, currency){
           <button type="button" class="spatialModeBtn ${spatialMode==="3d"?"active":""}" data-action="spatial_mode" data-mode="3d">3D</button>
         </div>
         <div class="spatialTopbarActions">
-          ${(state.layout.selectedInstId || state.layout.selectedAreaId || state.layout.selectedWallFeatureId) && spatialMode!=="plan"?`<button type="button" class="focusCanvasBtn" data-action="spatial_frame_selected">Frame selected</button>`:""}
+          ${spatialFrameSelectedControl({spatialMode,selectedInstId:state.layout.selectedInstId,selectedAreaId:state.layout.selectedAreaId,selectedWallFeatureId:state.layout.selectedWallFeatureId})}
           <button type="button" class="focusCanvasBtn ${state.layoutFocusMode?"active":""}" data-action="toggle_layout_focus" aria-pressed="${state.layoutFocusMode?"true":"false"}">${state.layoutFocusMode?"Show panels":"Focus canvas"}</button>
           <button type="button" class="walkthroughEnterBtn" data-action="spatial_walkthrough_open">Enter walkthrough</button>
         </div>

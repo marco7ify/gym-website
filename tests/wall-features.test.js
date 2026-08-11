@@ -249,3 +249,37 @@ GymTests.test("shows editable wall feature controls including LED brightness", (
   });
   GymTests.assert(panel.includes('Top/bottom measure from the left; left/right measure from the top.'));
 });
+
+GymTests.test("clamps a wall feature drag to its selected wall without changing its wall or mount", () => {
+  const feature={wall:"bottom",startFt:1,widthFt:5,bottomFt:2,bottomIn:6};
+  GymTests.deepEqual(
+    wallFeatureDragPatch(feature, 1, -4, {W:20,L:19.5}),
+    {startFt:0,startIn:0}
+  );
+  GymTests.deepEqual(
+    wallFeatureDragPatch(feature, 1, 30, {W:20,L:19.5}),
+    {startFt:15,startIn:0}
+  );
+  GymTests.equal(feature.wall,"bottom");
+  GymTests.equal(feature.bottomFt,2);
+  GymTests.equal(feature.bottomIn,6);
+});
+
+GymTests.test("resets an active wall feature drag on stable drag cleanup", () => {
+  state.drag={active:true,type:"wallfeature",id:"wf_drag",start:{x:1,y:1},origin:{startFt:1},invalid:false};
+  resetWallFeatureDrag();
+  GymTests.equal(state.drag.active,false);
+  GymTests.equal(state.drag.type,null);
+  GymTests.equal(state.drag.id,null);
+});
+
+GymTests.test("shows a truthful disabled frame control for selected wall features before 3D geometry exists", () => {
+  const control=spatialFrameSelectedControl({
+    spatialMode:"split",
+    selectedInstId:null,
+    selectedAreaId:null,
+    selectedWallFeatureId:"wf1",
+  });
+  GymTests.assert(control.includes("disabled"));
+  GymTests.assert(control.includes("Wall-feature framing will be available with the 3D wall feature view."));
+});
