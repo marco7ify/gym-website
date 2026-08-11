@@ -13,6 +13,41 @@ function layoutFtInRow(label, id, ftVal, inchVal, dataFtAction, dataInAction, di
   return hint ? field(label, row, hint) : field(label, row);
 }
 
+function wallFeatureDisplayName(kind){
+  return ({mirror:"Mirror",slat:"Wood slat panel",led:"LED strip"})[kind] || "Wall feature";
+}
+
+function wallFeatureSvg(feature, roomData, selected=false, validation={valid:true,reasons:[]}){
+  const rect=GymWallFeatures.planRect(feature, roomData);
+  const kind=feature.kind;
+  const name=wallFeatureDisplayName(kind);
+  const horizontal=feature.wall==="top" || feature.wall==="bottom";
+  const cx=rect.x+rect.w/2, cy=rect.y+rect.h/2;
+  const classes=["wallFeature", `wallFeature${kind[0].toUpperCase()}${kind.slice(1)}`];
+  if(selected) classes.push("wallFeatureSelected");
+  if(!validation?.valid) classes.push("wallFeatureInvalid");
+  const hatch=kind==="slat" ? Array.from({length:Math.max(2,Math.floor((horizontal?rect.w:rect.h)/.35))},(_,i)=>{
+    const at=(horizontal?rect.x:rect.y)+.12+i*.35;
+    return horizontal
+      ? `<line x1="${at}" y1="${rect.y+.03}" x2="${at+.13}" y2="${rect.y+rect.h-.03}" class="wallFeatureSlatTick" />`
+      : `<line x1="${rect.x+.03}" y1="${at}" x2="${rect.x+rect.w-.03}" y2="${at+.13}" class="wallFeatureSlatTick" />`;
+  }).join("") : "";
+  const mirror=kind==="mirror" ? (horizontal
+    ? `<line x1="${rect.x}" y1="${cy-.055}" x2="${rect.x+rect.w}" y2="${cy-.055}" class="wallFeatureMirrorLine" /><line x1="${rect.x}" y1="${cy+.055}" x2="${rect.x+rect.w}" y2="${cy+.055}" class="wallFeatureMirrorLine" />`
+    : `<line x1="${cx-.055}" y1="${rect.y}" x2="${cx-.055}" y2="${rect.y+rect.h}" class="wallFeatureMirrorLine" /><line x1="${cx+.055}" y1="${rect.y}" x2="${cx+.055}" y2="${rect.y+rect.h}" class="wallFeatureMirrorLine" />`) : "";
+  const led=kind==="led" ? (horizontal
+    ? `<line x1="${rect.x}" y1="${cy}" x2="${rect.x+rect.w}" y2="${cy}" class="wallFeatureLedGlow" style="stroke:${escapeAttr(feature.color||"#ffb36b")}" /><line x1="${rect.x}" y1="${cy}" x2="${rect.x+rect.w}" y2="${cy}" class="wallFeatureLedLine" style="stroke:${escapeAttr(feature.color||"#ffb36b")}" />`
+    : `<line x1="${cx}" y1="${rect.y}" x2="${cx}" y2="${rect.y+rect.h}" class="wallFeatureLedGlow" style="stroke:${escapeAttr(feature.color||"#ffb36b")}" /><line x1="${cx}" y1="${rect.y}" x2="${cx}" y2="${rect.y+rect.h}" class="wallFeatureLedLine" style="stroke:${escapeAttr(feature.color||"#ffb36b")}" />`) : "";
+  const symbol=kind==="mirror" ? "M" : kind==="slat" ? "SLAT" : "LED";
+  return `<g data-type="wallfeature" data-id="${escapeAttr(feature.id)}" class="${classes.join(" ")}" role="button" tabindex="0" aria-label="${name}">
+    <title>${escapeSvg(`${name}: ${feature.wall} wall`)}</title>
+    <rect x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}" class="wallFeatureHit" />
+    ${mirror}${kind==="slat" ? `<rect x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}" class="wallFeatureSlatFill" />${hatch}` : ""}${led}
+    <text x="${cx}" y="${cy+.05}" class="wallFeatureMark" text-anchor="middle" dominant-baseline="middle">${symbol}</text>
+    ${selected || !validation?.valid ? `<rect x="${rect.x-.04}" y="${rect.y-.04}" width="${rect.w+.08}" height="${rect.h+.08}" class="wallFeatureOutline" />` : ""}
+  </g>`;
+}
+
 function layoutDimOverlaySvg(){
   if(!state.settings?.layoutDimOverlay) return "";
   const lines = [];
@@ -54,6 +89,11 @@ function layoutDimOverlaySvg(){
   if(fp){
     const pr = flooringPieceRect(fp);
     lines.push(`<g class="layoutDimOverlay">${dimOverlayText(pr.x, pr.y - 0.22, `Pos ${formatFtIn(flooringXTotalFt(fp))} × ${formatFtIn(flooringYTotalFt(fp))} · ${formatFtIn(pr.w)} × ${formatFtIn(pr.h)}`)}</g>`);
+  }
+  const wf = (state.layout.wallFeatures||[]).find(x=>x.id===state.layout.selectedWallFeatureId);
+  if(wf){
+    const roomData=wallFeatureRoomData(state.layout, state.settings);
+    lines.push(`<g class="layoutDimOverlay">${dimOverlayText(GymWallFeatures.planRect(wf, roomData).x, GymWallFeatures.planRect(wf, roomData).y-.28, `${wallFeatureDisplayName(wf.kind)} · ${wf.wall} · ${formatFtIn(GymWallFeatures.start(wf))} · mount ${formatFtIn(GymWallFeatures.bottom(wf))} · ${formatFtIn(GymWallFeatures.width(wf))} × ${formatFtIn(GymWallFeatures.height(wf))}`)}</g>`);
   }
   return lines.join("");
 }
@@ -338,6 +378,12 @@ function layoutPanel(rows, currency){
     `;
   }).join("");
 
+  // Wall features stay below equipment so equipment remains the top selection layer.
+  const wallFeaturesSvg=(state.layout.wallFeatures||[]).map(feature=>{
+    const validation=GymWallFeatures.validate(feature, state.layout, wallFeatureRoomData(state.layout, state.settings));
+    return wallFeatureSvg(feature, r, state.layout.selectedWallFeatureId===feature.id, validation);
+  }).join("");
+
   const outletsSvg = (state.layout.outlets||[]).map(o=>{
     const sel = state.layout.selectedOutletId===o.id;
     const x = outletXTotalFt(o), y = outletYTotalFt(o);
@@ -544,6 +590,7 @@ function layoutPanel(rows, currency){
   const selectedCeilZone = (state.layout.ceilingZones||[]).find(x=>x.id===state.layout.selectedCeilingZoneId) || null;
   const selectedFloorZone = (state.layout.floorZones||[]).find(x=>x.id===state.layout.selectedFloorZoneId) || null;
   const selectedFlooring = (state.layout.flooringPieces||[]).find(x=>x.id===state.layout.selectedFlooringId) || null;
+  const selectedWallFeature = (state.layout.wallFeatures||[]).find(x=>x.id===state.layout.selectedWallFeatureId) || null;
 
   const opts = (Array.isArray(state.layouts)?state.layouts:[]).map(l=>`<option value="${l.id}" ${l.id===state.activeLayoutId?'selected':''}>${escapeHtml(l.name)}</option>`).join("");
 
@@ -755,6 +802,7 @@ function layoutPanel(rows, currency){
       ${selectedCeilZone ? selectedCeilingZonePanel(selectedCeilZone) : ""}
       ${selectedFloorZone ? selectedFloorZonePanel(selectedFloorZone) : ""}
       ${selectedFlooring ? selectedFlooringPanel(selectedFlooring) : ""}
+      ${selectedWallFeature ? selectedWallFeaturePanel(selectedWallFeature, GymWallFeatures.validate(selectedWallFeature, state.layout, wallFeatureRoomData(state.layout, state.settings))) : ""}
     </div>
   `;
 
@@ -867,6 +915,13 @@ function layoutPanel(rows, currency){
             <button class="btn" style="font-size:11px;" data-action="addWallExt" data-wall="top">↑ Top</button>
             <button class="btn" style="font-size:11px;" data-action="addWallExt" data-wall="bottom">Bottom ↓</button>
           </div>
+
+          <div class="label"><span>Wall finishes &amp; lighting</span></div>
+          <div class="wallFeatureToolGroup">
+            <button type="button" class="btn wallFeatureToolBtn" data-action="add_wall_feature" data-kind="mirror">Mirror</button>
+            <button type="button" class="btn wallFeatureToolBtn" data-action="add_wall_feature" data-kind="slat">Wood slat panel</button>
+            <button type="button" class="btn wallFeatureToolBtn" data-action="add_wall_feature" data-kind="led">LED strip</button>
+          </div>
           
           <div class="label"><span>Reserved Areas</span></div>
           <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
@@ -954,7 +1009,7 @@ function layoutPanel(rows, currency){
           <button type="button" class="spatialModeBtn ${spatialMode==="3d"?"active":""}" data-action="spatial_mode" data-mode="3d">3D</button>
         </div>
         <div class="spatialTopbarActions">
-          ${(state.layout.selectedInstId || state.layout.selectedAreaId) && spatialMode!=="plan"?`<button type="button" class="focusCanvasBtn" data-action="spatial_frame_selected">Frame selected</button>`:""}
+          ${(state.layout.selectedInstId || state.layout.selectedAreaId || state.layout.selectedWallFeatureId) && spatialMode!=="plan"?`<button type="button" class="focusCanvasBtn" data-action="spatial_frame_selected">Frame selected</button>`:""}
           <button type="button" class="focusCanvasBtn ${state.layoutFocusMode?"active":""}" data-action="toggle_layout_focus" aria-pressed="${state.layoutFocusMode?"true":"false"}">${state.layoutFocusMode?"Show panels":"Focus canvas"}</button>
           <button type="button" class="walkthroughEnterBtn" data-action="spatial_walkthrough_open">Enter walkthrough</button>
         </div>
@@ -1031,6 +1086,7 @@ function layoutPanel(rows, currency){
           ${floorZonesSvg}
           ${areasSvg}
           ${outletsSvg}
+          ${wallFeaturesSvg}
           ${instSvg}
           ${layoutDimOverlaySvg()}
           ${roomDimensionsSvg(r)}
@@ -1657,6 +1713,72 @@ function selectedFlooringPanel(fp){
       </div>
     </div>
   `;
+}
+
+function selectedWallFeaturePanel(feature, validation={valid:true,reasons:[]}){
+  const name=wallFeatureDisplayName(feature.kind);
+  const warning=!validation.valid ? `<div class="wallFeatureWarning" role="status">${escapeHtml(validation.reasons.map(reason=>reason.message).join(" ") || "This placement needs attention, but remains editable.")}</div>` : "";
+  return `
+    <div class="card wallFeatureInspector">
+      <div class="hd">
+        <div>
+          <div class="h1">Selected wall feature</div>
+          <div class="h2">${escapeHtml(name)} · ${escapeHtml(feature.wall)} wall</div>
+        </div>
+        <button type="button" class="btn danger" data-action="remove_wall_feature" data-id="${escapeAttr(feature.id)}">Remove</button>
+      </div>
+      <div class="bd">
+        ${warning}
+        <div class="two">
+          ${field("Type", `<select data-action="wf_kind" data-id="${escapeAttr(feature.id)}">${["mirror","slat","led"].map(kind=>`<option value="${kind}" ${feature.kind===kind?"selected":""}>${wallFeatureDisplayName(kind)}</option>`).join("")}</select>`)}
+          ${field("Label", `<input data-action="wf_label" data-id="${escapeAttr(feature.id)}" value="${escapeAttr(feature.label||name)}" />`)}
+          ${field("Wall", `<select data-action="wf_wall" data-id="${escapeAttr(feature.id)}">${WALL_SIDES.map(wall=>`<option value="${wall.value}" ${feature.wall===wall.value?"selected":""}>${escapeHtml(wall.label)}</option>`).join("")}</select>`)}
+          ${field(feature.kind==="led" ? "LED Color" : "Color", `<input type="color" data-action="wf_color" data-id="${escapeAttr(feature.id)}" value="${escapeAttr(feature.color||"#cbd5e1")}" />`)}
+          ${layoutFtInRow("Along wall", feature.id, feature.startFt, feature.startIn??0, "wf_start_ft", "wf_start_in", "wf_start", "Top/bottom measure from the left; left/right measure from the top.")}
+          ${layoutFtInRow("Mounting height", feature.id, feature.bottomFt, feature.bottomIn??0, "wf_bottom_ft", "wf_bottom_in", "wf_bottom", "Height above the finished floor")}
+          ${layoutFtInRow("Width", feature.id, feature.widthFt, feature.widthIn??0, "wf_width_ft", "wf_width_in", "wf_width", "Along-wall length")}
+          ${layoutFtInRow("Height", feature.id, feature.heightFt, feature.heightIn??0, "wf_height_ft", "wf_height_in", "wf_height", "Vertical size")}
+          ${feature.kind==="led" ? field("Brightness", `<div class="row" style="gap:8px;"><input aria-label="Brightness" type="range" min="0" max="100" step="1" data-action="wf_brightness" data-id="${escapeAttr(feature.id)}" value="${safeNum(feature.brightnessPct)}" /><input aria-label="Brightness percent" type="number" min="0" max="100" step="1" data-action="wf_brightness" data-id="${escapeAttr(feature.id)}" value="${safeNum(feature.brightnessPct)}" /></div>`) : ""}
+        </div>
+        <div class="divider"></div>
+        <div class="kpiBox">
+          <div style="font-weight:900;">Nudge along wall</div>
+          <div class="row wallFeatureNudges">
+            <button type="button" class="btn" data-action="wf_nudge" data-id="${escapeAttr(feature.id)}" data-inches="-6">−6 in</button>
+            <button type="button" class="btn" data-action="wf_nudge" data-id="${escapeAttr(feature.id)}" data-inches="-1">−1 in</button>
+            <button type="button" class="btn" data-action="wf_nudge" data-id="${escapeAttr(feature.id)}" data-inches="1">+1 in</button>
+            <button type="button" class="btn" data-action="wf_nudge" data-id="${escapeAttr(feature.id)}" data-inches="6">+6 in</button>
+          </div>
+        </div>
+        <div class="muted" style="font-size:12px;margin-top:10px;">Top/bottom measure from the left; left/right measure from the top.</div>
+      </div>
+    </div>
+  `;
+}
+
+function addWallFeature(kind){
+  if(!GymWallFeatures.KINDS.includes(kind)) return;
+  const id=uid("wf");
+  const feature=GymWallFeatures.normalize({id,kind}, wallFeatureRoomData(state.layout, state.settings), ()=>id, state.layout);
+  state.layout.wallFeatures=[...(state.layout.wallFeatures||[]), feature];
+  clearAllSelections();
+  state.layout.selectedWallFeatureId=id;
+  state.tab="layout";
+  render();
+}
+
+function patchWallFeature(id, patch){
+  state.layout.wallFeatures=(state.layout.wallFeatures||[]).map(feature=>{
+    if(feature.id!==id) return feature;
+    return GymWallFeatures.normalize({...feature,...patch}, wallFeatureRoomData(state.layout, state.settings), ()=>id, state.layout);
+  });
+  render();
+}
+
+function removeWallFeature(id){
+  state.layout.wallFeatures=(state.layout.wallFeatures||[]).filter(feature=>feature.id!==id);
+  if(state.layout.selectedWallFeatureId===id) state.layout.selectedWallFeatureId=null;
+  render();
 }
 
 function addFlooring(typeId){

@@ -38,6 +38,10 @@ function applyLayoutShowIn(dim, id){
   else if(d==="we_start"){ state.layout.wallExtensions = (state.layout.wallExtensions||[]).map(w=> w.id===id ? {...w, startIn:1} : w); state._roomCache = null; }
   else if(d==="we_length"){ state.layout.wallExtensions = (state.layout.wallExtensions||[]).map(w=> w.id===id ? {...w, lengthIn:1} : w); state._roomCache = null; }
   else if(d==="we_depth"){ state.layout.wallExtensions = (state.layout.wallExtensions||[]).map(w=> w.id===id ? {...w, depthIn:1} : w); state._roomCache = null; }
+  else if(d==="wf_start"){ patchWallFeature(id, {startIn:1}); return; }
+  else if(d==="wf_bottom"){ patchWallFeature(id, {bottomIn:1}); return; }
+  else if(d==="wf_width"){ patchWallFeature(id, {widthIn:1}); return; }
+  else if(d==="wf_height"){ patchWallFeature(id, {heightIn:1}); return; }
   render();
 }
 
@@ -1941,6 +1945,25 @@ function wireMain(){
       return;
     }
 
+    if(t.dataset.action==="add_wall_feature"){
+      addWallFeature(t.dataset.kind || "mirror");
+      return;
+    }
+    if(t.dataset.action==="remove_wall_feature"){
+      removeWallFeature(t.dataset.id);
+      return;
+    }
+    if(t.dataset.action==="wf_nudge"){
+      const feature=(state.layout.wallFeatures||[]).find(x=>x.id===t.dataset.id);
+      if(!feature) return;
+      const roomData=wallFeatureRoomData(state.layout, state.settings);
+      const wallLength=GymWallFeatures.wallLength(feature, roomData);
+      const start=clamp(GymWallFeatures.start(feature)+safeNum(t.dataset.inches)/12, 0, Math.max(0,wallLength-GymWallFeatures.width(feature)));
+      const parts=splitTotalFtToFtIn(start);
+      patchWallFeature(feature.id, {startFt:parts.ft,startIn:parts.inch});
+      return;
+    }
+
     if(t.dataset.action==="addOutlet"){
       const o = { id: uid("out"), label: "Outlet", xFt: snap(1), xIn: 0, yFt: snap(1), yIn: 0, voltage: "120V" };
       state.layout.outlets = [ ...(state.layout.outlets||[]), o ];
@@ -2395,6 +2418,45 @@ function wireMain(){
     if(t.dataset.action==="area_kind"){
       patchArea(t.dataset.id, {kind: t.value}); return;
     }
+    if(t.dataset.action==="wf_kind"){
+      patchWallFeature(t.dataset.id, {kind:t.value}); return;
+    }
+    if(t.dataset.action==="wf_label"){
+      patchWallFeature(t.dataset.id, {label:t.value}); return;
+    }
+    if(t.dataset.action==="wf_wall"){
+      patchWallFeature(t.dataset.id, {wall:t.value}); return;
+    }
+    if(t.dataset.action==="wf_color"){
+      patchWallFeature(t.dataset.id, {color:t.value}); return;
+    }
+    if(t.dataset.action==="wf_brightness"){
+      patchWallFeature(t.dataset.id, {brightnessPct:clamp(safeNum(t.value),0,100)}); return;
+    }
+    if(t.dataset.action==="wf_start_ft"){
+      patchWallFeature(t.dataset.id, {startFt:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_start_in"){
+      patchWallFeature(t.dataset.id, {startIn:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_bottom_ft"){
+      patchWallFeature(t.dataset.id, {bottomFt:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_bottom_in"){
+      patchWallFeature(t.dataset.id, {bottomIn:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_width_ft"){
+      patchWallFeature(t.dataset.id, {widthFt:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_width_in"){
+      patchWallFeature(t.dataset.id, {widthIn:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_height_ft"){
+      patchWallFeature(t.dataset.id, {heightFt:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_height_in"){
+      patchWallFeature(t.dataset.id, {heightIn:Math.max(0,safeNum(t.value))}); return;
+    }
     if(t.dataset.action==="area_label"){
       patchArea(t.dataset.id, {label: t.value}); return;
     }
@@ -2680,6 +2742,11 @@ function wireMain(){
           if(!inst) return;
           state.layout.selectedInstId = id;
           state.drag = {active:true, type:"inst", id, start:p, origin:{x: instXTotalFt(inst), y: instYTotalFt(inst)}, invalid:false};
+        }else if(type==="wallfeature"){
+          const feature=(state.layout.wallFeatures||[]).find(x=>x.id===id);
+          if(!feature) return;
+          state.layout.selectedWallFeatureId=id;
+          state.drag={active:true,type:"wallfeature",id,start:p,origin:{startFt:GymWallFeatures.start(feature),wall:feature.wall},invalid:false};
         }else if(type==="area"){
           const area = (state.layout.areas||[]).find(a=>a.id===id);
           if(!area) return;
@@ -2938,6 +3005,18 @@ function wireMain(){
           return;
         }
 
+        if(state.drag.type==="wallfeature"){
+          const feature=(state.layout.wallFeatures||[]).find(x=>x.id===state.drag.id);
+          if(!feature) return;
+          const alongTopBottom=feature.wall==="top" || feature.wall==="bottom";
+          const delta=alongTopBottom ? dx : dy;
+          const roomData=wallFeatureRoomData(state.layout, state.settings);
+          const maxStart=Math.max(0,GymWallFeatures.wallLength(feature, roomData)-GymWallFeatures.width(feature));
+          const parts=splitTotalFtToFtIn(clamp(state.drag.origin.startFt+delta,0,maxStart));
+          patchWallFeature(feature.id,{startFt:parts.ft,startIn:parts.inch});
+          return;
+        }
+
         if(state.drag.type==="compareDrag"){
           const d = state.drag;
           const set = getActiveCompareSet();
@@ -3025,6 +3104,12 @@ function wireMain(){
         }
 
         if(drag.type==="flooring"){
+          state.drag = {active:false, type:null, id:null, start:{x:0,y:0}, origin:{x:0,y:0}, invalid:false};
+          render();
+          return;
+        }
+
+        if(drag.type==="wallfeature"){
           state.drag = {active:false, type:null, id:null, start:{x:0,y:0}, origin:{x:0,y:0}, invalid:false};
           render();
           return;
@@ -3141,6 +3226,16 @@ function wireMain(){
         }
 
         state.drag = {active:false, type:null, id:null, start:{x:0,y:0}, origin:{x:0,y:0}, invalid:false};
+        render();
+      };
+
+      svg.onkeydown=(e)=>{
+        if(e.key!=="Enter" && e.key!==" ") return;
+        const g=e.target.closest && e.target.closest('g[data-type="wallfeature"]');
+        if(!g) return;
+        e.preventDefault();
+        clearAllSelections();
+        state.layout.selectedWallFeatureId=g.dataset.id;
         render();
       };
 

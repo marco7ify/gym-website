@@ -201,3 +201,51 @@ GymTests.test("preserves normalized wall feature feet and inches through a reloa
   GymTests.closeTo(GymWallFeatures.bottom(feature),7.25,1e-9);
   GymTests.closeTo(GymWallFeatures.height(feature),1/12,1e-9);
 });
+
+GymTests.test("renders selectable mirror wall features with accessible identity", () => {
+  const svg=wallFeatureSvg(
+    {id:"wf1",kind:"mirror",wall:"bottom",startFt:2,widthFt:5},
+    {W:20,L:19.5},
+    true,
+    {valid:true,reasons:[]}
+  );
+  GymTests.assert(svg.includes('data-type="wallfeature"'));
+  GymTests.assert(svg.includes('data-id="wf1"'));
+  GymTests.assert(svg.includes('aria-label="Mirror"'));
+  GymTests.assert(svg.includes('wallFeatureSelected'));
+  GymTests.assert(svg.includes('wallFeatureMirror'));
+});
+
+GymTests.test("renders slat and LED wall features with their visual and invalid states", () => {
+  const room={W:20,L:19.5};
+  const slat=wallFeatureSvg(
+    {id:"wf_slat",kind:"slat",wall:"left",startFt:3,widthFt:5,color:"#8f5f3a"},
+    room,
+    false,
+    {valid:false,reasons:[{code:"missing-wall"}]}
+  );
+  const led=wallFeatureSvg(
+    {id:"wf_led",kind:"led",wall:"top",startFt:2,widthFt:5,color:"#ffb36b",brightnessPct:80},
+    room,
+    false,
+    {valid:true,reasons:[]}
+  );
+  GymTests.assert(slat.includes('aria-label="Wood slat panel"'));
+  GymTests.assert(slat.includes('wallFeatureSlat'));
+  GymTests.assert(slat.includes('wallFeatureInvalid'));
+  GymTests.assert(led.includes('aria-label="LED strip"'));
+  GymTests.assert(led.includes('wallFeatureLed'));
+  GymTests.assert(led.includes('wallFeatureLedGlow'));
+});
+
+GymTests.test("shows editable wall feature controls including LED brightness", () => {
+  const panel=selectedWallFeaturePanel({
+    id:"wf_led", kind:"led", label:"Mirror wash", wall:"bottom",
+    startFt:2,startIn:6,bottomFt:7,bottomIn:3,widthFt:5,widthIn:0,heightFt:0,heightIn:1,
+    color:"#ffd7aa",brightnessPct:65,
+  },{valid:true,reasons:[]});
+  ["Type", "Label", "Wall", "Along wall", "Mounting height", "Width", "Height", "Color", "Brightness"].forEach(label=>{
+    GymTests.assert(panel.includes(label), `Expected inspector to include ${label}`);
+  });
+  GymTests.assert(panel.includes('Top/bottom measure from the left; left/right measure from the top.'));
+});
