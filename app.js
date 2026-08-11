@@ -1376,11 +1376,25 @@ function normalizeLayout(l, settingsForRoomMigration){
   }));
 
   const wallFeatureRoom=wallFeatureRoomData(base,settingsForRoomMigration || DEFAULT_SETTINGS);
+  const wallFeatureIds=new Set();
+  const freshWallFeatureId=()=>{
+    let id="";
+    do{ id=String(uid("wf")||"").trim(); }while(!id || wallFeatureIds.has(id));
+    return id;
+  };
   base.wallFeatures=base.wallFeatures
     .filter(feature=>feature && typeof feature==="object" && GymWallFeatures.KINDS.includes(feature.kind) && GymWallFeatures.SIDES.includes(feature.wall))
-    .map(feature=>GymWallFeatures.normalize(feature,wallFeatureRoom,()=>uid("wf"),base));
-  base.selectedWallFeatureId=base.wallFeatures.some(feature=>feature.id===base.selectedWallFeatureId)
-    ? base.selectedWallFeatureId
+    .map(feature=>{
+      const sourceId=typeof feature.id==="string" ? feature.id.trim() : "";
+      const id=sourceId && !wallFeatureIds.has(sourceId) ? sourceId : freshWallFeatureId();
+      wallFeatureIds.add(id);
+      return GymWallFeatures.normalize({...feature,id},wallFeatureRoom,()=>id,base);
+    });
+  const selectedWallFeatureId=typeof base.selectedWallFeatureId==="string"
+    ? base.selectedWallFeatureId.trim()
+    : "";
+  base.selectedWallFeatureId=wallFeatureIds.has(selectedWallFeatureId)
+    ? selectedWallFeatureId
     : null;
 
   return base;

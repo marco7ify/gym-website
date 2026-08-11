@@ -111,6 +111,47 @@ GymTests.test("normalizes feature bounds, color, brightness, and ceiling clearan
   GymTests.closeTo(GymWallFeatures.bottom(feature)+GymWallFeatures.height(feature),26/3,1e-9);
 });
 
+GymTests.test("normalizes half-inch wall runs within integer-inch wall bounds", () => {
+  const room={W:20,L:19.5,ceiling:9,rects:[{x:0,y:0,w:20,h:19.5}]};
+  const feature=GymWallFeatures.normalize(
+    {kind:"mirror",wall:"top",startFt:14,startIn:5.5,widthFt:5,widthIn:6.5,bottomFt:1,heightFt:5},
+    room,
+    ()=>"wf_integer_run"
+  );
+  const runInches=Math.round((GymWallFeatures.start(feature)+GymWallFeatures.width(feature))*12);
+
+  GymTests.equal(runInches,240);
+  GymTests.deepEqual(GymWallFeatures.validate(feature,{},room),{valid:true,reasons:[]});
+});
+
+GymTests.test("normalizes half-inch vertical runs within a raised-floor ceiling", () => {
+  const room={W:20,L:19.5,ceiling:9,rects:[{x:0,y:0,w:20,h:19.5}]};
+  const layout={floorZones:[{xFt:0,yFt:0,widthFt:20,heightFt:1,elevationIn:4}]};
+  const feature=GymWallFeatures.normalize(
+    {kind:"mirror",wall:"top",startFt:2,widthFt:5,bottomFt:3,bottomIn:5.5,heightFt:5,heightIn:6.5},
+    room,
+    ()=>"wf_integer_height",
+    layout
+  );
+  const verticalInches=Math.round((GymWallFeatures.bottom(feature)+GymWallFeatures.height(feature))*12);
+
+  GymTests.equal(verticalInches,104);
+  GymTests.deepEqual(GymWallFeatures.validate(feature,layout,room),{valid:true,reasons:[]});
+});
+
+GymTests.test("normalizes half-inch vertical runs within an integer-inch ceiling", () => {
+  const room={W:20,L:19.5,ceiling:9,rects:[{x:0,y:0,w:20,h:19.5}]};
+  const feature=GymWallFeatures.normalize(
+    {kind:"mirror",wall:"top",startFt:2,widthFt:5,bottomFt:3,bottomIn:5.5,heightFt:5,heightIn:6.5},
+    room,
+    ()=>"wf_integer_ceiling"
+  );
+  const verticalInches=Math.round((GymWallFeatures.bottom(feature)+GymWallFeatures.height(feature))*12);
+
+  GymTests.equal(verticalInches,108);
+  GymTests.deepEqual(GymWallFeatures.validate(feature,{},room),{valid:true,reasons:[]});
+});
+
 GymTests.test("maps a wall feature into its interior 3D transform", () => {
   const transform=GymWallFeatures.worldTransform(
     {wall:"bottom",startFt:2,widthFt:5,bottomFt:1,bottomIn:6,heightFt:5,heightIn:6},
@@ -194,6 +235,53 @@ GymTests.test("normalizes wall features and keeps only a valid feature selection
   GymTests.equal(normalized.wallFeatures.length,1);
   GymTests.equal(normalized.selectedWallFeatureId,"wf_keep");
   GymTests.equal(stale.selectedWallFeatureId,null);
+});
+
+GymTests.test("canonicalizes imported wall feature IDs and de-duplicates them per layout", () => {
+  const feature=(id,label)=>({id,kind:"mirror",wall:"bottom",label,startFt:1,widthFt:2,heightFt:4,bottomFt:1});
+  const normalized=normalizeLayout({
+    instances:[],
+    areas:[],
+    wallFeatures:[
+      feature("  wf_keep  ","kept"),
+      feature("wf_keep","duplicate"),
+      feature(42,"numeric"),
+      feature("   ","blank"),
+      feature({value:"wf_object"},"object"),
+    ],
+    selectedWallFeatureId:"  wf_keep  ",
+  },DEFAULT_SETTINGS);
+  const ids=normalized.wallFeatures.map(entry=>entry.id);
+
+  GymTests.equal(ids[0],"wf_keep");
+  GymTests.equal(new Set(ids).size,5);
+  GymTests.assert(ids.every(id=>typeof id==="string" && id.trim()===id && id.length>0));
+  GymTests.assert(ids.slice(1).every(id=>id!=="wf_keep" && id.startsWith("wf_")));
+  GymTests.equal(normalized.selectedWallFeatureId,"wf_keep");
+});
+
+GymTests.test("canonical wall feature IDs keep patch and removal independent", () => {
+  const feature=(id,label)=>({id,kind:"mirror",wall:"bottom",label,startFt:1,widthFt:2,heightFt:4,bottomFt:1,color:"#cbd5e1"});
+  const normalized=normalizeLayout({
+    instances:[],
+    areas:[],
+    wallFeatures:[feature("wf_repeat","first"),feature("wf_repeat","second"),feature("","third")],
+  },DEFAULT_SETTINGS);
+  const previousLayout=state.layout;
+  const previousSettings=state.settings;
+  state.layout=normalized;
+  state.settings=deepCopy(DEFAULT_SETTINGS);
+  const secondId=state.layout.wallFeatures[1].id;
+  const thirdId=state.layout.wallFeatures[2].id;
+
+  patchWallFeature(secondId,{color:"#112233"});
+  GymTests.equal(state.layout.wallFeatures[0].color,"#cbd5e1");
+  GymTests.equal(state.layout.wallFeatures[1].color,"#112233");
+  removeWallFeature(thirdId);
+  GymTests.deepEqual(state.layout.wallFeatures.map(entry=>entry.label),["first","second"]);
+
+  state.layout=previousLayout;
+  state.settings=previousSettings;
 });
 
 GymTests.test("preserves normalized wall feature feet and inches through a reload", () => {
@@ -363,7 +451,7 @@ GymTests.test("a near-match prompt error rethrows without mutating layouts", () 
   GymTests.deepEqual(appState,before);
 });
 
-GymTests.test("renders selectable mirror wall features with accessible identity", () => {
+GymTests.test("renders a selected valid mirror with programmatic pressed state", () => {
   const svg=wallFeatureSvg(
     {id:"wf1",kind:"mirror",wall:"bottom",startFt:2,widthFt:5},
     {W:20,L:19.5},
@@ -373,8 +461,22 @@ GymTests.test("renders selectable mirror wall features with accessible identity"
   GymTests.assert(svg.includes('data-type="wallfeature"'));
   GymTests.assert(svg.includes('data-id="wf1"'));
   GymTests.assert(svg.includes('aria-label="Mirror"'));
+  GymTests.assert(svg.includes('aria-pressed="true"'));
+  GymTests.assert(!svg.includes('aria-invalid="true"'));
   GymTests.assert(svg.includes('wallFeatureSelected'));
   GymTests.assert(svg.includes('wallFeatureMirror'));
+});
+
+GymTests.test("renders an unselected valid wall feature with pressed state off", () => {
+  const svg=wallFeatureSvg(
+    {id:"wf_valid",kind:"mirror",wall:"top",startFt:2,widthFt:5},
+    {W:20,L:19.5},
+    false,
+    {valid:true,reasons:[]}
+  );
+  GymTests.assert(svg.includes('aria-pressed="false"'));
+  GymTests.assert(!svg.includes('aria-invalid="true"'));
+  GymTests.equal((svg.match(/aria-label=/g)||[]).length,1);
 });
 
 GymTests.test("renders slat and LED wall features with their visual and invalid states", () => {
@@ -383,7 +485,7 @@ GymTests.test("renders slat and LED wall features with their visual and invalid 
     {id:"wf_slat",kind:"slat",wall:"left",startFt:3,widthFt:5,color:"#8f5f3a"},
     room,
     false,
-    {valid:false,reasons:[{code:"missing-wall"}]}
+    {valid:false,reasons:[{code:"missing-wall",message:"Part of this base-wall run is missing."}]}
   );
   const led=wallFeatureSvg(
     {id:"wf_led",kind:"led",wall:"top",startFt:2,widthFt:5,color:"#ffb36b",brightnessPct:80},
@@ -391,7 +493,10 @@ GymTests.test("renders slat and LED wall features with their visual and invalid 
     false,
     {valid:true,reasons:[]}
   );
-  GymTests.assert(slat.includes('aria-label="Wood slat panel"'));
+  GymTests.assert(slat.includes('aria-label="Wood slat panel. Invalid: Part of this base-wall run is missing."'));
+  GymTests.assert(slat.includes('aria-pressed="false"'));
+  GymTests.assert(slat.includes('aria-invalid="true"'));
+  GymTests.assert(slat.includes('Invalid: Part of this base-wall run is missing.'));
   GymTests.assert(slat.includes('wallFeatureSlat'));
   GymTests.assert(slat.includes('wallFeatureInvalid'));
   GymTests.assert(led.includes('aria-label="LED strip"'));
@@ -434,13 +539,55 @@ GymTests.test("resets an active wall feature drag on stable drag cleanup", () =>
   GymTests.equal(state.drag.id,null);
 });
 
-GymTests.test("enables framing for a selected wall feature in a 3D view", () => {
+GymTests.test("enables framing for a valid visible wall feature in a 3D view", () => {
   const control=spatialFrameSelectedControl({
     spatialMode:"split",
     selectedInstId:null,
     selectedAreaId:null,
     selectedWallFeatureId:"wf1",
+    wallFeatureValid:true,
+    wallsVisible:true,
   });
   GymTests.assert(control.includes('data-action="spatial_frame_selected"'));
+  GymTests.assert(!control.includes("disabled"));
+});
+
+GymTests.test("disables framing with an accessible reason for an invalid wall feature", () => {
+  const control=spatialFrameSelectedControl({
+    spatialMode:"3d",
+    selectedInstId:null,
+    selectedAreaId:null,
+    selectedWallFeatureId:"wf_invalid",
+    wallFeatureValid:false,
+    wallFeatureReason:"Part of this base-wall run is missing.",
+    wallsVisible:true,
+  });
+  GymTests.assert(control.includes("disabled"));
+  GymTests.assert(control.includes('aria-disabled="true"'));
+  GymTests.assert(control.includes("Part of this base-wall run is missing."));
+});
+
+GymTests.test("disables wall-feature framing when walls are hidden", () => {
+  const control=spatialFrameSelectedControl({
+    spatialMode:"split",
+    selectedInstId:null,
+    selectedAreaId:null,
+    selectedWallFeatureId:"wf_hidden",
+    wallFeatureValid:true,
+    wallsVisible:false,
+  });
+  GymTests.assert(control.includes("disabled"));
+  GymTests.assert(control.includes('aria-disabled="true"'));
+  GymTests.assert(control.includes("Turn Walls on"));
+});
+
+GymTests.test("keeps equipment framing enabled when walls are hidden", () => {
+  const control=spatialFrameSelectedControl({
+    spatialMode:"3d",
+    selectedInstId:"inst_1",
+    selectedAreaId:null,
+    selectedWallFeatureId:null,
+    wallsVisible:false,
+  });
   GymTests.assert(!control.includes("disabled"));
 });

@@ -20,6 +20,16 @@ function wallFeatureDisplayName(kind){
 function spatialFrameSelectedControl(selection){
   const hasSelection=!!(selection.selectedInstId || selection.selectedAreaId || selection.selectedWallFeatureId);
   if(!hasSelection || selection.spatialMode==="plan") return "";
+  const featureOnly=!!selection.selectedWallFeatureId && !selection.selectedInstId && !selection.selectedAreaId;
+  let unavailableReason="";
+  if(featureOnly && selection.wallsVisible===false){
+    unavailableReason="Turn Walls on to frame this wall feature.";
+  }else if(featureOnly && selection.wallFeatureValid===false){
+    unavailableReason=String(selection.wallFeatureReason||"Fix this wall feature before framing it.");
+  }
+  if(unavailableReason){
+    return `<button type="button" class="focusCanvasBtn" data-action="spatial_frame_selected" disabled aria-disabled="true" aria-label="Frame selected unavailable. ${escapeAttr(unavailableReason)}" title="${escapeAttr(unavailableReason)}">Frame selected</button>`;
+  }
   return `<button type="button" class="focusCanvasBtn" data-action="spatial_frame_selected">Frame selected</button>`;
 }
 
@@ -32,6 +42,11 @@ function wallFeatureSvg(feature, roomData, selected=false, validation={valid:tru
   const classes=["wallFeature", `wallFeature${kind[0].toUpperCase()}${kind.slice(1)}`];
   if(selected) classes.push("wallFeatureSelected");
   if(!validation?.valid) classes.push("wallFeatureInvalid");
+  const invalidReason=!validation?.valid
+    ? (validation?.reasons||[]).map(reason=>String(reason?.message||"").trim()).filter(Boolean).join(" ") || "Invalid wall feature placement."
+    : "";
+  const accessibleName=invalidReason ? `${name}. Invalid: ${invalidReason}` : name;
+  const title=`${name}: ${feature.wall} wall${invalidReason ? `. Invalid: ${invalidReason}` : ""}`;
   const hatch=kind==="slat" ? Array.from({length:Math.max(2,Math.floor((horizontal?rect.w:rect.h)/.35))},(_,i)=>{
     const at=(horizontal?rect.x:rect.y)+.12+i*.35;
     return horizontal
@@ -45,8 +60,8 @@ function wallFeatureSvg(feature, roomData, selected=false, validation={valid:tru
     ? `<line x1="${rect.x}" y1="${cy}" x2="${rect.x+rect.w}" y2="${cy}" class="wallFeatureLedGlow" style="stroke:${escapeAttr(feature.color||"#ffb36b")}" /><line x1="${rect.x}" y1="${cy}" x2="${rect.x+rect.w}" y2="${cy}" class="wallFeatureLedLine" style="stroke:${escapeAttr(feature.color||"#ffb36b")}" />`
     : `<line x1="${cx}" y1="${rect.y}" x2="${cx}" y2="${rect.y+rect.h}" class="wallFeatureLedGlow" style="stroke:${escapeAttr(feature.color||"#ffb36b")}" /><line x1="${cx}" y1="${rect.y}" x2="${cx}" y2="${rect.y+rect.h}" class="wallFeatureLedLine" style="stroke:${escapeAttr(feature.color||"#ffb36b")}" />`) : "";
   const symbol=kind==="mirror" ? "M" : kind==="slat" ? "SLAT" : "LED";
-  return `<g data-type="wallfeature" data-id="${escapeAttr(feature.id)}" class="${classes.join(" ")}" role="button" tabindex="0" aria-label="${name}">
-    <title>${escapeSvg(`${name}: ${feature.wall} wall`)}</title>
+  return `<g data-type="wallfeature" data-id="${escapeAttr(feature.id)}" class="${classes.join(" ")}" role="button" tabindex="0" aria-label="${escapeAttr(accessibleName)}" aria-pressed="${selected?"true":"false"}"${invalidReason?' aria-invalid="true"':""}>
+    <title>${escapeSvg(title)}</title>
     <rect x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}" class="wallFeatureHit" />
     ${mirror}${kind==="slat" ? `<rect x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}" class="wallFeatureSlatFill" />${hatch}` : ""}${led}
     <text x="${cx}" y="${cy+.05}" class="wallFeatureMark" text-anchor="middle" dominant-baseline="middle">${symbol}</text>
@@ -597,6 +612,9 @@ function layoutPanel(rows, currency){
   const selectedFloorZone = (state.layout.floorZones||[]).find(x=>x.id===state.layout.selectedFloorZoneId) || null;
   const selectedFlooring = (state.layout.flooringPieces||[]).find(x=>x.id===state.layout.selectedFlooringId) || null;
   const selectedWallFeature = (state.layout.wallFeatures||[]).find(x=>x.id===state.layout.selectedWallFeatureId) || null;
+  const selectedWallFeatureValidation=selectedWallFeature
+    ? GymWallFeatures.validate(selectedWallFeature,state.layout,wallFeatureRoomData(state.layout,state.settings))
+    : null;
 
   const opts = (Array.isArray(state.layouts)?state.layouts:[]).map(l=>`<option value="${l.id}" ${l.id===state.activeLayoutId?'selected':''}>${escapeHtml(l.name)}</option>`).join("");
 
@@ -808,7 +826,7 @@ function layoutPanel(rows, currency){
       ${selectedCeilZone ? selectedCeilingZonePanel(selectedCeilZone) : ""}
       ${selectedFloorZone ? selectedFloorZonePanel(selectedFloorZone) : ""}
       ${selectedFlooring ? selectedFlooringPanel(selectedFlooring) : ""}
-      ${selectedWallFeature ? selectedWallFeaturePanel(selectedWallFeature, GymWallFeatures.validate(selectedWallFeature, state.layout, wallFeatureRoomData(state.layout, state.settings))) : ""}
+      ${selectedWallFeature ? selectedWallFeaturePanel(selectedWallFeature,selectedWallFeatureValidation) : ""}
     </div>
   `;
 
@@ -1015,7 +1033,15 @@ function layoutPanel(rows, currency){
           <button type="button" class="spatialModeBtn ${spatialMode==="3d"?"active":""}" data-action="spatial_mode" data-mode="3d">3D</button>
         </div>
         <div class="spatialTopbarActions">
-          ${spatialFrameSelectedControl({spatialMode,selectedInstId:state.layout.selectedInstId,selectedAreaId:state.layout.selectedAreaId,selectedWallFeatureId:state.layout.selectedWallFeatureId})}
+          ${spatialFrameSelectedControl({
+            spatialMode,
+            selectedInstId:state.layout.selectedInstId,
+            selectedAreaId:state.layout.selectedAreaId,
+            selectedWallFeatureId:state.layout.selectedWallFeatureId,
+            wallFeatureValid:selectedWallFeatureValidation?.valid!==false,
+            wallFeatureReason:selectedWallFeatureValidation?.reasons[0]?.message||"",
+            wallsVisible:spatial.walls!==false,
+          })}
           <button type="button" class="focusCanvasBtn ${state.layoutFocusMode?"active":""}" data-action="toggle_layout_focus" aria-pressed="${state.layoutFocusMode?"true":"false"}">${state.layoutFocusMode?"Show panels":"Focus canvas"}</button>
           <button type="button" class="walkthroughEnterBtn" data-action="spatial_walkthrough_open">Enter walkthrough</button>
         </div>
