@@ -17,6 +17,50 @@ function wallFeatureDisplayName(kind){
   return ({mirror:"Mirror",slat:"Wood slat panel",led:"LED strip"})[kind] || "Wall feature";
 }
 
+function garageDoorResolution(area,roomData){
+  return GymGarageDoors.resolveOpening(
+    areaRect(area),
+    GymGarageDoors.boundarySegments(Array.isArray(roomData?.rects)?roomData.rects:[]),
+    {areaId:area.id,label:area.label}
+  );
+}
+
+function garageDoorAreaSvg(area,roomData,selected=false){
+  const rect=areaRect(area);
+  const resolution=garageDoorResolution(area,roomData);
+  const vertical=resolution.ok ? resolution.axis==="z" : rect.h>rect.w;
+  const classes=["garageDoorArea","garageDoorArchitectural"];
+  if(selected) classes.push("garageDoorSelected");
+  if(!resolution.ok) classes.push("garageDoorInvalid");
+  const warning=resolution.ok ? "" : resolution.message;
+  const widthFt=resolution.ok ? resolution.widthFt : Math.max(rect.w,rect.h);
+  const accessibleName=`Garage door, ${round1(widthFt)} ft wide, architectural only${warning ? `. Invalid: ${warning}` : ""}`;
+  const title=warning ? `Garage door. Invalid: ${warning}` : "Garage door, architectural only";
+  const panels=[];
+  for(let row=0;row<4;row+=1){
+    for(let column=0;column<4;column+=1){
+      const x=rect.x+(vertical?row:column)*rect.w/4;
+      const y=rect.y+(vertical?column:row)*rect.h/4;
+      panels.push(`<rect x="${x}" y="${y}" width="${rect.w/4}" height="${rect.h/4}" class="garagePanelFace" data-section="${row+1}" data-bay="${column+1}" />`);
+    }
+  }
+  const lines=GymGarageDoors.planPanelLines(rect,{axis:vertical?"z":"x"});
+  const sectionLines=lines.slice(0,3).map(line=>`<line x1="${line.x1}" y1="${line.z1}" x2="${line.x2}" y2="${line.z2}" class="garageSectionLine" />`).join("");
+  const bayLines=lines.slice(3).map(line=>`<line x1="${line.x1}" y1="${line.z1}" x2="${line.x2}" y2="${line.z2}" class="garageBayLine" />`).join("");
+  const openingLine=resolution.ok ? (resolution.axis==="x"
+    ? `<line x1="${resolution.start}" y1="${resolution.fixed}" x2="${resolution.end}" y2="${resolution.fixed}" class="garageOpeningLine" />`
+    : `<line x1="${resolution.fixed}" y1="${resolution.start}" x2="${resolution.fixed}" y2="${resolution.end}" class="garageOpeningLine" />`) : "";
+  return `<g data-type="area" data-id="${escapeAttr(area.id)}" class="${classes.join(" ")}" role="button" tabindex="0" aria-label="${escapeAttr(accessibleName)}" aria-pressed="${selected?"true":"false"}"${warning?' aria-invalid="true"':""}>
+    <title>${escapeSvg(title)}</title>
+    <rect x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}" class="areaGarage" />
+    ${panels.join("")}
+    ${sectionLines}${bayLines}${openingLine}
+    <rect x="${rect.x+0.12}" y="${rect.y+0.12}" width="${Math.max(0,rect.w-0.24)}" height="0.8" class="labelBox" />
+    <text x="${rect.x+0.22}" y="${rect.y+0.68}" class="labelText">${escapeSvg(area.label||"Garage door")}</text>
+    ${selected ? resizeHandles("area",area.id,rect) : ""}
+  </g>`;
+}
+
 function spatialFrameSelectedControl(selection){
   const hasSelection=!!(selection.selectedInstId || selection.selectedAreaId || selection.selectedWallFeatureId);
   if(!hasSelection || selection.spatialMode==="plan") return "";
@@ -387,6 +431,7 @@ function layoutPanel(rows, currency){
     const m = kindMeta(a.kind);
     const rect = areaRect(a);
     const sel = state.layout.selectedAreaId===a.id;
+    if(a.kind==="garagedoor") return garageDoorAreaSvg(a,r,sel);
     const doorPath = (a.kind==="door" && a.doorClearEnabled!==false) ? doorArcPath(a) : "";
     return `
       <g data-type="area" data-id="${a.id}">
@@ -1438,7 +1483,14 @@ function selectedAreaPanel(area){
   const m = kindMeta(area.kind);
 
   const isDoor = area.kind==="door";
+  const isGarage = area.kind==="garagedoor";
   const dc = isDoor ? doorClearanceRect(area) : null;
+  const garageResolution=isGarage ? garageDoorResolution(area,room()) : null;
+  const garageWarning=isGarage&&!garageResolution.ok ? garageResolution.message : "";
+  const areaSqFt=round1(areaWidthTotalFt(area)*areaHeightTotalFt(area));
+  const subtracts=areaSubtractsSpace(area);
+  const blocks=areaBlocksPlacement(area);
+  const policySummary=`This ${areaSqFt}-square-foot editor footprint ${subtracts?"is subtracted from usable space":"is not subtracted from usable space"} and ${blocks?"blocks equipment":"does not block equipment"}.`;
 
   const stepNote = layoutEditorUnit()==="in"
     ? "Nudge arrows: 12 in (1 ft) per click, or 60 in (5 ft) with Shift."
@@ -1469,6 +1521,14 @@ function selectedAreaPanel(area){
           ${layoutFtInRow(layoutAxisLabel("Width"), area.id, area.widthFt, area.widthIn ?? 0, "area_w_ft", "area_w_in", "area_w", "Total min 6 in")}
           ${layoutFtInRow(layoutAxisLabel("Height"), area.id, area.heightFt, area.heightIn ?? 0, "area_h_ft", "area_h_in", "area_h", "Total min 6 in")}
         </div>
+
+        ${isGarage&&area.blocksPlacement===false&&area.subtractsSpace===false ? `
+          <div class="kpiBox garageDoorPolicyNote" style="margin-top:10px;">
+            Architectural door only. It does not reserve operating clearance, so the existing machines against this wall remain valid. Add a No-go area if you want to keep the door path clear.
+          </div>
+        ` : ""}
+
+        ${garageWarning ? `<div class="garageDoorWarning" role="alert">${escapeHtml(garageWarning)}</div>` : ""}
 
         ${isDoor ? `
           <div class="divider"></div>
@@ -1535,7 +1595,7 @@ function selectedAreaPanel(area){
         </div>
 
         <div class="muted" style="font-size:12px;margin-top:10px;">
-          Area: <b>${round1(areaWidthTotalFt(area)*areaHeightTotalFt(area))}</b> sq ft (counts as reserved)
+          Area: <b>${areaSqFt}</b> sq ft. ${escapeHtml(policySummary)}
         </div>
       </div>
     </div>

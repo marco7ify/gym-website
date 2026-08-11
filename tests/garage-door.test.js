@@ -126,6 +126,200 @@ GymTests.test("plans three rows and three bays as six grid lines",()=>{
   });
 });
 
+function garagePlanArea(overrides={}){
+  return {...GymGarageDoors.seededLayout3Area(),...overrides};
+}
+
+function garageAreaFromRect(id,rect,overrides={}){
+  const feetAndInches=value=>{
+    const feet=Math.floor(value+1e-9);
+    return {feet,inches:Math.round((value-feet)*12)};
+  };
+  const x=feetAndInches(rect.x),y=feetAndInches(rect.y);
+  const width=feetAndInches(rect.w),height=feetAndInches(rect.h);
+  return garagePlanArea({
+    id,xFt:x.feet,xIn:x.inches,yFt:y.feet,yIn:y.inches,
+    widthFt:width.feet,widthIn:width.inches,heightFt:height.feet,heightIn:height.inches,
+    ...overrides,
+  });
+}
+
+function withGaragePlanState(area,run){
+  const previous={layout:state.layout,settings:state.settings,roomCache:state._roomCache,render:window.render};
+  const fixture=legacyGarageLayout3Fixture();
+  try{
+    state.settings=fixture.settings;
+    state.layout={...deepCopy(fixture.layout),areas:[area]};
+    state._roomCache=null;
+    window.__garagePlanRenderCount=0;
+    window.render=()=>{ window.__garagePlanRenderCount+=1; };
+    return run();
+  }finally{
+    state.layout=previous.layout;
+    state.settings=previous.settings;
+    state._roomCache=previous.roomCache;
+    window.render=previous.render;
+  }
+}
+
+const garagePlanUiTests=[];
+function garagePlanUiTest(name,run){ garagePlanUiTests.push([name,run]); }
+window.addEventListener("load",()=>{
+  garagePlanUiTests.forEach(([name,run])=>GymTests.test(name,run));
+  GymTests.finish();
+});
+
+garagePlanUiTest("renders a selected normalized Layout 3 garage as an accessible 4 by 4 architectural symbol",()=>{
+  const fixture=legacyGarageLayout3Fixture();
+  const area=normalizeLayout({...deepCopy(fixture.layout),areas:[garagePlanArea()],garageWallRevision:1},fixture.settings).areas[0];
+  const svg=garageDoorAreaSvg(area,{rects:GARAGE_ROOM_RECTS},true);
+  GymTests.equal((svg.match(/class="garagePanelFace"/g)||[]).length,16);
+  GymTests.equal((svg.match(/class="garageSectionLine"/g)||[]).length,3);
+  GymTests.equal((svg.match(/class="garageBayLine"/g)||[]).length,3);
+  GymTests.assert(svg.includes('class="garageOpeningLine"'));
+  GymTests.assert(svg.includes('role="button"'));
+  GymTests.assert(svg.includes('tabindex="0"'));
+  GymTests.assert(svg.includes('aria-label="Garage door'));
+  GymTests.assert(svg.includes('aria-pressed="true"'));
+  GymTests.assert(svg.includes("garageDoorSelected"));
+  GymTests.assert(!svg.includes("doorArc"));
+});
+
+garagePlanUiTest("renders an unselected garage with false pressed state and no selected class",()=>{
+  const svg=garageDoorAreaSvg(garagePlanArea(),{rects:GARAGE_ROOM_RECTS},false);
+  GymTests.assert(svg.includes('aria-pressed="false"'));
+  GymTests.assert(!svg.includes("garageDoorSelected"));
+});
+
+garagePlanUiTest("transposes garage sections and bays for a vertical wall opening",()=>{
+  const area=garageAreaFromRect("garage_vertical",{x:0,y:2,w:1,h:8});
+  const svg=garageDoorAreaSvg(area,{rects:[{x:0,y:0,w:10,h:12}]});
+  GymTests.equal((svg.match(/class="garagePanelFace"/g)||[]).length,16);
+  GymTests.equal((svg.match(/class="garageSectionLine"/g)||[]).length,3);
+  GymTests.equal((svg.match(/class="garageBayLine"/g)||[]).length,3);
+  GymTests.assert(svg.includes('<line x1="0.25" y1="2" x2="0.25" y2="10" class="garageSectionLine"'));
+  GymTests.assert(svg.includes('<line x1="0" y1="4" x2="1" y2="4" class="garageBayLine"'));
+  GymTests.assert(svg.includes('<line x1="0" y1="2" x2="0" y2="10" class="garageOpeningLine"'));
+});
+
+garagePlanUiTest("keeps an off-wall garage selectable without drawing a floating opening",()=>{
+  const area=garageAreaFromRect("garage_off_wall",{x:5,y:5,w:4,h:1});
+  const svg=garageDoorAreaSvg(area,{rects:[{x:0,y:0,w:12,h:12}]});
+  GymTests.equal((svg.match(/class="garagePanelFace"/g)||[]).length,16);
+  GymTests.assert(svg.includes('class="garageDoorArea garageDoorArchitectural garageDoorInvalid"'));
+  GymTests.assert(svg.includes('role="button"'));
+  GymTests.assert(svg.includes('aria-invalid="true"'));
+  GymTests.assert(svg.includes("Opening must lie on a room boundary."));
+  GymTests.assert(!svg.includes('class="garageOpeningLine"'));
+});
+
+garagePlanUiTest("shows architectural-only garage policy copy and omits personnel-door controls",()=>{
+  const area=garagePlanArea({id:"manual_garage"});
+  withGaragePlanState(area,()=>{
+    const panel=selectedAreaPanel(area);
+    GymTests.assert(panel.includes("Architectural door only. It does not reserve operating clearance, so the existing machines against this wall remain valid. Add a No-go area if you want to keep the door path clear."));
+    GymTests.assert(panel.includes("16-square-foot editor footprint is not subtracted"));
+    GymTests.assert(panel.includes("does not block equipment"));
+    GymTests.assert(!panel.includes('area_doorSwing'));
+    GymTests.assert(!panel.includes('area_doorHinge'));
+    GymTests.assert(!panel.includes('area_doorRadius'));
+  });
+});
+
+garagePlanUiTest("describes an ordinary area's effective global reservation policy",()=>{
+  const area={id:"walkway",kind:"walkway",label:"Walkway",xFt:1,yFt:1,widthFt:2,heightFt:2};
+  withGaragePlanState(area,()=>{
+    state.settings={...state.settings,reservedAreaKindsSubtractSpace:["walkway"],reservedAreaKindsBlockPlacement:["walkway"]};
+    const panel=selectedAreaPanel(area);
+    GymTests.assert(panel.includes("4-square-foot editor footprint is subtracted"));
+    GymTests.assert(panel.includes("blocks equipment"));
+  });
+});
+
+[
+  ["off-boundary",garageAreaFromRect("garage_off_boundary",{x:5,y:5,w:4,h:1}),"Opening must lie on a room boundary."],
+  ["missing-boundary-span",garageAreaFromRect("garage_missing_span",{x:0,y:13,w:1/12,h:5.5}),"Opening must cover one continuous room-boundary span."],
+].forEach(([code,area,message])=>{
+  garagePlanUiTest(`exposes the ${code} garage warning in Plan and the selected inspector`,()=>{
+    withGaragePlanState(area,()=>{
+      const svg=garageDoorAreaSvg(area,room());
+      const panel=selectedAreaPanel(area);
+      GymTests.assert(svg.includes("garageDoorInvalid"));
+      GymTests.assert(svg.includes('aria-invalid="true"'));
+      GymTests.assert(svg.includes(message));
+      GymTests.assert(panel.includes(message));
+    });
+  });
+});
+
+garagePlanUiTest("Enter and Space select a focused Plan area and clear competing selections",()=>{
+  const area=garagePlanArea({id:"garage_keyboard"});
+  withGaragePlanState(area,()=>{
+    const group=document.createElementNS("http://www.w3.org/2000/svg","g");
+    group.dataset.type="area";
+    group.dataset.id=area.id;
+    group.setAttribute("role","button");
+    const child=document.createElementNS("http://www.w3.org/2000/svg","rect");
+    group.appendChild(child);
+    ["Enter"," "].forEach((key,index)=>{
+      state.layout.selectedAreaId=null;
+      state.layout.selectedInstId="competing_equipment";
+      state.layout.selectedWallFeatureId="competing_wall_feature";
+      let prevented=false,stopped=false;
+      const handled=selectPlanAreaFromKeyboard({
+        key,target:child,
+        preventDefault(){ prevented=true; },
+        stopPropagation(){ stopped=true; },
+      });
+      GymTests.equal(handled,true);
+      GymTests.equal(prevented,true);
+      GymTests.equal(stopped,true);
+      GymTests.equal(state.layout.selectedAreaId,area.id);
+      GymTests.equal(state.layout.selectedInstId,null);
+      GymTests.equal(state.layout.selectedWallFeatureId,null);
+      GymTests.equal(window.__garagePlanRenderCount,index+1);
+    });
+  });
+});
+
+garagePlanUiTest("Plan area keyboard selection ignores unrelated keys and missing areas",()=>{
+  const target={closest(){ return null; }};
+  GymTests.equal(selectPlanAreaFromKeyboard({key:"ArrowRight",target}),false);
+  GymTests.equal(selectPlanAreaFromKeyboard({key:"Enter",target}),false);
+});
+
+garagePlanUiTest("wires Plan SVG Enter handling through the area keyboard selector",()=>{
+  const area=garagePlanArea({id:"garage_wired_keyboard"});
+  withGaragePlanState(area,()=>{
+    const previousTab=state.tab;
+    const existingSvg=document.querySelector("#layoutSvg");
+    if(existingSvg) existingSvg.id="layoutSvg_test_background";
+    const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
+    svg.id="layoutSvg";
+    const group=document.createElementNS("http://www.w3.org/2000/svg","g");
+    group.dataset.type="area";
+    group.dataset.id=area.id;
+    group.setAttribute("role","button");
+    const child=document.createElementNS("http://www.w3.org/2000/svg","rect");
+    group.appendChild(child);
+    svg.appendChild(group);
+    document.body.appendChild(svg);
+    try{
+      state.tab="layout";
+      state.layout.selectedInstId="competing_equipment";
+      wireMain();
+      child.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true}));
+      GymTests.equal(state.layout.selectedAreaId,area.id);
+      GymTests.equal(state.layout.selectedInstId,null);
+      GymTests.equal(window.__garagePlanRenderCount,1);
+    }finally{
+      state.tab=previousTab;
+      svg.remove();
+      if(existingSvg) existingSvg.id="layoutSvg";
+    }
+  });
+});
+
 function garageMigrationContext(fixture,layout,{name=fixture.name,hadWallFeatures=true,profileKeys}={}){
   const byId=new Map(fixture.items.map(item=>[item.id,item]));
   return {

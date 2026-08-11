@@ -1213,6 +1213,20 @@ function wireTab(){
   });
 }
 
+function selectPlanAreaFromKeyboard(event){
+  if(event.key!=="Enter"&&event.key!==" ") return false;
+  const group=event.target?.closest?.('g[data-type="area"][role="button"]');
+  if(!group) return false;
+  const area=(state.layout.areas||[]).find(entry=>entry.id===group.dataset.id);
+  if(!area) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  clearAllSelections();
+  state.layout.selectedAreaId=area.id;
+  render();
+  return true;
+}
+
 function wireMain(){
   document.body.onclick = (e)=>{
     let t = e.target;
@@ -3375,6 +3389,7 @@ function wireMain(){
       };
 
       svg.onkeydown=(e)=>{
+        if(selectPlanAreaFromKeyboard(e)) return;
         if(e.key!=="Enter" && e.key!==" ") return;
         const rotate=e.target.closest && e.target.closest('[data-action="rotateInst"]');
         if(rotate){
