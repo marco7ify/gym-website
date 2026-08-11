@@ -2507,6 +2507,22 @@ class Gym3DView {
     this.host.dataset.cameraZ=p.z.toFixed(3);
   }
 
+  wallFeatureMinimapLine(group,selectedId=state.layout.selectedWallFeatureId){
+    const feature=group.userData.wallFeature||{};
+    const width=Math.max(0,safeNum(group.userData.worldFootprint?.widthFt));
+    const half=width/2;
+    const rotation=safeNum(group.userData.rotationY);
+    const dx=Math.cos(rotation)*half,dz=-Math.sin(rotation)*half;
+    return {
+      x1:group.position.x-dx,
+      z1:group.position.z-dz,
+      x2:group.position.x+dx,
+      z2:group.position.z+dz,
+      color:feature.kind==="mirror" ? "#dbeafe" : (feature.color||"#8f5f3a"),
+      lineWidth:group.userData.wallFeatureId===selectedId?4:2,
+    };
+  }
+
   drawMinimap(time){
     if(this.mode!=="walkthrough" || time-this.minimapTime<80) return;
     this.minimapTime=time;
@@ -2528,17 +2544,13 @@ class Gym3DView {
       ctx.fillRect(ox+r.x*scale,oz+r.y*scale,Math.max(2,r.w*scale),Math.max(2,r.h*scale));
     });
     this.wallFeatureGroups.forEach((group,id)=>{
-      const feature=group.userData.wallFeature||{};
-      const width=Math.max(0,safeNum(group.userData.worldFootprint?.widthFt));
-      const half=width/2;
-      const rotation=safeNum(group.userData.rotationY);
-      const dx=Math.cos(rotation)*half,dz=-Math.sin(rotation)*half;
-      ctx.strokeStyle=feature.kind==="mirror" ? "#dbeafe" : (feature.color||"#8f5f3a");
-      ctx.lineWidth=id===state.layout.selectedWallFeatureId?4:2;
+      const line=this.wallFeatureMinimapLine(group,state.layout.selectedWallFeatureId);
+      ctx.strokeStyle=line.color;
+      ctx.lineWidth=line.lineWidth;
       ctx.lineCap="round";
       ctx.beginPath();
-      ctx.moveTo(ox+(group.position.x-dx)*scale,oz+(group.position.z-dz)*scale);
-      ctx.lineTo(ox+(group.position.x+dx)*scale,oz+(group.position.z+dz)*scale);
+      ctx.moveTo(ox+line.x1*scale,oz+line.z1*scale);
+      ctx.lineTo(ox+line.x2*scale,oz+line.z2*scale);
       ctx.stroke();
     });
     ctx.strokeStyle="#47c48a";
