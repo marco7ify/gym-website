@@ -12,6 +12,80 @@
     "yindun-three-tier-rack",
   ];
 
+  // The production change these checks protect: a builder can be omitted,
+  // registered under the wrong profile, or let a rigid primitive escape the
+  // measured placement envelope without changing the collision footprint.
+  function modelProbe(){
+    const parts=[];
+    const record=(kind,size,pos,options={})=>{
+      parts.push({kind,size,pos,options});
+      return {userData:{}};
+    };
+    const view={
+      material:spec=>spec,
+      box:(group,size,pos,mat,options)=>record("box",size,pos,options),
+      cylinder:(group,radius,length,pos,mat,options)=>record("cylinder",{radius,length},pos,options),
+      beam:(group,start,end,width,depth,mat,options)=>record("beam",{start,end,radius:Math.hypot(width,depth)/2},{x:0,y:0,z:0},options),
+      tube:(group,start,end,radius,mat,options)=>record("tube",{start,end,radius},{x:0,y:0,z:0},options),
+    };
+    return {parts,view,group:{add(){}}};
+  }
+
+  function assertPointInEnvelope(point,radius,envelope,label){
+    GymTests.assert(point.x-radius>=-envelope.w/2-1e-9 && point.x+radius<=envelope.w/2+1e-9,`${label} exceeds width envelope`);
+    GymTests.assert(point.y-radius>=-1e-9 && point.y+radius<=envelope.h+1e-9,`${label} exceeds height envelope`);
+    GymTests.assert(point.z-radius>=-envelope.d/2-1e-9 && point.z+radius<=envelope.d/2+1e-9,`${label} exceeds depth envelope`);
+  }
+
+  function assertRigidEnvelope(parts,envelope){
+    parts.forEach((part,index)=>{
+      const label=`${part.kind} ${index}`;
+      if(part.kind==="box"){
+        const {rotationX:rx=0,rotationY:ry=0,rotationZ:rz=0}=part.options||{};
+        const sx=Math.sin(rx),cx=Math.cos(rx),sy=Math.sin(ry),cy=Math.cos(ry),sz=Math.sin(rz),cz=Math.cos(rz);
+        const matrix=[
+          [cy*cz,-cy*sz,sy],
+          [sx*sy*cz+cx*sz,-sx*sy*sz+cx*cz,-sx*cy],
+          [-cx*sy*cz+sx*sz,cx*sy*sz+sx*cz,cx*cy],
+        ];
+        const half=[part.size.x/2,part.size.y/2,part.size.z/2];
+        const extent=matrix.map(row=>row.reduce((sum,value,axis)=>sum+Math.abs(value)*half[axis],0));
+        GymTests.assert(Math.abs(part.pos.x)+extent[0]<=envelope.w/2+1e-9,`${label} exceeds width envelope`);
+        GymTests.assert(part.pos.y-extent[1]>=-1e-9 && part.pos.y+extent[1]<=envelope.h+1e-9,`${label} exceeds height envelope`);
+        GymTests.assert(Math.abs(part.pos.z)+extent[2]<=envelope.d/2+1e-9,`${label} exceeds depth envelope`);
+      }else if(part.kind==="cylinder"){
+        const {rotationX:rx=0,rotationY:ry=0,rotationZ:rz=0}=part.options||{};
+        const sx=Math.sin(rx),cx=Math.cos(rx),sy=Math.sin(ry),cy=Math.cos(ry),sz=Math.sin(rz),cz=Math.cos(rz);
+        const axis=[-cy*sz,-sx*sy*sz+cx*cz,cx*sy*sz+sx*cz];
+        const extent=axis.map(value=>Math.abs(value)*part.size.length/2+Math.sqrt(Math.max(0,1-value*value))*part.size.radius);
+        GymTests.assert(Math.abs(part.pos.x)+extent[0]<=envelope.w/2+1e-9,`${label} exceeds width envelope`);
+        GymTests.assert(part.pos.y-extent[1]>=-1e-9 && part.pos.y+extent[1]<=envelope.h+1e-9,`${label} exceeds height envelope`);
+        GymTests.assert(Math.abs(part.pos.z)+extent[2]<=envelope.d/2+1e-9,`${label} exceeds depth envelope`);
+      }else{
+        assertPointInEnvelope(part.size.start,part.size.radius,envelope,`${label} start`);
+        assertPointInEnvelope(part.size.end,part.size.radius,envelope,`${label} end`);
+      }
+    });
+  }
+
+  GymTests.test("registers Task 2 exact builders with bounded signature geometry",()=>{
+    const cases=[
+      ["ice-barrel-500",10,"photo-matched Ice Barrel 500",{w:2.5583,d:4.8,h:3.5}],
+      ["syedee-stair-machine",28,"photo-matched syedee Stair Machine",{w:2.6667,d:4.1667,h:6.8333}],
+      ["nordictrack-x16",20,"photo-matched NordicTrack X16",{w:3.175,d:5.825,h:6.1083}],
+      ["ritfit-gator-bench",22,"photo-matched RitFit GATOR bench",{w:2.1667,d:4.8333,h:4.4167}],
+    ];
+    cases.forEach(([profile,minParts,modelType,envelope])=>{
+      GymTests.assert(window.GymEquipmentModels.has(profile),`${profile} should be registered`);
+      const probe=modelProbe();
+      const result=window.GymEquipmentModels.build(profile,probe.view,probe.group,{id:"probe"},{w:envelope.w,h:envelope.d},envelope.h);
+      GymTests.equal(result?.builderKey,profile,`${profile} should return its exact builder key`);
+      GymTests.equal(result?.modelType,modelType,`${profile} should return its exact model type`);
+      GymTests.assert(probe.parts.length>=minParts,`${profile} needs at least ${minParts} signature primitives`);
+      assertRigidEnvelope(probe.parts,envelope);
+    });
+  });
+
   GymTests.test("routes each photo-matched item to its exact profile",()=>{
     const cases=[
       [{brand:"Ice Barrel",name:"Ice Barrel 500",category:"Cold Plunge"},"ice-barrel-500"],
@@ -96,10 +170,12 @@
     GymTests.assert(!itemUsesPhotoMatched3d({...exactItem,model3dAssetRef:"local:ice-barrel.glb"}));
   });
 
-  GymTests.test("provides an initially empty external equipment-model registry",()=>{
+  GymTests.test("exposes task-owned builders without claiming later profiles",()=>{
     GymTests.assert(window.GymEquipmentModels,"Expected the GymEquipmentModels registry namespace");
     ["has","keys","build","createModelKit"].forEach(key=>GymTests.equal(typeof window.GymEquipmentModels[key],"function"));
-    GymTests.deepEqual(window.GymEquipmentModels.keys(),[]);
-    exactProfiles.forEach(profile=>GymTests.assert(!window.GymEquipmentModels.has(profile),`${profile} should not be registered before its builder lands`));
+    GymTests.deepEqual(window.GymEquipmentModels.keys(),[
+      "ice-barrel-500","syedee-stair-machine","nordictrack-x16","ritfit-gator-bench",
+    ]);
+    exactProfiles.slice(4).forEach(profile=>GymTests.assert(!window.GymEquipmentModels.has(profile),`${profile} belongs to a later builder task`));
   });
 })();
