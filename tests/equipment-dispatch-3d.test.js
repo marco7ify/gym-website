@@ -176,14 +176,6 @@
     return root;
   }
 
-  function visibleWithin(object,root){
-    for(let current=object;current;current=current.parent){
-      if(current.visible===false) return false;
-      if(current===root) return true;
-    }
-    return false;
-  }
-
   function meshMaterials(mesh){
     return (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).filter(Boolean);
   }
@@ -197,7 +189,6 @@
     const group=view.itemGroups.get(instId);
     const root=dedicatedAssembly(group,prefix);
     const meshes=groupMeshes(root);
-    const visibleMeshes=meshes.filter(mesh=>visibleWithin(mesh,root));
     const meshSet=new Set(meshes);
     const geometries=[...new Set(meshes.map(mesh=>mesh.geometry))];
     const materials=[...new Set(meshes.flatMap(meshMaterials))];
@@ -213,19 +204,17 @@
     });
     return {
       meshes,
-      visibleMeshes,
       geometries,
       materials,
       clickTargets,
       tracked,
       summary:{
-        meshes:visibleMeshes.length,
-        structuralMeshes:meshes.length,
+        meshes:meshes.length,
         geometries:geometries.length,
         geometrySignatures:new Set(meshes.map(meshGeometrySignature)).size,
         materials:materials.length,
         clickTargets:clickTargets.length,
-        triangles:visibleMeshes.reduce((total,mesh)=>total+meshTriangleCount(mesh),0),
+        triangles:meshes.reduce((total,mesh)=>total+meshTriangleCount(mesh),0),
       },
     };
   }
@@ -737,11 +726,11 @@
         GymTests.equal(host.dataset.builderFailures,"0");
         GymTests.equal(host.dataset.garageDoorModels,"1");
         GymTests.equal(host.dataset.wallFeatures,"7");
-        GymTests.assert(x16.visibleMeshes.length<=32,`Saved X16 must stay within 32 visible meshes; received ${x16.visibleMeshes.length}`);
+        GymTests.assert(x16.meshes.length<=32,`Saved X16 must stay within 32 meshes; received ${x16.meshes.length}`);
         GymTests.assert(x16.geometries.length<=32,`Saved X16 must stay within 32 geometry resources; received ${x16.geometries.length}`);
         GymTests.assert(x16.materials.length<=6,`Saved X16 must stay within six materials; received ${x16.materials.length}`);
         GymTests.assert(x16.summary.triangles<=1200,`Saved X16 must stay near its 1,200-triangle budget; received ${x16.summary.triangles}`);
-        GymTests.assert(stair.visibleMeshes.length<=56,`Saved Stair must stay within 56 visible meshes; received ${stair.visibleMeshes.length}`);
+        GymTests.assert(stair.meshes.length<=56,`Saved Stair must stay within 56 meshes; received ${stair.meshes.length}`);
         GymTests.assert(stair.geometries.length<=24,`Saved Stair must stay within 24 geometry resources; received ${stair.geometries.length}`);
         GymTests.assert(stair.materials.length<=8,`Saved Stair must stay within eight materials; received ${stair.materials.length}`);
         GymTests.assert(stair.summary.geometrySignatures<=24,`Saved Stair must stay within 24 geometry signatures; received ${stair.summary.geometrySignatures}`);
@@ -784,6 +773,12 @@
       probe.visible=false;
       const capture=captureDedicatedResources(fixture.view,"inst_x16","x16-");
       GymTests.assert(capture.meshes.includes(probe),"Dedicated capture must include an invisible sibling mesh");
+      GymTests.equal(capture.summary.meshes,capture.meshes.length,"Dedicated mesh budgets must include invisible sibling meshes");
+      GymTests.equal(
+        capture.summary.triangles,
+        capture.meshes.reduce((total,mesh)=>total+meshTriangleCount(mesh),0),
+        "Dedicated triangle budgets must include invisible sibling meshes",
+      );
       GymTests.assert(capture.geometries.includes(probe.geometry),"Dedicated capture must include invisible sibling geometry");
       GymTests.assert(capture.materials.includes(probe.material),"Dedicated capture must include invisible sibling material");
       GymTests.assert(capture.clickTargets.includes(probe),"Dedicated capture must include invisible sibling click targets");
