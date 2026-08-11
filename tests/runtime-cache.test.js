@@ -27,7 +27,7 @@
   const runnerContracts=[
     ["garage-door-3d-runner.html","garage-door-3d-runner.js?v=garage-final-fix-wave-1"],
     ["wall-features-3d-runner.html","wall-features-3d-runner.js?v=garage-final-fix-wave-1"],
-    ["equipment-dispatch-3d-runner.html","equipment-dispatch-3d-runner.js?v=garage-final-fix-wave-1"],
+    ["equipment-dispatch-3d-runner.html","equipment-dispatch-3d-runner.js?v=equipment-faithful-cardio-v1"],
   ];
   const runnerModuleScripts=await Promise.all(runnerContracts.map(async ([html])=>{
     const source=await fetch(`./${html}?runtime-cache-contract=${Date.now()}`,{cache:"no-store"}).then(response=>response.text());
@@ -36,7 +36,7 @@
   }));
 
   GymTests.test("loads the current runtime entry URL",()=>{
-    GymTests.equal(leafUrl(runtimeScript?.src||""),"gltf-runtime.js?v=37");
+    GymTests.equal(leafUrl(runtimeScript?.src||""),"gltf-runtime.js?v=38");
   });
 
   GymTests.test("loads every classic production asset at its current cache URL",()=>{
@@ -45,9 +45,9 @@
       "wall-features.js?v=3",
       "garage-doors.js?v=2",
       "app.js?v=85",
-      "equipment-models.js?v=2",
+      "equipment-models.js?v=3",
       "garage-door-3d.js?v=1",
-      "view3d.js?v=39",
+      "view3d.js?v=40",
       "panels.js?v=73",
       "layout.js?v=86",
       "events.js?v=82",
@@ -60,13 +60,13 @@
       "wall-features.js?v=3",
       "garage-doors.js?v=2",
       "app.js?v=85",
-      "equipment-models.js?v=2",
+      "equipment-models.js?v=3",
       "layout.js?v=86",
       "events.js?v=82",
     ]);
   });
 
-  GymTests.test("loads every real-Three runner module at the Final Fix Wave 1 cache URL",()=>{
+  GymTests.test("loads every real-Three runner module at its current cache URL",()=>{
     GymTests.deepEqual(runnerModuleScripts,runnerContracts.map(([,script])=>script));
   });
 
