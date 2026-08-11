@@ -1,5 +1,87 @@
 // Event handlers for Gym Wishlist + Layout Planner
 
+function requestLayoutName(message,suggestedName,requestPrompt){
+  const invoke=requestPrompt || ((text,defaultValue)=>window.prompt(text,defaultValue));
+  try{
+    return invoke(message,suggestedName);
+  }catch(error){
+    const unsupportedPromptMessages=new Set(["prompt() is not supported."]);
+    if(unsupportedPromptMessages.has(String(error?.message||"").trim())) return suggestedName;
+    throw error;
+  }
+}
+
+function availableLayoutName(preferredName,layouts,excludeId=null){
+  const preferred=String(preferredName||"").trim();
+  if(!preferred) return "";
+  const used=new Set((layouts||[])
+    .filter(entry=>entry?.id!==excludeId)
+    .map(entry=>String(entry?.name||"").trim().toLowerCase()));
+  if(!used.has(preferred.toLowerCase())) return preferred;
+  for(let suffix=2;;suffix+=1){
+    const candidate=`${preferred} (${suffix})`;
+    if(!used.has(candidate.toLowerCase())) return candidate;
+  }
+}
+
+function performLayoutLibraryAction(action,appState=state,options={}){
+  const requestName=options.requestName||requestLayoutName;
+  const makeId=options.makeId||(()=>uid("ly"));
+  const layouts=appState.layouts||[];
+  const activeId=appState.activeLayoutId;
+
+  if(action==="rename"){
+    const index=layouts.findIndex(entry=>entry.id===activeId);
+    if(index<0) return false;
+    const requested=requestName("Rename layout:",layouts[index].name||"Layout");
+    if(!String(requested||"").trim()) return false;
+    layouts[index].name=availableLayoutName(requested,layouts,activeId);
+    return true;
+  }
+
+  const current=normalizeLayout(deepCopy(appState.layout),appState.settings);
+  const suggestion=action==="new"
+    ? availableLayoutName(`Layout ${layouts.length+1}`,layouts)
+    : action==="duplicate"
+      ? availableLayoutName(`${layouts.find(entry=>entry.id===activeId)?.name||"Layout"} (copy)`,layouts)
+      : "";
+  if(!suggestion) return false;
+  const promptMessage=action==="new" ? "New layout name:" : "Duplicate layout name:";
+  const requested=requestName(promptMessage,suggestion);
+  if(!String(requested||"").trim()) return false;
+  const name=availableLayoutName(requested,layouts);
+  const id=makeId("ly");
+  const currentIndex=layouts.findIndex(entry=>entry.id===activeId);
+  if(currentIndex>=0) layouts[currentIndex].layout=deepCopy(current);
+  const layout=action==="new"
+    ? normalizeLayout({
+        ...DEFAULT_LAYOUT,
+        wallExtensions:deepCopy(current.wallExtensions||[]),
+        areas:deepCopy(current.areas||[]),
+        outlets:deepCopy(current.outlets||[]),
+        ceilingZones:deepCopy(current.ceilingZones||[]),
+        floorZones:deepCopy(current.floorZones||[]),
+        flooringPieces:deepCopy(current.flooringPieces||[]),
+        wallFeatures:deepCopy(current.wallFeatures||[]),
+        spatial3d:deepCopy(current.spatial3d||{}),
+        instances:[],
+      },appState.settings)
+    : normalizeLayout(deepCopy(current),appState.settings);
+  appState.layouts=[...layouts,{id,name,layout}];
+  appState.activeLayoutId=id;
+  appState.layout=normalizeLayout(deepCopy(layout),appState.settings);
+  appState.layout.selectedInstId=null;
+  appState.layout.selectedAreaId=null;
+  appState.layout.selectedOutletId=null;
+  appState.layout.selectedWallExtId=null;
+  appState.layout.selectedCeilingZoneId=null;
+  appState.layout.selectedFloorZoneId=null;
+  appState.layout.selectedWallFeatureId=null;
+  appState._roomCache=null;
+  appState.tab="layout";
+  return true;
+}
+
 function refreshInstInvalid(id){
   state.layout.instances = (state.layout.instances||[]).map(x=>{
     if(x.id!==id) return x;
@@ -8,6 +90,111 @@ function refreshInstInvalid(id){
     const er = effectiveRectForInst(x, it);
     return {...x, __invalid: isInvalidPlacement(id, er.base, er.eff)};
   });
+}
+
+function setLayoutActionStatus(instId,tone,message){
+  state.layoutActionStatus={instId,tone,message};
+}
+
+function rotateLayoutInstance90(instId){
+  const inst=(state.layout.instances||[]).find(x=>x.id===instId);
+  const item=inst ? getItemById(inst.itemId) : null;
+  if(!inst || !item){
+    setLayoutActionStatus(instId,"error","That equipment is no longer in this layout.");
+    render();
+    return {ok:false,reason:"not-found"};
+  }
+
+  const candidate=rotatedInstanceCandidate(inst,item);
+  const candidateRect=effectiveRectForInst(candidate,item);
+  const conflict=hardPlacementConflict(instId,candidateRect.base);
+  if(conflict){
+    setLayoutActionStatus(instId,"error",conflict.message);
+    render();
+    return {ok:false,reason:"hard-invalid",conflict};
+  }
+
+  const invalid=isInvalidPlacement(instId,candidateRect.base,candidateRect.eff);
+  const next={...candidate,__invalid:invalid};
+  state.layout.instances=(state.layout.instances||[]).map(x=>x.id===instId ? next : x);
+  if(invalid){
+    setLayoutActionStatus(instId,"warning","Rotated 90°. Clearance overlaps another item, so it is shown in red.");
+    render();
+    return {ok:true,reason:"soft-conflict",instance:next};
+  }
+
+  const name=String(item.name||"").trim() || "equipment";
+  setLayoutActionStatus(instId,"success",`Rotated ${name} 90°.`);
+  render();
+  return {ok:true,reason:"rotated",instance:next};
+}
+
+function layoutRotationShortcutAllowed(event,target=document.activeElement){
+  if(event?.repeat || event?.code!=="KeyR") return false;
+  if(event?.altKey || event?.ctrlKey || event?.metaKey || event?.shiftKey) return false;
+  if(state.tab!=="layout" || !state.layout?.selectedInstId) return false;
+  if(state.layout?.spatialViewMode==="3d" || state.layout?.walkthroughOpen) return false;
+  if(state.drag?.active || document.pointerLockElement) return false;
+  if(document.querySelector('dialog[open], .lightbox.open, .modalOverlay[role="dialog"][aria-modal="true"]')) return false;
+
+  const tag=String(target?.tagName||"").toLowerCase();
+  if(["input","textarea","select"].includes(tag) || target?.isContentEditable || target?.closest?.("[contenteditable='true']")) return false;
+  return true;
+}
+
+function wireLayoutRotationShortcut(){
+  if(typeof window==="undefined" || window.__layoutRotationShortcutWired) return;
+  window.__layoutRotationShortcutWired=true;
+  window.addEventListener("keydown",event=>{
+    if(!layoutRotationShortcutAllowed(event,event.target||document.activeElement)) return;
+    event.preventDefault();
+    rotateLayoutInstance90(state.layout.selectedInstId);
+  });
+}
+
+wireLayoutRotationShortcut();
+
+function wallFeatureDragPatch(feature, originStartFt, deltaFt, roomData){
+  const maxStart=Math.max(0,GymWallFeatures.wallLength(feature, roomData)-GymWallFeatures.width(feature));
+  const parts=splitTotalFtToFtIn(clamp(safeNum(originStartFt)+safeNum(deltaFt),0,maxStart));
+  return {startFt:parts.ft,startIn:parts.inch};
+}
+
+function resetWallFeatureDrag(){
+  if(!state.drag || state.drag.type!=="wallfeature") return;
+  const handlers=state._wallFeatureDragHandlers;
+  if(handlers){
+    window.removeEventListener("pointermove",handlers.move);
+    window.removeEventListener("pointerup",handlers.finish);
+    window.removeEventListener("pointercancel",handlers.finish);
+    window.removeEventListener("lostpointercapture",handlers.finish,true);
+    state._wallFeatureDragHandlers=null;
+  }
+  state.drag={active:false,type:null,id:null,start:{x:0,y:0},origin:{x:0,y:0},invalid:false};
+  render();
+}
+
+function startWallFeatureDrag(pointerId){
+  const move=(event)=>{
+    if(event.pointerId!==pointerId || !state.drag?.active || state.drag.type!=="wallfeature") return;
+    const svg=$("#layoutSvg");
+    const feature=(state.layout.wallFeatures||[]).find(x=>x.id===state.drag.id);
+    if(!svg || !feature){ resetWallFeatureDrag(); return; }
+    const point=clientToSvgPoint(svg,event.clientX,event.clientY);
+    const delta=(feature.wall==="top" || feature.wall==="bottom")
+      ? point.x-state.drag.start.x
+      : point.y-state.drag.start.y;
+    patchWallFeature(feature.id,wallFeatureDragPatch(feature,state.drag.origin.startFt,delta,wallFeatureRoomData(state.layout,state.settings)));
+  };
+  const finish=(event)=>{
+    if(event.type!=="lostpointercapture" && event.pointerId!==pointerId) return;
+    resetWallFeatureDrag();
+  };
+  state._wallFeatureDragHandlers={move,finish};
+  window.addEventListener("pointermove",move);
+  window.addEventListener("pointerup",finish);
+  window.addEventListener("pointercancel",finish);
+  window.addEventListener("lostpointercapture",finish,true);
 }
 
 /** "+ in" buttons: set a sub-foot inch field to 1 so the inch input appears. */
@@ -38,11 +225,159 @@ function applyLayoutShowIn(dim, id){
   else if(d==="we_start"){ state.layout.wallExtensions = (state.layout.wallExtensions||[]).map(w=> w.id===id ? {...w, startIn:1} : w); state._roomCache = null; }
   else if(d==="we_length"){ state.layout.wallExtensions = (state.layout.wallExtensions||[]).map(w=> w.id===id ? {...w, lengthIn:1} : w); state._roomCache = null; }
   else if(d==="we_depth"){ state.layout.wallExtensions = (state.layout.wallExtensions||[]).map(w=> w.id===id ? {...w, depthIn:1} : w); state._roomCache = null; }
+  else if(d==="wf_start"){ patchWallFeature(id, {startIn:1}); return; }
+  else if(d==="wf_bottom"){ patchWallFeature(id, {bottomIn:1}); return; }
+  else if(d==="wf_width"){ patchWallFeature(id, {widthIn:1}); return; }
+  else if(d==="wf_height"){ patchWallFeature(id, {heightIn:1}); return; }
   render();
+}
+
+const PENDING_MODEL_ASSET_KEY="gym_planner_pending_model_asset_ref";
+let pendingDraftModelAssetRef="";
+
+function setPendingDraftModelAsset(ref){
+  pendingDraftModelAssetRef=String(ref||"");
+  try{
+    if(pendingDraftModelAssetRef) localStorage.setItem(PENDING_MODEL_ASSET_KEY,pendingDraftModelAssetRef);
+    else localStorage.removeItem(PENDING_MODEL_ASSET_KEY);
+  }catch{}
+}
+
+function emptyModelAssetFields(){
+  return {
+    model3dAssetRef:"",
+    model3dAssetName:"",
+    model3dAssetSize:0,
+    model3dAssetUpdatedAt:0,
+    model3dAssetRotation:0,
+  };
+}
+
+function normalizedModelAssetRotation(value){
+  const rotation=Number(value);
+  return [0,90,180,270].includes(rotation) ? rotation : 0;
+}
+
+function modelAssetIsReferenced(ref){
+  const value=String(ref||"");
+  return !!value && (state.items||[]).some(item=>String(item.model3dAssetRef||"")===value);
+}
+
+function removeUnreferencedModelAsset(ref){
+  const value=String(ref||"");
+  if(!value.startsWith("local:") || modelAssetIsReferenced(value)) return Promise.resolve();
+  const api=window.GymModelAssets;
+  return api?.remove ? api.remove(value).catch(()=>{}) : Promise.resolve();
+}
+
+function discardPendingDraftModelAsset(){
+  const ref=pendingDraftModelAssetRef;
+  setPendingDraftModelAsset("");
+  if(ref) removeUnreferencedModelAsset(ref);
+}
+
+try{
+  const stalePendingRef=localStorage.getItem(PENDING_MODEL_ASSET_KEY)||"";
+  localStorage.removeItem(PENDING_MODEL_ASSET_KEY);
+  if(stalePendingRef) removeUnreferencedModelAsset(stalePendingRef);
+}catch{}
+
+function removeItemReferencesFromAllLayouts(removeIds){
+  const ids=removeIds instanceof Set ? removeIds : new Set(removeIds||[]);
+  if(!ids.size) return;
+  const cleanLayout=(layout)=>{
+    if(!layout || typeof layout!=="object") return layout;
+    const removedInstanceIds=new Set((layout.instances||[]).filter(inst=>ids.has(inst.itemId)).map(inst=>inst.id));
+    return {
+      ...layout,
+      instances:(layout.instances||[]).filter(inst=>!ids.has(inst.itemId)),
+      compareSets:(layout.compareSets||[]).map(set=>({
+        ...set,
+        items:(set.items||[]).filter(entry=>!ids.has(typeof entry==="string" ? entry : entry?.itemId)),
+      })),
+      selectedInstId:removedInstanceIds.has(layout.selectedInstId) ? null : layout.selectedInstId,
+    };
+  };
+  state.layout=cleanLayout(state.layout);
+  if(Array.isArray(state.layouts)){
+    state.layouts=state.layouts.map(entry=>{
+      if(!entry || typeof entry!=="object") return entry;
+      if(entry.id===state.activeLayoutId) return {...entry,layout:deepCopy(state.layout)};
+      return {...entry,layout:cleanLayout(entry.layout)};
+    });
+  }
+}
+
+async function uploadModelAssetFile(file){
+  const api=window.GymModelAssets;
+  if(!api?.put) throw new Error("Local 3D model storage is not ready. Refresh the page and try again.");
+  return api.put(file);
+}
+
+async function attachModelAssetToItem(itemId,file){
+  const current=(state.items||[]).find(item=>item.id===itemId);
+  if(!current || !file) return;
+  const stored=await uploadModelAssetFile(file);
+  const latest=(state.items||[]).find(item=>item.id===itemId);
+  if(!latest){
+    await removeUnreferencedModelAsset(stored.ref);
+    return;
+  }
+  const previousRef=String(latest.model3dAssetRef||"");
+  const patch={
+    model3dAssetRef:stored.ref,
+    model3dAssetName:stored.name,
+    model3dAssetSize:stored.size,
+    model3dAssetUpdatedAt:stored.updatedAt,
+    model3dAssetRotation:0,
+  };
+  state.items=(state.items||[]).map(item=>item.id===itemId ? {...item,...patch} : item);
+  if(state.editingId===itemId) state.draft={...state.draft,...patch};
+  render();
+  if(previousRef && previousRef!==stored.ref) removeUnreferencedModelAsset(previousRef);
+}
+
+function detachModelAssetFromItem(itemId){
+  const current=(state.items||[]).find(item=>item.id===itemId);
+  if(!current) return;
+  const previousRef=String(current.model3dAssetRef||"");
+  const patch=emptyModelAssetFields();
+  state.items=(state.items||[]).map(item=>item.id===itemId ? {...item,...patch} : item);
+  if(state.editingId===itemId) state.draft={...state.draft,...patch};
+  render();
+  removeUnreferencedModelAsset(previousRef);
+}
+
+async function attachModelAssetToDraft(file){
+  if(!file) return;
+  const stored=await uploadModelAssetFile(file);
+  const previousPending=pendingDraftModelAssetRef;
+  setPendingDraftModelAsset(stored.ref);
+  state.draft={
+    ...state.draft,
+    model3dAssetRef:stored.ref,
+    model3dAssetName:stored.name,
+    model3dAssetSize:stored.size,
+    model3dAssetUpdatedAt:stored.updatedAt,
+    model3dAssetRotation:0,
+  };
+  render();
+  if(previousPending && previousPending!==stored.ref) removeUnreferencedModelAsset(previousPending);
+}
+
+function detachModelAssetFromDraft(){
+  const currentRef=String(state.draft?.model3dAssetRef||"");
+  const removePending=currentRef && currentRef===pendingDraftModelAssetRef;
+  if(removePending) setPendingDraftModelAsset("");
+  state.draft={...state.draft,...emptyModelAssetFields()};
+  render();
+  if(removePending) removeUnreferencedModelAsset(currentRef);
 }
 
 function readDraftFromForm(){
   const get = (id)=> ($("#"+id)?.value ?? "");
+  const rotationInput=get("f_model3dAssetRotation");
+  const assetRotation=normalizedModelAssetRotation(rotationInput==="" ? state.draft.model3dAssetRotation : rotationInput);
   const payload = {
     name: String(get("f_name")).trim(),
     brand: String(get("f_brand")||"").trim(),
@@ -86,6 +421,14 @@ function readDraftFromForm(){
     color: String(state.draft.color || ""),
     layoutUseImage: !!$("#f_layoutUseImage")?.checked,
     layoutImageDataUrl: String(state.draft.layoutImageDataUrl || ""),
+    model3dFamily: MODEL3D_FAMILIES.some(x=>x.value===get("f_model3dFamily")) ? get("f_model3dFamily") : "auto",
+    model3dProfile: MODEL3D_PROFILES.some(x=>x.value===get("f_model3dProfile")) ? get("f_model3dProfile") : "auto",
+    model3dFacing: get("f_model3dFacing")==="reverse" ? "reverse" : "default",
+    model3dAssetRef: String(state.draft.model3dAssetRef||""),
+    model3dAssetName: String(state.draft.model3dAssetName||"").slice(0,180),
+    model3dAssetSize: Math.max(0,safeNum(state.draft.model3dAssetSize)),
+    model3dAssetUpdatedAt: Math.max(0,safeNum(state.draft.model3dAssetUpdatedAt)),
+    model3dAssetRotation: assetRotation,
   };
   return payload;
 }
@@ -522,22 +865,29 @@ function syncedLayoutsForExport(){
   return lib;
 }
 
+function settingsForExport(){
+  const settings=deepCopy(state.settings||{});
+  delete settings.aiApiKey;
+  return settings;
+}
+
 function exportPayloadFromState(){
   const mode = state.exportMode || "full";
   const scope = state.exportLayoutScope === "all" ? "all" : "active";
   const allLayouts = syncedLayoutsForExport();
   const activeEntry = allLayouts.find(x=>x.id===state.activeLayoutId) || allLayouts[0] || { id: uid("ly"), name: "Layout 1", layout: normalizeLayout(state.layout, state.settings) };
   const selectedLayouts = scope === "all" ? allLayouts : [activeEntry];
+  const exportSettings=settingsForExport();
 
   if(mode === "noLayouts"){
     return {
       filename: `gym-planner-no-layouts-${exportDateTag()}.json`,
       payload: {
-        version: 10,
+        version: 12,
         exportType: "noLayouts",
         exportedAt: new Date().toISOString(),
         tab: state.tab,
-        settings: state.settings,
+        settings: exportSettings,
         categories: state.categories,
         items: state.items,
       },
@@ -549,10 +899,10 @@ function exportPayloadFromState(){
     return {
       filename: `gym-planner-layouts-${filePart}-${exportDateTag()}.json`,
       payload: {
-        version: 10,
+        version: 12,
         exportType: "layoutsOnly",
         exportedAt: new Date().toISOString(),
-        settings: state.settings,
+        settings: exportSettings,
         categories: state.categories,
         items: state.items,
         layout: normalizeLayout(deepCopy(activeEntry.layout), state.settings),
@@ -566,11 +916,11 @@ function exportPayloadFromState(){
   return {
     filename: `gym-planner-export-${filePart}-${exportDateTag()}.json`,
     payload: {
-      version: 10,
+      version: 12,
       exportType: "full",
       exportedAt: new Date().toISOString(),
       tab: state.tab,
-      settings: state.settings,
+      settings: exportSettings,
       categories: state.categories,
       items: state.items,
       layout: normalizeLayout(deepCopy(activeEntry.layout), state.settings),
@@ -726,6 +1076,13 @@ function wireTop(){
     render();
   };
 
+  $("#importLabel")?.addEventListener("keydown", (e)=>{
+    if(e.key === "Enter" || e.key === " "){
+      e.preventDefault();
+      $("#importFile")?.click();
+    }
+  });
+
   $("#importFile").onchange = (e)=>{
     const file = e.target.files && e.target.files[0];
     if(!file) return;
@@ -739,6 +1096,7 @@ function wireTop(){
       if(trimmed.startsWith("{")){
         try{
           const data = JSON.parse(trimmed);
+          discardPendingDraftModelAsset();
           if(data.settings){
             state.settings = {...DEFAULT_SETTINGS, ...state.settings, ...data.settings};
             state.settings.wishlistVisibleColumns = Array.isArray(state.settings.wishlistVisibleColumns) && state.settings.wishlistVisibleColumns.length ? state.settings.wishlistVisibleColumns : DEFAULT_WISHLIST_COLUMNS.slice();
@@ -746,16 +1104,20 @@ function wireTop(){
             state.settings.layoutEditorUnit = (state.settings.layoutEditorUnit === "in" || state.settings.layoutEditorUnit === "ft") ? state.settings.layoutEditorUnit : "ft";
           }
           if(Array.isArray(data.categories)) state.categories = data.categories;
-          if(Array.isArray(data.items)) state.items = data.items;
+          if(Array.isArray(data.items)) state.items = data.items.map(normalizeItemRecord);
 
           if(Array.isArray(data.layouts) && data.layouts.length){
             state.layouts = data.layouts.map(x=>({
               id: x.id || uid("ly"),
               name: x.name || "Layout",
-              layout: normalizeLayout(x.layout || x.data || x, state.settings),
+              layout: normalizeNamedLayout(x.name, x.layout || x.data || x, state.settings),
             }));
-            state.activeLayoutId = (data.activeLayoutId && state.layouts.some(x=>x.id===data.activeLayoutId)) ? data.activeLayoutId : state.layouts[0].id;
-            state.setActiveLayout(state.activeLayoutId);
+            const importedActiveId = (data.activeLayoutId && state.layouts.some(x=>x.id===data.activeLayoutId)) ? data.activeLayoutId : state.layouts[0].id;
+            // setActiveLayout normally saves the current layout before switching.
+            // During a full import there is no current entry to save, so clear the
+            // pointer first to avoid overwriting the imported active layout.
+            state.activeLayoutId = null;
+            state.setActiveLayout(importedActiveId);
           } else if(data.layout){
             state.layout = normalizeLayout(data.layout, state.settings);
             state.layouts = [{ id: uid("ly"), name: "Layout 1", layout: state.layout }];
@@ -816,6 +1178,7 @@ function wireTop(){
           }
           state.tab = "wishlist";
           state.editingId = null;
+          discardPendingDraftModelAsset();
           state.draft = {...DEFAULT_ITEM};
           render();
           alert(`Imported ${added} items from HTML export (images compressed for storage).`);
@@ -901,33 +1264,58 @@ function wireMain(){
       return;
     }
 
+    // Shared plan / 3D / first-person controls.
+    if(t.dataset.action==="spatial_mode"){
+      const mode=String(t.dataset.mode||"");
+      if(!["plan","split","3d"].includes(mode)) return;
+      state.layout.spatialViewMode=mode;
+      render();
+      return;
+    }
+    if(t.dataset.action==="toggle_layout_focus"){
+      state.layoutFocusMode=!state.layoutFocusMode;
+      render();
+      return;
+    }
+    if(t.dataset.action==="spatial_frame_selected"){
+      if(typeof frameSelectedGym3D==="function") frameSelectedGym3D();
+      return;
+    }
+    if(t.dataset.action==="spatial_toggle"){
+      const key=String(t.dataset.key||"");
+      if(!["walls","ceiling","clearances","collisions"].includes(key)) return;
+      state.layout.spatial3d={...DEFAULT_LAYOUT.spatial3d,...(state.layout.spatial3d||{}),[key]:!!t.checked};
+      render();
+      return;
+    }
+    if(t.dataset.action==="spatial_walkthrough_open"){
+      state.layout.walkthroughOpen=true;
+      render();
+      return;
+    }
+    if(t.dataset.action==="spatial_walkthrough_close"){
+      try{ if(document.pointerLockElement) document.exitPointerLock(); }catch{}
+      state.layout.walkthroughOpen=false;
+      render();
+      return;
+    }
+    if(t.dataset.action==="spatial_walkthrough_reset"){
+      if(typeof resetGymWalkthrough==="function") resetGymWalkthrough();
+      return;
+    }
+    if(t.dataset.action==="gym3d_lock"){
+      if(typeof startGymWalkthrough==="function") startGymWalkthrough();
+      return;
+    }
+
     // Layout library actions
     if(t.dataset.action==="layout_new"){
-      const name = prompt("New layout name:", `Layout ${((state.layouts||[]).length||0)+1}`) || "";
-      if(!name.trim()) return;
-      const cur = normalizeLayout(state.layout, state.settings);
-      const newLayout = normalizeLayout({
-        ...DEFAULT_LAYOUT,
-        wallExtensions: deepCopy(cur.wallExtensions||[]),
-        areas: deepCopy(cur.areas||[]),
-        instances: [],
-      }, state.settings);
-      const id = uid("ly");
-      state.layouts = [...(state.layouts||[]), { id, name: name.trim(), layout: newLayout }];
-      if(state.setActiveLayout) state.setActiveLayout(id);
-      state.tab = "layout";
+      if(!performLayoutLibraryAction("new")) return;
       render();
       return;
     }
     if(t.dataset.action==="layout_dup"){
-      const curEntry = (state.layouts||[]).find(x=>x.id===state.activeLayoutId);
-      const baseName = curEntry?.name || "Layout";
-      const name = prompt("Duplicate layout name:", `${baseName} (copy)`) || "";
-      if(!name.trim()) return;
-      const id = uid("ly");
-      state.layouts = [...(state.layouts||[]), { id, name: name.trim(), layout: normalizeLayout(deepCopy(state.layout), state.settings) }];
-      if(state.setActiveLayout) state.setActiveLayout(id);
-      state.tab = "layout";
+      if(!performLayoutLibraryAction("duplicate")) return;
       render();
       return;
     }
@@ -946,12 +1334,7 @@ function wireMain(){
       return;
     }
     if(t.dataset.action==="layout_rename"){
-      const idx = (state.layouts||[]).findIndex(x=>x.id===state.activeLayoutId);
-      if(idx<0) return;
-      const curName = state.layouts[idx].name || "Layout";
-      const name = prompt("Rename layout:", curName) || "";
-      if(!name.trim()) return;
-      state.layouts[idx].name = name.trim();
+      if(!performLayoutLibraryAction("rename")) return;
       render();
       return;
     }
@@ -1190,6 +1573,7 @@ function wireMain(){
     // Go to wishlist to add equipment
     if(t.dataset.action==="goToWishlist"){
       e.preventDefault();
+      discardPendingDraftModelAsset();
       state.tab = "wishlist";
       state.editingId = null;
       state.draft = {...DEFAULT_ITEM};
@@ -1206,6 +1590,7 @@ function wireMain(){
 
     // Cancel edit
     if(t.id==="cancelEdit"){
+      discardPendingDraftModelAsset();
       state.editingId = null;
       state.draft = {...DEFAULT_ITEM};
       render();
@@ -1262,18 +1647,16 @@ function wireMain(){
         });
         if(!toRemove.length) return;
         const removeIds = new Set(toRemove.map(it=> it.id));
-        // Drop any placed instances that reference those items so the layout stays clean.
-        if(state.layout && Array.isArray(state.layout.instances)){
-          state.layout.instances = state.layout.instances.filter(inst=> !removeIds.has(inst.itemId));
-        }
-        if(Array.isArray(state.layouts)){
-          state.layouts = state.layouts.map(l=>{
-            if(!l || !Array.isArray(l.instances)) return l;
-            return { ...l, instances: l.instances.filter(inst=> !removeIds.has(inst.itemId)) };
-          });
-        }
+        const assetRefs=toRemove.map(item=>item.model3dAssetRef).filter(Boolean);
+        removeItemReferencesFromAllLayouts(removeIds);
         state.items = (state.items || []).filter(it=> !removeIds.has(it.id));
+        if(removeIds.has(state.editingId)){
+          discardPendingDraftModelAsset();
+          state.editingId=null;
+          state.draft={...DEFAULT_ITEM};
+        }
         render();
+        assetRefs.forEach(removeUnreferencedModelAsset);
       });
       return;
     }
@@ -1366,18 +1749,27 @@ function wireMain(){
       const lower = new Set((state.categories||[]).map(x=>String(x).toLowerCase()));
       if(payload.category && !lower.has(payload.category.toLowerCase())) state.categories.push(payload.category);
 
+      let previousAssetRef="";
+      let saved=false;
       if(state.editingId){
         const existingItem = state.items.find(it=>it.id===state.editingId);
         if(existingItem){
+          previousAssetRef=String(existingItem.model3dAssetRef||"");
           state.items = state.items.map(it=> it.id===state.editingId ? {...existingItem, ...payload, id: state.editingId} : it);
+          saved=true;
         }
       }else{
         const now = Date.now();
         state.items = [{...DEFAULT_ITEM, ...payload, id: uid("item"), createdAt: now}, ...state.items];
+        saved=true;
       }
+      const pendingRef=pendingDraftModelAssetRef;
+      setPendingDraftModelAsset("");
       state.editingId = null;
       state.draft = {...DEFAULT_ITEM};
       render();
+      if(!saved && pendingRef) removeUnreferencedModelAsset(pendingRef);
+      if(previousAssetRef && previousAssetRef!==payload.model3dAssetRef) removeUnreferencedModelAsset(previousAssetRef);
       return;
     }
 
@@ -1418,6 +1810,7 @@ function wireMain(){
       const id = t.dataset.id;
       const item = state.items.find(x=>x.id===id);
       if(!item) return;
+      discardPendingDraftModelAsset();
       state.tab = "wishlist";
       state.editingId = id;
       state.draft = {...DEFAULT_ITEM, ...item};
@@ -1427,13 +1820,16 @@ function wireMain(){
     if(t.dataset.action==="delete"){
       const id = t.dataset.id;
       if(!confirm("Delete this item?")) return;
+      const deletedItem=state.items.find(x=>x.id===id);
       state.items = state.items.filter(x=>x.id!==id);
-      state.layout.instances = (state.layout.instances||[]).filter(inst=>inst.itemId!==id);
+      removeItemReferencesFromAllLayouts(new Set([id]));
       if(state.editingId===id){
+        discardPendingDraftModelAsset();
         state.editingId = null;
         state.draft = {...DEFAULT_ITEM};
       }
       render();
+      removeUnreferencedModelAsset(deletedItem?.model3dAssetRef);
       return;
     }
     if(t.dataset.action==="place"){
@@ -1706,6 +2102,25 @@ function wireMain(){
       return;
     }
 
+    if(t.dataset.action==="add_wall_feature"){
+      addWallFeature(t.dataset.kind || "mirror");
+      return;
+    }
+    if(t.dataset.action==="remove_wall_feature"){
+      removeWallFeature(t.dataset.id);
+      return;
+    }
+    if(t.dataset.action==="wf_nudge"){
+      const feature=(state.layout.wallFeatures||[]).find(x=>x.id===t.dataset.id);
+      if(!feature) return;
+      const roomData=wallFeatureRoomData(state.layout, state.settings);
+      const wallLength=GymWallFeatures.wallLength(feature, roomData);
+      const start=clamp(GymWallFeatures.start(feature)+safeNum(t.dataset.inches)/12, 0, Math.max(0,wallLength-GymWallFeatures.width(feature)));
+      const parts=splitTotalFtToFtIn(start);
+      patchWallFeature(feature.id, {startFt:parts.ft,startIn:parts.inch});
+      return;
+    }
+
     if(t.dataset.action==="addOutlet"){
       const o = { id: uid("out"), label: "Outlet", xFt: snap(1), xIn: 0, yFt: snap(1), yIn: 0, voltage: "120V" };
       state.layout.outlets = [ ...(state.layout.outlets||[]), o ];
@@ -1857,9 +2272,8 @@ function wireMain(){
       render(); return;
     }
     if(t.dataset.action==="rotateInst"){
-      const id = t.dataset.id;
-      state.layout.instances = (state.layout.instances||[]).map(x=> x.id===id ? {...x, rotated: !x.rotated} : x);
-      render(); return;
+      rotateLayoutInstance90(t.dataset.id);
+      return;
     }
     if(t.dataset.action==="toggleInstSide"){
       const id = t.dataset.id;
@@ -2098,6 +2512,8 @@ function wireMain(){
         f_price:"price", f_fees:"fees",
         f_productLink:"productLink", f_notes:"notes",
         f_rackHolePattern:"rackHolePattern", f_rackCustomSpec:"rackCustomSpec", f_equipmentTags:"equipmentTags",
+        f_model3dFamily:"model3dFamily", f_model3dProfile:"model3dProfile", f_model3dFacing:"model3dFacing",
+        f_model3dAssetRotation:"model3dAssetRotation",
       };
       const key = map[t.id];
       if(key){
@@ -2109,14 +2525,16 @@ function wireMain(){
         if(key==="length" || key==="width" || key==="height" || key==="lengthIn" || key==="widthIn" || key==="heightIn"){
           val = t.value==="" ? "" : safeNum(t.value);
         }
+        if(key==="model3dAssetRotation") val=normalizedModelAssetRotation(val);
         let nextDraft = {...state.draft, [key]: val};
+        if(key === "model3dFamily") nextDraft = {...nextDraft, model3dProfile:"auto"};
         if(key === "unit" && val !== "ft"){
           nextDraft = {...nextDraft, lengthIn:"", widthIn:"", heightIn:""};
         }
         state.draft = nextDraft;
         
         // Re-render for category / unit change (rack fields, ft+inch rows) or product URL (open-link row)
-        if(key === "category" || key === "unit" || key === "productLink"){
+        if(key === "category" || key === "unit" || key === "productLink" || key === "model3dFamily" || key === "model3dProfile"){
           render();
           return;
         }
@@ -2155,6 +2573,45 @@ function wireMain(){
 
     if(t.dataset.action==="area_kind"){
       patchArea(t.dataset.id, {kind: t.value}); return;
+    }
+    if(t.dataset.action==="wf_kind"){
+      patchWallFeature(t.dataset.id, {kind:t.value}); return;
+    }
+    if(t.dataset.action==="wf_label"){
+      patchWallFeature(t.dataset.id, {label:t.value}); return;
+    }
+    if(t.dataset.action==="wf_wall"){
+      patchWallFeature(t.dataset.id, {wall:t.value}); return;
+    }
+    if(t.dataset.action==="wf_color"){
+      patchWallFeature(t.dataset.id, {color:t.value}); return;
+    }
+    if(t.dataset.action==="wf_brightness"){
+      patchWallFeature(t.dataset.id, {brightnessPct:clamp(safeNum(t.value),0,100)}); return;
+    }
+    if(t.dataset.action==="wf_start_ft"){
+      patchWallFeature(t.dataset.id, {startFt:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_start_in"){
+      patchWallFeature(t.dataset.id, {startIn:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_bottom_ft"){
+      patchWallFeature(t.dataset.id, {bottomFt:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_bottom_in"){
+      patchWallFeature(t.dataset.id, {bottomIn:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_width_ft"){
+      patchWallFeature(t.dataset.id, {widthFt:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_width_in"){
+      patchWallFeature(t.dataset.id, {widthIn:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_height_ft"){
+      patchWallFeature(t.dataset.id, {heightFt:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_height_in"){
+      patchWallFeature(t.dataset.id, {heightIn:Math.max(0,safeNum(t.value))}); return;
     }
     if(t.dataset.action==="area_label"){
       patchArea(t.dataset.id, {label: t.value}); return;
@@ -2321,16 +2778,9 @@ function wireMain(){
           return;
         }
         if(actionEl && actionEl.dataset.action==="rotateInst"){
-          const id = actionEl.dataset.id;
-          state.layout.instances = (state.layout.instances||[]).map(x=>{
-            if(x.id!==id) return x;
-            const it = getItemById(x.itemId);
-            const next = {...x, rotated: !x.rotated};
-            if(!it) return next;
-            const er = effectiveRectForInst(next, it);
-            return {...next, __invalid: isInvalidPlacement(id, er.base, er.eff)};
-          });
-          render();
+          // The delegated click route is the sole pointer activation path for
+          // this SVG action. Returning here keeps the gesture out of drag
+          // handling without rotating once on pointerdown and again on click.
           return;
         }
         // Photo-hint shortcut (fires global click handler; we stop here to
@@ -2441,6 +2891,14 @@ function wireMain(){
           if(!inst) return;
           state.layout.selectedInstId = id;
           state.drag = {active:true, type:"inst", id, start:p, origin:{x: instXTotalFt(inst), y: instYTotalFt(inst)}, invalid:false};
+        }else if(type==="wallfeature"){
+          const feature=(state.layout.wallFeatures||[]).find(x=>x.id===id);
+          if(!feature) return;
+          state.layout.selectedWallFeatureId=id;
+          state.drag={active:true,type:"wallfeature",id,start:p,origin:{startFt:GymWallFeatures.start(feature),wall:feature.wall},invalid:false};
+          startWallFeatureDrag(e.pointerId);
+          render();
+          return;
         }else if(type==="area"){
           const area = (state.layout.areas||[]).find(a=>a.id===id);
           if(!area) return;
@@ -2507,6 +2965,7 @@ function wireMain(){
 
       svg.onpointermove = (e)=>{
         if(!state.drag.active) return;
+        if(state.drag.type==="wallfeature") return;
         const p = clientToSvgPoint(svg, e.clientX, e.clientY);
         const dx = p.x - state.drag.start.x;
         const dy = p.y - state.drag.start.y;
@@ -2748,6 +3207,7 @@ function wireMain(){
 
       svg.onpointerup = (e)=>{
         if(!state.drag.active) return;
+        if(state.drag.type==="wallfeature") return;
         const drag = state.drag;
         svg.releasePointerCapture(e.pointerId);
 
@@ -2905,8 +3365,39 @@ function wireMain(){
         render();
       };
 
+      svg.onkeydown=(e)=>{
+        if(e.key!=="Enter" && e.key!==" ") return;
+        const rotate=e.target.closest && e.target.closest('[data-action="rotateInst"]');
+        if(rotate){
+          e.preventDefault();
+          e.stopPropagation();
+          rotateLayoutInstance90(rotate.dataset.id);
+          return;
+        }
+        const inst=e.target.closest && e.target.closest('g[data-type="inst"]');
+        if(inst){
+          e.preventDefault();
+          e.stopPropagation();
+          clearAllSelections();
+          state.layout.selectedInstId=inst.dataset.id;
+          render();
+          return;
+        }
+        const g=e.target.closest && e.target.closest('g[data-type="wallfeature"]');
+        if(!g) return;
+        e.preventDefault();
+        clearAllSelections();
+        state.layout.selectedWallFeatureId=g.dataset.id;
+        render();
+      };
+
   document.addEventListener("keydown", (e)=>{
     if(e.key !== "Escape") return;
+    if(state.layout?.walkthroughOpen && !document.pointerLockElement){
+      state.layout.walkthroughOpen = false;
+      render();
+      return;
+    }
     const box = $("#imgLightbox");
     if(box && box.classList.contains("open")){
       box.classList.remove("open");
@@ -2935,7 +3426,148 @@ function wireLayoutGridContrast(){
   };
 }
 
+function wireSpatialControls(){
+  const updateSpatial=(patch)=>{
+    state.layout.spatial3d={
+      ...DEFAULT_LAYOUT.spatial3d,
+      ...(state.layout.spatial3d||{}),
+      ...patch,
+    };
+    render();
+  };
+
+  const wallColor=$("#spatialWallColor");
+  if(wallColor){
+    wallColor.onchange=()=>{
+      const value=String(wallColor.value||"");
+      updateSpatial({wallColor:["white","black"].includes(value) ? value : DEFAULT_LAYOUT.spatial3d.wallColor});
+    };
+  }
+
+  const floorType=$("#spatialFloorType");
+  if(floorType){
+    floorType.onchange=()=>{
+      const value=String(floorType.value||"");
+      updateSpatial({floorType:["rolled-rubber","rubber-tiles","concrete"].includes(value) ? value : DEFAULT_LAYOUT.spatial3d.floorType});
+    };
+  }
+
+  const fov=$("#spatialFov");
+  if(fov){
+    fov.onchange=()=>{
+      updateSpatial({fovDeg:clamp(Math.round(safeNum(fov.value)||DEFAULT_LAYOUT.spatial3d.fovDeg),55,100)});
+    };
+  }
+
+  const eyeHeight=$("#spatialEyeHeight");
+  if(eyeHeight){
+    eyeHeight.onchange=()=>{
+      updateSpatial({eyeHeightFt:clamp(safeNum(eyeHeight.value)||5.67,4,7)});
+    };
+  }
+
+  const labelMode=$("#spatialLabelMode");
+  if(labelMode){
+    labelMode.onchange=()=>{
+      const value=String(labelMode.value||"");
+      const next=["selected","hover","always","off"].includes(value) ? value : "selected";
+      updateSpatial({labelMode:next,labels:next!=="off"});
+    };
+  }
+}
+
+function wireEquipmentModelControls(){
+  document.querySelectorAll("[data-model-family-item]").forEach(select=>{
+    select.onchange=()=>{
+      const itemId=String(select.dataset.modelFamilyItem||"");
+      const value=String(select.value||"auto");
+      if(!itemId || !MODEL3D_FAMILIES.some(x=>x.value===value)) return;
+      state.items=(state.items||[]).map(item=>item.id===itemId ? {...item,model3dFamily:value,model3dProfile:"auto"} : item);
+      if(state.draft?.id===itemId) state.draft={...state.draft,model3dFamily:value,model3dProfile:"auto"};
+      render();
+    };
+  });
+
+  document.querySelectorAll("[data-model-facing-item]").forEach(select=>{
+    select.onchange=()=>{
+      const itemId=String(select.dataset.modelFacingItem||"");
+      const value=select.value==="reverse" ? "reverse" : "default";
+      if(!itemId) return;
+      state.items=(state.items||[]).map(item=>item.id===itemId ? {...item,model3dFacing:value} : item);
+      if(state.draft?.id===itemId) state.draft={...state.draft,model3dFacing:value};
+      render();
+    };
+  });
+
+  document.querySelectorAll("[data-model-profile-item]").forEach(select=>{
+    select.onchange=()=>{
+      const itemId=String(select.dataset.modelProfileItem||"");
+      const value=String(select.value||"auto");
+      if(!itemId || !MODEL3D_PROFILES.some(x=>x.value===value)) return;
+      state.items=(state.items||[]).map(item=>item.id===itemId ? {...item,model3dProfile:value} : item);
+      if(state.draft?.id===itemId) state.draft={...state.draft,model3dProfile:value};
+      render();
+    };
+  });
+
+  document.querySelectorAll("[data-model-asset-file-item]").forEach(input=>{
+    input.onchange=async()=>{
+      const itemId=String(input.dataset.modelAssetFileItem||"");
+      const file=input.files?.[0];
+      try{ input.value=""; }catch{}
+      if(!itemId || !file) return;
+      input.disabled=true;
+      const status=input.closest("label")?.querySelector("[data-model-asset-label]");
+      if(status) status.textContent="Loading model…";
+      try{
+        await attachModelAssetToItem(itemId,file);
+      }catch(error){
+        input.disabled=false;
+        if(status) status.textContent="Try another .glb";
+        alert(String(error?.message||error||"Could not add that GLB model."));
+      }
+    };
+  });
+
+  document.querySelectorAll("[data-remove-model-asset-item]").forEach(button=>{
+    button.onclick=()=>detachModelAssetFromItem(String(button.dataset.removeModelAssetItem||""));
+  });
+
+  document.querySelectorAll("[data-model-asset-rotation-item]").forEach(select=>{
+    select.onchange=()=>{
+      const itemId=String(select.dataset.modelAssetRotationItem||"");
+      if(!itemId) return;
+      const rotation=normalizedModelAssetRotation(select.value);
+      state.items=(state.items||[]).map(item=>item.id===itemId ? {...item,model3dAssetRotation:rotation} : item);
+      if(state.editingId===itemId) state.draft={...state.draft,model3dAssetRotation:rotation};
+      render();
+    };
+  });
+}
+
 function wireWishlistExtras(){
+  const modelAssetFile=$("#f_model3dAssetFile");
+  if(modelAssetFile){
+    modelAssetFile.onchange=async()=>{
+      const file=modelAssetFile.files?.[0];
+      try{ modelAssetFile.value=""; }catch{}
+      if(!file) return;
+      modelAssetFile.disabled=true;
+      const status=modelAssetFile.closest("label")?.querySelector("[data-model-asset-label]");
+      if(status) status.textContent="Loading model…";
+      try{
+        await attachModelAssetToDraft(file);
+      }catch(error){
+        modelAssetFile.disabled=false;
+        if(status) status.textContent="Try another .glb";
+        alert(String(error?.message||error||"Could not add that GLB model."));
+      }
+    };
+  }
+
+  const removeModelAsset=$("#f_removeModel3dAsset");
+  if(removeModelAsset) removeModelAsset.onclick=detachModelAssetFromDraft;
+
   const layoutUseChk = $("#f_layoutUseImage");
   if(layoutUseChk){
     layoutUseChk.onchange = ()=>{

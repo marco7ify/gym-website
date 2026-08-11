@@ -274,16 +274,30 @@ function pointInRoom(x, y, rects){
 }
 
 function rectInsideRoom(rect){
-  const x0 = rect.x, y0 = rect.y, x1 = rect.x + rect.w, y1 = rect.y + rect.h;
-  const pts = [
-    [x0,y0],[x1,y0],[x0,y1],[x1,y1],
-    [(x0+x1)/2,y0],[(x0+x1)/2,y1],[x0,(y0+y1)/2],[x1,(y0+y1)/2],
-    [(x0+x1)/2,(y0+y1)/2],
-  ];
   const r = room();
   const rs = r.validRects || r.rects;
-  for(const [x,y] of pts){
-    if(!pointInRoom(x, y, rs)) return false;
+  const x0=rect.x, y0=rect.y, x1=rect.x+rect.w, y1=rect.y+rect.h;
+  const yBreaks=[y0,y1];
+  for(const zone of rs){
+    const top=zone.y, bottom=zone.y+zone.h;
+    if(top>y0 && top<y1) yBreaks.push(top);
+    if(bottom>y0 && bottom<y1) yBreaks.push(bottom);
+  }
+  yBreaks.sort((a,b)=>a-b);
+  for(let i=0;i<yBreaks.length-1;i++){
+    const mid=(yBreaks[i]+yBreaks[i+1])/2;
+    const spans=rs
+      .filter(zone=>zone.y<=mid && zone.y+zone.h>=mid)
+      .map(zone=>({start:Math.max(x0,zone.x),end:Math.min(x1,zone.x+zone.w)}))
+      .filter(span=>span.end>=span.start)
+      .sort((a,b)=>a.start-b.start);
+    let covered=x0;
+    for(const span of spans){
+      if(span.start>covered+1e-9) return false;
+      covered=Math.max(covered,span.end);
+      if(covered>=x1-1e-9) break;
+    }
+    if(covered<x1-1e-9) return false;
   }
   return true;
 }
@@ -708,6 +722,217 @@ const BODY_PART_TAG_MAP = {
   "Full Body":   ["Chest", "Back", "Shoulders", "Biceps", "Triceps", "Quads", "Hamstrings", "Glutes", "Calves", "Core", "Cardio"],
 };
 
+const MODEL3D_FAMILIES = [
+  {value:"auto", label:"Auto-detect from equipment"},
+  {value:"smith-cable", label:"Smith / cable machine"},
+  {value:"pulley-tower", label:"Pulley tower"},
+  {value:"leg-press", label:"Leg press / hack squat"},
+  {value:"rowing-machine", label:"Row / rowing machine"},
+  {value:"adductor", label:"Adductor / abductor"},
+  {value:"treadmill", label:"Treadmill"},
+  {value:"stair-climber", label:"Stair climber"},
+  {value:"bike", label:"Exercise bike"},
+  {value:"bench", label:"Adjustable bench"},
+  {value:"storage-rack", label:"Dumbbell / storage rack"},
+  {value:"strength-rack", label:"Strength rack / cage"},
+  {value:"cold-plunge", label:"Cold plunge"},
+  {value:"sauna", label:"Sauna"},
+  {value:"general", label:"General selectorized machine"},
+];
+
+const MODEL3D_PROFILES = [
+  {value:"auto", label:"Auto-match saved equipment"},
+  {value:"standard", label:"Standard family model"},
+  {value:"rx3-compact-smith", label:"Get RX'd RX3 Tornado Compact Smith"},
+  {value:"compact-smith", label:"Compact dual-stack Smith"},
+  {value:"commercial-stair", label:"Enclosed commercial stairmill"},
+  {value:"selectorized-seated-row", label:"Selectorized seated row"},
+  {value:"seated-standing-row", label:"Seated / standing row"},
+  {value:"gazelle-pro", label:"RitFit Gazelle Pro 3-in-1"},
+  {value:"sled-leg-press", label:"Incline leg press / hack squat"},
+  {value:"incline-bench", label:"Adjustable incline bench"},
+  {value:"step-in-plunge", label:"Step-in cold plunge"},
+  {value:"maxwell-903bh", label:"Maxwell 903BH 3-person sauna"},
+  {value:"infrared-sauna", label:"Glass-front infrared sauna"},
+  {value:"three-tier-rack", label:"Three-tier dumbbell rack"},
+  {value:"adductor-combo", label:"Combo adductor / abductor"},
+  {value:"incline-treadmill", label:"Incline treadmill"},
+  {value:"ice-barrel-500", label:"Ice Barrel 500"},
+  {value:"syedee-stair-machine", label:"syedee Stair Machine"},
+  {value:"nordictrack-x16", label:"NordicTrack X16 Treadmill"},
+  {value:"ritfit-gator-bench", label:"RitFit GATOR adjustable bench"},
+  {value:"brightway-hs08-row", label:"Brightway HS08 rowing machine"},
+  {value:"shizhuo-seated-standing-row", label:"Shizhuo seated / standing row"},
+  {value:"wanjia-combo-adductor", label:"Wanjia combo adductor / abductor"},
+  {value:"yindun-three-tier-rack", label:"Yindun three-tier dumbbell rack"},
+];
+
+const MODEL3D_PROFILE_FAMILY = {
+  "rx3-compact-smith":"smith-cable",
+  "compact-smith":"smith-cable",
+  "commercial-stair":"stair-climber",
+  "selectorized-seated-row":"rowing-machine",
+  "seated-standing-row":"rowing-machine",
+  "gazelle-pro":"leg-press",
+  "sled-leg-press":"leg-press",
+  "incline-bench":"bench",
+  "step-in-plunge":"cold-plunge",
+  "maxwell-903bh":"sauna",
+  "infrared-sauna":"sauna",
+  "three-tier-rack":"storage-rack",
+  "adductor-combo":"adductor",
+  "incline-treadmill":"treadmill",
+  "ice-barrel-500":"cold-plunge",
+  "syedee-stair-machine":"stair-climber",
+  "nordictrack-x16":"treadmill",
+  "ritfit-gator-bench":"bench",
+  "brightway-hs08-row":"rowing-machine",
+  "shizhuo-seated-standing-row":"rowing-machine",
+  "wanjia-combo-adductor":"adductor",
+  "yindun-three-tier-rack":"storage-rack",
+};
+
+const DEDICATED_MODEL_PROFILES = new Set([
+  "ice-barrel-500",
+  "syedee-stair-machine",
+  "nordictrack-x16",
+  "ritfit-gator-bench",
+  "brightway-hs08-row",
+  "shizhuo-seated-standing-row",
+  "wanjia-combo-adductor",
+  "yindun-three-tier-rack",
+  "gazelle-pro",
+  "maxwell-903bh",
+  "rx3-compact-smith",
+]);
+
+function inferEquipmentModelFamily(item){
+  const text = `${item?.category||""} ${item?.name||""} ${item?.equipmentTypes||""}`.toLowerCase();
+  if(/sauna/.test(text)) return "sauna";
+  if(/ice barrel|cold plunge|plunge tub/.test(text)) return "cold-plunge";
+  if(/stair|stepper|stairmill/.test(text)) return "stair-climber";
+  if(/smith|functional trainer|cable crossover/.test(text)) return "smith-cable";
+  if(/pulley tower|weight stack.*tower|single tower/.test(text)) return "pulley-tower";
+  if(/leg press|hack squat/.test(text)) return "leg-press";
+  if(/adductor|abductor/.test(text)) return "adductor";
+  if(/rower|rowing|seated(?:\s*[-/]\s*|\s+)standing row|seated row|t.?bar.*row|linear row/.test(text)) return "rowing-machine";
+  if(/treadmill/.test(text)) return "treadmill";
+  if(/bike|cycle/.test(text)) return "bike";
+  if(/bench/.test(text)) return "bench";
+  if(/dumbbell|kettlebell|plate|storage|tree/.test(text)) return "storage-rack";
+  if(/rack|rig|cage/.test(text)) return "strength-rack";
+  return "general";
+}
+
+function equipmentModelFamily(item){
+  const requested = String(item?.model3dFamily||"auto");
+  return MODEL3D_FAMILIES.some(x=>x.value===requested && requested!=="auto")
+    ? requested
+    : inferEquipmentModelFamily(item);
+}
+
+function equipmentModelFamilyLabel(value){
+  return MODEL3D_FAMILIES.find(x=>x.value===value)?.label || "General selectorized machine";
+}
+
+function normalizedEquipmentModelText(value){
+  return String(value||"").toLowerCase().replace(/\s+/g," ").trim();
+}
+
+function canonicalEquipmentModelText(value){
+  return String(value||"").normalize("NFKD").toLowerCase()
+    .replace(/[\u2010-\u2015\u2212]/g,"-")
+    .replace(/&/g," and ")
+    .replace(/[/-]/g," ")
+    .replace(/[^a-z0-9]+/g," ")
+    .replace(/\s+/g," ").trim();
+}
+
+function inferEquipmentModelProfile(item){
+  const brand=normalizedEquipmentModelText(item?.brand);
+  const name=normalizedEquipmentModelText(item?.name);
+  const canonicalBrand=canonicalEquipmentModelText(item?.brand);
+  const canonicalName=canonicalEquipmentModelText(item?.name);
+  const text = `${brand} ${name} ${normalizedEquipmentModelText(item?.category)}`.trim();
+  const exact=(expectedBrand,expectedName)=>canonicalBrand===expectedBrand && canonicalName===expectedName;
+  const wanjiaDimensions=()=>{
+    const fp=footprint(item);
+    return Math.abs(fp.L-4.99)<=.02 && Math.abs(fp.W-2.38)<=.02 && Math.abs(fp.H-4.61)<=.02;
+  };
+
+  if(exact("ice barrel","ice barrel 500")) return "ice-barrel-500";
+  if(exact("syedee","stair machine")) return "syedee-stair-machine";
+  if(exact("nordictrack","x16 treadmill")) return "nordictrack-x16";
+  if(exact("ritfit","ritfit gator 1600lb adjustable weight bench")) return "ritfit-gator-bench";
+  if(exact("shandong brightway fitness","hs08 rowing machine")) return "brightway-hs08-row";
+  if(exact("dezhou shizhuo fitness technology co ltd","seated standing row")) return "shizhuo-seated-standing-row";
+  if(exact("shandong wanjia fitness equipment","combo adductor and abductor") && wanjiaDimensions()) return "wanjia-combo-adductor";
+  if(exact("dezhou yindun seiko technology co ltd","three tier dumbbell rack")) return "yindun-three-tier-rack";
+
+  if(/rx3 tornado compact smith/.test(text)) return "rx3-compact-smith";
+  if(/stair machine|stairmill|stair climber/.test(text)) return "commercial-stair";
+  if(/hs08/.test(text)) return "selectorized-seated-row";
+  if(/seated.?standing row/.test(text)) return "seated-standing-row";
+  if(/gazelle pro/.test(text)) return "gazelle-pro";
+  if(/leg press|hack squat/.test(text)) return "sled-leg-press";
+  if(/gator.*bench|adjustable.*bench/.test(text)) return "incline-bench";
+  if(/ice barrel 500|step.?in.*plunge/.test(text)) return "step-in-plunge";
+  if(/maxwell.?903bh/.test(text)) return "maxwell-903bh";
+  if(/maxwell.*sauna|infrared sauna/.test(text)) return "infrared-sauna";
+  if(/three.?tier.*dumbbell/.test(text)) return "three-tier-rack";
+  if(/combo adductor|adductor.*abductor|abductor.*adductor/.test(text)) return "adductor-combo";
+  if(/x16 treadmill|incline treadmill/.test(text)) return "incline-treadmill";
+  return "standard";
+}
+
+function equipmentModelProfile(item){
+  const requested = String(item?.model3dProfile||"auto");
+  const raw = MODEL3D_PROFILES.some(x=>x.value===requested && requested!=="auto")
+    ? requested
+    : inferEquipmentModelProfile(item);
+  if(raw==="standard") return raw;
+  return MODEL3D_PROFILE_FAMILY[raw]===equipmentModelFamily(item) ? raw : "standard";
+}
+
+function equipmentModelProfileLabel(value){
+  return MODEL3D_PROFILES.find(x=>x.value===value)?.label || "Standard family model";
+}
+
+function equipmentModelPresentation(profile,hasCustomAsset,fp){
+  const longFaceProfile=!hasCustomAsset && [
+    "maxwell-903bh","infrared-sauna","rx3-compact-smith","compact-smith",
+    "three-tier-rack","yindun-three-tier-rack",
+  ].includes(profile);
+  return {
+    longFaceProfile,
+    modelBase:longFaceProfile
+      ? {w:Math.max(.4,fp.L),h:Math.max(.4,fp.W)}
+      : {w:Math.max(.4,fp.W),h:Math.max(.4,fp.L)},
+    profileFacingRotation:profile==="maxwell-903bh" ? -Math.PI/2 : (longFaceProfile ? Math.PI/2 : 0),
+  };
+}
+
+function itemUsesPhotoMatched3d(item){
+  return !itemHasLocal3dModel(item) && DEDICATED_MODEL_PROFILES.has(equipmentModelProfile(item));
+}
+
+function equipmentModelProfilesForItem(item){
+  const family=equipmentModelFamily(item);
+  return MODEL3D_PROFILES.filter(x=>x.value==="auto" || x.value==="standard" || MODEL3D_PROFILE_FAMILY[x.value]===family);
+}
+
+function itemHasLocal3dModel(item){
+  return String(item?.model3dAssetRef||"").startsWith("local:");
+}
+
+function formatFileSize(bytes){
+  const value=Math.max(0,safeNum(bytes));
+  if(!value) return "";
+  if(value<1024) return `${Math.round(value)} B`;
+  if(value<1024*1024) return `${round1(value/1024)} KB`;
+  return `${round1(value/(1024*1024))} MB`;
+}
+
 const DEFAULT_ITEM = {
   id:"",
   name:"",
@@ -755,7 +980,43 @@ const DEFAULT_ITEM = {
   layoutImageDataUrl: "",
   /** When true and layoutImageDataUrl is set, layout SVG shows the photo inside the footprint. */
   layoutUseImage: false,
+  /** Parametric 3D shape. "auto" infers the closest family from the item name/category. */
+  model3dFamily: "auto",
+  /** Item-specific detail profile tuned from references and inferred from the saved item name. */
+  model3dProfile: "auto",
+  /** Reverse turns only the visual model 180°; the measured footprint and plan rotation stay unchanged. */
+  model3dFacing: "default",
+  /** IndexedDB reference to an optional user-supplied binary GLB model. */
+  model3dAssetRef: "",
+  model3dAssetName: "",
+  model3dAssetSize: 0,
+  model3dAssetUpdatedAt: 0,
+  /** Quarter-turn applied to a custom GLB before it is fitted to the measured envelope. */
+  model3dAssetRotation: 0,
 };
+
+function normalizeItemRecord(value){
+  const source=value && typeof value==="object" ? value : {};
+  const image=normalizeDataImageUrl(source.layoutImageDataUrl);
+  const ref=/^local:[a-z0-9_-]+$/i.test(String(source.model3dAssetRef||""))
+    ? String(source.model3dAssetRef)
+    : "";
+  const rotation=Number(source.model3dAssetRotation);
+  return {
+    ...DEFAULT_ITEM,
+    ...source,
+    layoutImageDataUrl:image,
+    layoutUseImage:!!image || !!source.layoutUseImage,
+    model3dFamily:MODEL3D_FAMILIES.some(x=>x.value===source.model3dFamily) ? source.model3dFamily : "auto",
+    model3dProfile:MODEL3D_PROFILES.some(x=>x.value===source.model3dProfile) ? source.model3dProfile : "auto",
+    model3dFacing:source.model3dFacing==="reverse" ? "reverse" : "default",
+    model3dAssetRef:ref,
+    model3dAssetName:ref ? String(source.model3dAssetName||"Local GLB").slice(0,180) : "",
+    model3dAssetSize:ref ? Math.max(0,Number(source.model3dAssetSize)||0) : 0,
+    model3dAssetUpdatedAt:ref ? Math.max(0,Number(source.model3dAssetUpdatedAt)||0) : 0,
+    model3dAssetRotation:[0,90,180,270].includes(rotation) ? rotation : 0,
+  };
+}
 
 const DEFAULT_LAYOUT = {
   instances: [],
@@ -765,6 +1026,7 @@ const DEFAULT_LAYOUT = {
   ceilingZones: [],
   floorZones: [],
   flooringPieces: [],
+  wallFeatures: [],
   // Staging / parking zone size preset. Controls how wide (and sometimes
   // taller) the off-room staging strip is so you can park more equipment
   // there while rearranging. One of "small" | "medium" | "large" | "xlarge".
@@ -784,6 +1046,24 @@ const DEFAULT_LAYOUT = {
   selectedCeilingZoneId: null,
   selectedFloorZoneId: null,
   selectedFlooringId: null,
+  selectedWallFeatureId: null,
+  // A single spatial state powers the plan, split, 3D, and walkthrough views.
+  // Keeping these preferences with each saved layout makes switching layouts
+  // feel predictable without changing the underlying placement data.
+  spatialViewMode: "plan",
+  spatial3d: {
+    walls: true,
+    ceiling: false,
+    clearances: true,
+    collisions: true,
+    labels: false,
+    labelMode: "selected",
+    eyeHeightFt: 5.67,
+    wallColor: "white",
+    floorType: "rolled-rubber",
+    fovDeg: 80,
+  },
+  walkthroughOpen: false,
 };
 
 function loadJSON(key, fallback){
@@ -912,6 +1192,21 @@ function wallExtToRect(ext, baseW, baseL){
   }
 }
 
+function wallFeatureRoomData(layout, settings){
+  const sourceSettings=settings && typeof settings==="object" ? settings : DEFAULT_SETTINGS;
+  const W=settingsRoomWidthTotalFt(sourceSettings);
+  const L=settingsRoomLengthTotalFt(sourceSettings);
+  return {
+    W,
+    L,
+    ceiling:settingsCeilingHeightTotalFt(sourceSettings),
+    rects:[
+      {x:0,y:0,w:W,h:L},
+      ...(Array.isArray(layout?.wallExtensions) ? layout.wallExtensions : []).map(ext=>wallExtToRect(ext,W,L)),
+    ],
+  };
+}
+
 /**
  * Normalize persisted layout data. Pass `settingsForRoomMigration` whenever `state` may not
  * exist yet (e.g. while building initial `state`) so old `roomBlocks` migration does not
@@ -926,6 +1221,26 @@ function normalizeLayout(l, settingsForRoomMigration){
   base.ceilingZones = Array.isArray(base.ceilingZones) ? base.ceilingZones : [];
   base.floorZones = Array.isArray(base.floorZones) ? base.floorZones : [];
   base.flooringPieces = Array.isArray(base.flooringPieces) ? base.flooringPieces : [];
+  base.wallFeatures = Array.isArray(base.wallFeatures) ? base.wallFeatures : [];
+  base.spatialViewMode = ["plan", "split", "3d"].includes(base.spatialViewMode) ? base.spatialViewMode : "plan";
+  const sourceSpatial3d = base.spatial3d && typeof base.spatial3d === "object" ? base.spatial3d : {};
+  base.spatial3d = {
+    ...DEFAULT_LAYOUT.spatial3d,
+    ...sourceSpatial3d,
+  };
+  base.spatial3d.labelMode = ["selected", "hover", "always", "off"].includes(sourceSpatial3d.labelMode)
+    ? sourceSpatial3d.labelMode
+    : (Object.prototype.hasOwnProperty.call(sourceSpatial3d, "labels") && sourceSpatial3d.labels === false ? "off" : "selected");
+  base.spatial3d.labels = base.spatial3d.labelMode !== "off";
+  base.spatial3d.eyeHeightFt = clamp(safeNum(base.spatial3d.eyeHeightFt) || 5.67, 4, 7);
+  base.spatial3d.wallColor = ["white", "black"].includes(base.spatial3d.wallColor)
+    ? base.spatial3d.wallColor
+    : DEFAULT_LAYOUT.spatial3d.wallColor;
+  base.spatial3d.floorType = ["rolled-rubber", "rubber-tiles", "concrete"].includes(base.spatial3d.floorType)
+    ? base.spatial3d.floorType
+    : DEFAULT_LAYOUT.spatial3d.floorType;
+  base.spatial3d.fovDeg = clamp(Math.round(safeNum(base.spatial3d.fovDeg) || DEFAULT_LAYOUT.spatial3d.fovDeg), 55, 100);
+  base.walkthroughOpen = false;
   base.compareItems = Array.isArray(base.compareItems)
     ? base.compareItems.map(x=> String(x)).filter(Boolean)
     : [];
@@ -1150,7 +1465,39 @@ function normalizeLayout(l, settingsForRoomMigration){
     price: safeNum(f.price),
   }));
 
+  const wallFeatureRoom=wallFeatureRoomData(base,settingsForRoomMigration || DEFAULT_SETTINGS);
+  const wallFeatureIds=new Set();
+  const freshWallFeatureId=()=>{
+    let id="";
+    do{ id=String(uid("wf")||"").trim(); }while(!id || wallFeatureIds.has(id));
+    return id;
+  };
+  base.wallFeatures=base.wallFeatures
+    .filter(feature=>feature && typeof feature==="object" && GymWallFeatures.KINDS.includes(feature.kind) && GymWallFeatures.SIDES.includes(feature.wall))
+    .map(feature=>{
+      const sourceId=typeof feature.id==="string" ? feature.id.trim() : "";
+      const id=sourceId && !wallFeatureIds.has(sourceId) ? sourceId : freshWallFeatureId();
+      wallFeatureIds.add(id);
+      return GymWallFeatures.normalize({...feature,id},wallFeatureRoom,()=>id,base);
+    });
+  const selectedWallFeatureId=typeof base.selectedWallFeatureId==="string"
+    ? base.selectedWallFeatureId.trim()
+    : "";
+  base.selectedWallFeatureId=wallFeatureIds.has(selectedWallFeatureId)
+    ? selectedWallFeatureId
+    : null;
+
   return base;
+}
+
+function normalizeNamedLayout(name, rawLayout, settings){
+  const source=rawLayout && typeof rawLayout==="object" ? rawLayout : {};
+  const hadWallFeatures=Object.prototype.hasOwnProperty.call(source,"wallFeatures");
+  const normalized=normalizeLayout(source,settings);
+  if(!hadWallFeatures && String(name||"").trim().toLowerCase()==="layout 3"){
+    normalized.wallFeatures=GymWallFeatures.layout3Starter();
+  }
+  return normalized;
 }
 
 function loadInitialSettings(){
@@ -1186,10 +1533,7 @@ const state = {
   items: (()=>{
     const it = loadJSON(LS.items, null);
     if(Array.isArray(it) && it.length){
-      return it.map(x=>{
-        const img = normalizeDataImageUrl(x.layoutImageDataUrl);
-        return {...DEFAULT_ITEM, ...x, layoutImageDataUrl: img, layoutUseImage: !!img || !!x.layoutUseImage};
-      });
+      return it.map(normalizeItemRecord);
     }
     return [{
       ...DEFAULT_ITEM,
@@ -1224,6 +1568,8 @@ const state = {
   layoutExpandedItemId: null,
   layoutExpandedTab: "general",
   layoutToolsPanelOpen: false,
+  layoutFocusMode: false,
+  layoutActionStatus: null,
   wishlistCategoriesOpen: false,
   exportDialogOpen: false,
   exportMode: "full",
@@ -1242,7 +1588,7 @@ const state = {
     state.layouts = lib.map(x=>({
       id: x.id || uid("ly"),
       name: x.name || "Layout",
-      layout: normalizeLayout(x.layout || x.data || x, state.settings),
+      layout: normalizeNamedLayout(x.name, x.layout || x.data || x, state.settings),
     }));
   } else {
     state.layouts = [{
@@ -1272,6 +1618,7 @@ const state = {
     state.layout.selectedWallExtId = null;
     state.layout.selectedCeilingZoneId = null;
     state.layout.selectedFloorZoneId = null;
+    state.layout.selectedWallFeatureId = null;
     state._roomCache = null;
   }
 
@@ -1915,6 +2262,16 @@ function instanceDims(inst, item){
   return inst.rotated ? {w:len, h:wid} : {w:wid, h:len};
 }
 
+function rotatedInstanceCandidate(inst,item){
+  const oldDims=instanceDims(inst,item);
+  const candidate={...inst,rotated:!inst.rotated};
+  const newDims=instanceDims(candidate,item);
+  const x=instXTotalFt(inst)+(oldDims.w-newDims.w)/2;
+  const y=instYTotalFt(inst)+(oldDims.h-newDims.h)/2;
+  const clean=n=>Math.round(n*1200)/1200;
+  return {...candidate,xFt:clean(x),xIn:0,yFt:clean(y),yIn:0};
+}
+
 function deadspaceConfig(inst){
   const r = room();
   const ov = instDeadspaceOverrideTotalFt(inst);
@@ -1949,6 +2306,20 @@ function effectiveRectForInst(inst, item){
     maxX=Math.max(maxX,r.x+r.w); maxY=Math.max(maxY,r.y+r.h);
   });
   return {base, eff:{x:minX,y:minY,w:maxX-minX,h:maxY-minY}, halos, cfg};
+}
+
+// The 2D editor includes a parking strip beside the physical room. Items in
+// that strip remain part of the layout library, but they are not physically in
+// the room and must not leak into the orbit view, walkthrough, collisions, or
+// minimap.
+function layoutRoomInstances(layout=state.layout, roomData=room()){
+  const staging = roomData && roomData.staging;
+  return (Array.isArray(layout?.instances) ? layout.instances : []).filter(inst=>{
+    const item = getItemById(inst.itemId);
+    if(!item) return false;
+    const base = effectiveRectForInst(inst, item).base;
+    return !(staging && rectInsideRect(base, staging));
+  });
 }
 
 function areaRect(a){
@@ -2210,11 +2581,13 @@ function isInvalidPlacement(instId, baseRect, effRect){
 // another item's body (or a hard-blocked area). This is the ONLY condition that
 // causes a drag to snap back. Halo/clearance overlap alone is a soft warning so
 // users can still stick items to walls even when clearance zones touch.
-function isHardInvalidPlacement(instId, baseRect){
+function hardPlacementConflict(instId, baseRect){
   const r = room();
-  if(!rectInsideRoom(baseRect)) return true;
+  if(!rectInsideRoom(baseRect)){
+    return {kind:"outside-room", message:"Can’t rotate here — the equipment would extend outside the room."};
+  }
   // Free-placement zone: anything inside staging is always hard-valid.
-  if(rectInsideRect(baseRect, r.staging || layoutStagingRect(r))) return false;
+  if(rectInsideRect(baseRect, r.staging || layoutStagingRect(r))) return null;
 
   const blockedKinds = new Set(
     Array.isArray(state.settings.reservedAreaKindsBlockPlacement)
@@ -2224,23 +2597,35 @@ function isHardInvalidPlacement(instId, baseRect){
 
   for(const a of state.layout.areas||[]){
     if(!blockedKinds.has(a.kind)) continue;
-    if(rectsOverlap(baseRect, areaRect(a))) return true;
+    const areaName=String(a.label||"").trim() || kindMeta(a.kind).label;
+    if(rectsOverlap(baseRect, areaRect(a))){
+      return {kind:"reserved-area", areaId:a.id, message:`Can’t rotate here — it would overlap ${areaName}.`};
+    }
     const dc = doorClearanceRect(a);
-    if(dc && rectsOverlap(baseRect, dc)) return true;
+    if(dc && rectsOverlap(baseRect, dc)){
+      return {kind:"door-clearance", areaId:a.id, message:`Can’t rotate here — it would block the clearance for ${areaName}.`};
+    }
   }
   for(const other of state.layout.instances||[]){
     if(other.id===instId) continue;
     const it = getItemById(other.itemId);
     if(!it) continue;
-    const otherBase = {
-      x: instXTotalFt(other),
-      y: instYTotalFt(other),
-      w: instanceDims(other, it).w,
-      h: instanceDims(other, it).h,
-    };
-    if(rectsOverlap(baseRect, otherBase)) return true;
+    const otherBase=effectiveRectForInst(other, it).base;
+    if(rectsOverlap(baseRect, otherBase)){
+      const itemName=String(it.name||"").trim() || "another item";
+      return {
+        kind:"equipment-overlap",
+        instanceId:other.id,
+        itemId:other.itemId,
+        message:`Can’t rotate here — it would overlap ${itemName}.`,
+      };
+    }
   }
-  return false;
+  return null;
+}
+
+function isHardInvalidPlacement(instId, baseRect){
+  return !!hardPlacementConflict(instId, baseRect);
 }
 
 function snap(v){
@@ -2286,20 +2671,25 @@ function captureFocus(){
   const el = document.activeElement;
   if(!el) return null;
   const tag = (el.tagName||"").toLowerCase();
-  if(!["input","textarea","select"].includes(tag)) return null;
+  const textControl=["input","textarea","select"].includes(tag);
+  const focusKey=el.dataset?.focusKey || "";
+  const hasStableButtonTarget=tag==="button" && !!(el.id || focusKey || (el.dataset?.action && el.dataset?.id));
+  if(!textControl && !hasStableButtonTarget) return null;
 
-  const info = { tag, id: el.id || null, selector: null, selection: null };
+  const info = { tag, id: el.id || null, focusKey: focusKey || null, selector: null, selection: null };
   if(!info.id){
-    const act = el.dataset && el.dataset.action ? el.dataset.action : "";
-    const did = el.dataset && el.dataset.id ? el.dataset.id : "";
-    if(act || did){
-      const parts = [];
-      if(act) parts.push(`[data-action="${cssEscapeAttrForSelector(act)}"]`);
-      if(did) parts.push(`[data-id="${cssEscapeAttrForSelector(did)}"]`);
-      info.selector = parts.join("");
+    if(!info.focusKey){
+      const act = el.dataset && el.dataset.action ? el.dataset.action : "";
+      const did = el.dataset && el.dataset.id ? el.dataset.id : "";
+      if(act || did){
+        const parts = [];
+        if(act) parts.push(`[data-action="${cssEscapeAttrForSelector(act)}"]`);
+        if(did) parts.push(`[data-id="${cssEscapeAttrForSelector(did)}"]`);
+        info.selector = parts.join("");
+      }
     }
   }
-  if(typeof el.selectionStart === "number"){
+  if(textControl && typeof el.selectionStart === "number"){
     info.selection = { start: el.selectionStart, end: el.selectionEnd, dir: el.selectionDirection || "none" };
   }
   return info;
@@ -2309,6 +2699,7 @@ function restoreFocus(info){
   if(!info) return;
   let el = null;
   if(info.id) el = document.getElementById(info.id);
+  else if(info.focusKey) el = document.querySelector(`[data-focus-key="${cssEscapeAttrForSelector(info.focusKey)}"]`);
   else if(info.selector) el = document.querySelector(info.selector);
 
   if(el){
@@ -2366,6 +2757,7 @@ function clearAllSelections(){
   state.layout.selectedCeilingZoneId = null;
   state.layout.selectedFloorZoneId = null;
   state.layout.selectedFlooringId = null;
+  state.layout.selectedWallFeatureId = null;
 }
 
 function getFlooringType(typeId){
