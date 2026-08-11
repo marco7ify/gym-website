@@ -2412,6 +2412,8 @@ function doorArcPath(a){
 
 function resizeHandles(target, id, rect){
   const hs = 0.35;
+  const safeTarget = escapeAttr(target);
+  const safeId = escapeAttr(id);
   const x0 = rect.x, y0 = rect.y, x1 = rect.x + rect.w, y1 = rect.y + rect.h;
   const xm = (x0+x1)/2, ym = (y0+y1)/2;
 
@@ -2422,7 +2424,7 @@ function resizeHandles(target, id, rect){
   ];
 
   return pts.map(([h,x,y])=>(
-    `<rect data-resize="${target}" data-id="${id}" data-handle="${h}" x="${x - hs/2}" y="${y - hs/2}" width="${hs}" height="${hs}" class="handle" />`
+    `<rect data-resize="${safeTarget}" data-id="${safeId}" data-handle="${escapeAttr(h)}" x="${x - hs/2}" y="${y - hs/2}" width="${hs}" height="${hs}" class="handle" />`
   )).join("");
 }
 

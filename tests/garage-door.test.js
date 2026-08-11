@@ -226,6 +226,31 @@ garagePlanUiTest("shows architectural-only garage policy copy and omits personne
   });
 });
 
+garagePlanUiTest("escapes a persisted garage ID in every selected SVG resize handle",()=>{
+  const maliciousId='garage" onmouseover="window.__garageIdInjected=1';
+  const area=garagePlanArea({id:maliciousId});
+  const markup=garageDoorAreaSvg(area,{rects:GARAGE_ROOM_RECTS},true);
+  const parsed=new DOMParser().parseFromString(`<svg xmlns="http://www.w3.org/2000/svg">${markup}</svg>`,"image/svg+xml");
+  GymTests.equal(parsed.querySelectorAll("parsererror").length,0);
+  const handles=[...parsed.querySelectorAll('[data-resize="area"]')];
+  GymTests.equal(handles.length,8);
+  handles.forEach(handle=>GymTests.equal(handle.getAttribute("data-id"),maliciousId));
+  GymTests.equal(parsed.querySelectorAll("[onmouseover]").length,0);
+});
+
+garagePlanUiTest("escapes a persisted garage ID across selected-area inspector controls",()=>{
+  const maliciousId='garage" onmouseover="window.__garageIdInjected=1';
+  const area=garagePlanArea({id:maliciousId});
+  withGaragePlanState(area,()=>{
+    const holder=document.createElement("div");
+    holder.innerHTML=selectedAreaPanel(area);
+    const controls=[...holder.querySelectorAll("[data-id]")];
+    GymTests.assert(controls.length>0,"Expected selected-area controls with data IDs");
+    controls.forEach(control=>GymTests.equal(control.getAttribute("data-id"),maliciousId));
+    GymTests.equal(holder.querySelectorAll("[onmouseover]").length,0);
+  });
+});
+
 garagePlanUiTest("describes an ordinary area's effective global reservation policy",()=>{
   const area={id:"walkway",kind:"walkway",label:"Walkway",xFt:1,yFt:1,widthFt:2,heightFt:2};
   withGaragePlanState(area,()=>{

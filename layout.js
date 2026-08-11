@@ -1490,6 +1490,7 @@ function selectedAreaPanel(area){
   const areaSqFt=round1(areaWidthTotalFt(area)*areaHeightTotalFt(area));
   const subtracts=areaSubtractsSpace(area);
   const blocks=areaBlocksPlacement(area);
+  const areaId=escapeAttr(area.id);
   const policySummary=`This ${areaSqFt}-square-foot editor footprint ${subtracts?"is subtracted from usable space":"is not subtracted from usable space"} and ${blocks?"blocks equipment":"does not block equipment"}.`;
 
   const stepNote = layoutEditorUnit()==="in"
@@ -1502,7 +1503,7 @@ function selectedAreaPanel(area){
           <div class="h1">Selected area</div>
           <div class="h2">${escapeHtml(m.label)}</div>
         </div>
-        <button class="btn danger" data-action="removeArea" data-id="${area.id}">Remove</button>
+        <button class="btn danger" data-action="removeArea" data-id="${areaId}">Remove</button>
       </div>
       <div class="bd">
         <div class="muted" style="font-size:12px;margin-bottom:8px;line-height:1.45;">
@@ -1511,11 +1512,11 @@ function selectedAreaPanel(area){
         </div>
         <div class="two">
           ${field("Type", `
-            <select data-action="area_kind" data-id="${area.id}">
+            <select data-action="area_kind" data-id="${areaId}">
               ${AREA_KINDS.map(k=>`<option value="${k.value}" ${area.kind===k.value?"selected":""}>${escapeHtml(k.label)}</option>`).join("")}
             </select>
           `)}
-          ${field("Label", `<input data-action="area_label" data-id="${area.id}" value="${escapeAttr(area.label||"")}" />`)}
+          ${field("Label", `<input data-action="area_label" data-id="${areaId}" value="${escapeAttr(area.label||"")}" />`)}
           ${layoutFtInRow(layoutAxisLabel("X"), area.id, area.xFt, area.xIn ?? 0, "area_x_ft", "area_x_in", "area_x")}
           ${layoutFtInRow(layoutAxisLabel("Y"), area.id, area.yFt, area.yIn ?? 0, "area_y_ft", "area_y_in", "area_y")}
           ${layoutFtInRow(layoutAxisLabel("Width"), area.id, area.widthFt, area.widthIn ?? 0, "area_w_ft", "area_w_in", "area_w", "Total min 6 in")}
@@ -1538,20 +1539,20 @@ function selectedAreaPanel(area){
 
             <div class="two" style="margin-top:10px;">
               ${field("Enable swing zone", `
-                <select data-action="area_doorEnabled" data-id="${area.id}">
+                <select data-action="area_doorEnabled" data-id="${areaId}">
                   <option value="true" ${area.doorClearEnabled!==false?"selected":""}>On</option>
                   <option value="false" ${area.doorClearEnabled===false?"selected":""}>Off</option>
                 </select>
               `)}
               ${field("Orientation", `
-                <select data-action="area_doorOrientation" data-id="${area.id}">
+                <select data-action="area_doorOrientation" data-id="${areaId}">
                   <option value="auto" ${(area.doorOrientation||"auto")==="auto"?"selected":""}>Auto</option>
                   <option value="horizontal" ${(area.doorOrientation||"auto")==="horizontal"?"selected":""}>Horizontal</option>
                   <option value="vertical" ${(area.doorOrientation||"auto")==="vertical"?"selected":""}>Vertical</option>
                 </select>
               `)}
               ${field("Swing direction", `
-                <select data-action="area_doorSwing" data-id="${area.id}">
+                <select data-action="area_doorSwing" data-id="${areaId}">
                   <option value="down" ${area.doorSwing==="down"?"selected":""}>Down</option>
                   <option value="up" ${area.doorSwing==="up"?"selected":""}>Up</option>
                   <option value="right" ${area.doorSwing==="right"?"selected":""}>Right</option>
@@ -1559,12 +1560,12 @@ function selectedAreaPanel(area){
                 </select>
               `)}
               ${field("Hinge", `
-                <select data-action="area_doorHinge" data-id="${area.id}">
+                <select data-action="area_doorHinge" data-id="${areaId}">
                   <option value="start" ${(area.doorHinge||"start")==="start"?"selected":""}>Start</option>
                   <option value="end" ${(area.doorHinge||"start")==="end"?"selected":""}>End</option>
                 </select>
               `)}
-              ${field("Swing radius", (()=>{ const drAuto = (area.doorRadiusFt==null || area.doorRadiusFt==="") && safeNum(area.doorRadiusIn)<=0; const inV = drAuto ? 0 : safeNum(area.doorRadiusIn); return `<div class="row" style="gap:8px; align-items:center; flex-wrap:wrap;"><input type="number" min="0" step="1" inputmode="numeric" style="flex:1; min-width:72px;" data-action="area_doorRadius_ft" data-id="${area.id}" value="${drAuto ? "" : escapeAttr(area.doorRadiusFt ?? 0)}" placeholder="ft" /><span class="muted" style="font-size:12px;">ft</span>${layoutInchSuffix(area.id, inV, "area_doorRadius_in", "area_door_r")}</div>`; })(), "(blank = auto)")}
+              ${field("Swing radius", (()=>{ const drAuto = (area.doorRadiusFt==null || area.doorRadiusFt==="") && safeNum(area.doorRadiusIn)<=0; const inV = drAuto ? 0 : safeNum(area.doorRadiusIn); return `<div class="row" style="gap:8px; align-items:center; flex-wrap:wrap;"><input type="number" min="0" step="1" inputmode="numeric" style="flex:1; min-width:72px;" data-action="area_doorRadius_ft" data-id="${areaId}" value="${drAuto ? "" : escapeAttr(area.doorRadiusFt ?? 0)}" placeholder="ft" /><span class="muted" style="font-size:12px;">ft</span>${layoutInchSuffix(area.id, inV, "area_doorRadius_in", "area_door_r")}</div>`; })(), "(blank = auto)")}
             </div>
 
             ${dc ? `<div class="muted" style="font-size:12px;margin-top:10px;">Swing zone: ~${round1(dc.w)}×${round1(dc.h)} ft</div>` : ``}
@@ -1579,18 +1580,18 @@ function selectedAreaPanel(area){
 
           <div class="row" style="justify-content:flex-start; gap:8px; margin-top:10px; flex-wrap:wrap;">
             <span class="pill">Extend</span>
-            <button class="btn" data-action="area_extend" data-id="${area.id}" data-dir="left">←</button>
-            <button class="btn" data-action="area_extend" data-id="${area.id}" data-dir="right">→</button>
-            <button class="btn" data-action="area_extend" data-id="${area.id}" data-dir="up">↑</button>
-            <button class="btn" data-action="area_extend" data-id="${area.id}" data-dir="down">↓</button>
+            <button class="btn" data-action="area_extend" data-id="${areaId}" data-dir="left">←</button>
+            <button class="btn" data-action="area_extend" data-id="${areaId}" data-dir="right">→</button>
+            <button class="btn" data-action="area_extend" data-id="${areaId}" data-dir="up">↑</button>
+            <button class="btn" data-action="area_extend" data-id="${areaId}" data-dir="down">↓</button>
           </div>
 
           <div class="row" style="justify-content:flex-start; gap:8px; margin-top:10px; flex-wrap:wrap;">
             <span class="pill">Shrink</span>
-            <button class="btn" data-action="area_shrink" data-id="${area.id}" data-dir="left">←</button>
-            <button class="btn" data-action="area_shrink" data-id="${area.id}" data-dir="right">→</button>
-            <button class="btn" data-action="area_shrink" data-id="${area.id}" data-dir="up">↑</button>
-            <button class="btn" data-action="area_shrink" data-id="${area.id}" data-dir="down">↓</button>
+            <button class="btn" data-action="area_shrink" data-id="${areaId}" data-dir="left">←</button>
+            <button class="btn" data-action="area_shrink" data-id="${areaId}" data-dir="right">→</button>
+            <button class="btn" data-action="area_shrink" data-id="${areaId}" data-dir="up">↑</button>
+            <button class="btn" data-action="area_shrink" data-id="${areaId}" data-dir="down">↓</button>
           </div>
         </div>
 
