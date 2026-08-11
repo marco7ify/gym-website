@@ -435,8 +435,10 @@
     GymTests.assert(screen.pos.x-screen.size.x/2>=housing.pos.x-housing.size.x/2
       && screen.pos.x+screen.size.x/2<=housing.pos.x+housing.size.x/2
       && screen.pos.y-screen.size.y/2>=housing.pos.y-housing.size.y/2
-      && screen.pos.y+screen.size.y/2<=housing.pos.y+housing.size.y/2,
-    "Stair screen face must remain bounded by its housing");
+      && screen.pos.y+screen.size.y/2<=housing.pos.y+housing.size.y/2
+      && screen.pos.z-screen.size.z/2>=housing.pos.z-housing.size.z/2
+      && screen.pos.z+screen.size.z/2<=housing.pos.z+housing.size.z/2,
+    "Stair screen must remain fully bounded by its housing");
     GymTests.assert(screen.material.emissive && screen.options.castShadow===false && screen.options.receiveShadow===false,"Stair screen must be emissive and shadowless");
 
     const rails=partsByTag(parts,"stair-handrail");

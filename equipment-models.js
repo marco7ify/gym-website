@@ -134,7 +134,7 @@
       {partTag:"stair-console-mast"});
     addBox({x:w*.70,y:h*.20,z:d*.055},{x:0,y:h*.86,z:-d*.415},shroud,
       {partTag:"stair-console-housing"});
-    addBox({x:w*.60,y:h*.135,z:d*.012},{x:0,y:h*.86,z:-d*.445},screen,
+    addBox({x:w*.60,y:h*.135,z:d*.012},{x:0,y:h*.86,z:-d*.4364},screen,
       {partTag:"stair-console-screen",castShadow:false,receiveShadow:false});
 
     const railPath=[
