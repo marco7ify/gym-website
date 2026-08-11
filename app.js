@@ -2172,6 +2172,16 @@ function instanceDims(inst, item){
   return inst.rotated ? {w:len, h:wid} : {w:wid, h:len};
 }
 
+function rotatedInstanceCandidate(inst,item){
+  const oldDims=instanceDims(inst,item);
+  const candidate={...inst,rotated:!inst.rotated};
+  const newDims=instanceDims(candidate,item);
+  const x=instXTotalFt(inst)+(oldDims.w-newDims.w)/2;
+  const y=instYTotalFt(inst)+(oldDims.h-newDims.h)/2;
+  const clean=n=>Math.round(n*1200)/1200;
+  return {...candidate,xFt:clean(x),xIn:0,yFt:clean(y),yIn:0};
+}
+
 function deadspaceConfig(inst){
   const r = room();
   const ov = instDeadspaceOverrideTotalFt(inst);

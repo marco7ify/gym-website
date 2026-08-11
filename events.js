@@ -92,6 +92,43 @@ function refreshInstInvalid(id){
   });
 }
 
+function setLayoutActionStatus(instId,tone,message){
+  state.layoutActionStatus={instId,tone,message};
+}
+
+function rotateLayoutInstance90(instId){
+  const inst=(state.layout.instances||[]).find(x=>x.id===instId);
+  const item=inst ? getItemById(inst.itemId) : null;
+  if(!inst || !item){
+    setLayoutActionStatus(instId,"error","That equipment is no longer in this layout.");
+    render();
+    return {ok:false,reason:"not-found"};
+  }
+
+  const candidate=rotatedInstanceCandidate(inst,item);
+  const candidateRect=effectiveRectForInst(candidate,item);
+  const conflict=hardPlacementConflict(instId,candidateRect.base);
+  if(conflict){
+    setLayoutActionStatus(instId,"error",conflict.message);
+    render();
+    return {ok:false,reason:"hard-invalid",conflict};
+  }
+
+  const invalid=isInvalidPlacement(instId,candidateRect.base,candidateRect.eff);
+  const next={...candidate,__invalid:invalid};
+  state.layout.instances=(state.layout.instances||[]).map(x=>x.id===instId ? next : x);
+  if(invalid){
+    setLayoutActionStatus(instId,"warning","Rotated 90°. Clearance overlaps another item, so it is shown in red.");
+    render();
+    return {ok:true,reason:"soft-conflict",instance:next};
+  }
+
+  const name=String(item.name||"").trim() || "equipment";
+  setLayoutActionStatus(instId,"success",`Rotated ${name} 90°.`);
+  render();
+  return {ok:true,reason:"rotated",instance:next};
+}
+
 function wallFeatureDragPatch(feature, originStartFt, deltaFt, roomData){
   const maxStart=Math.max(0,GymWallFeatures.wallLength(feature, roomData)-GymWallFeatures.width(feature));
   const parts=splitTotalFtToFtIn(clamp(safeNum(originStartFt)+safeNum(deltaFt),0,maxStart));
@@ -2210,9 +2247,8 @@ function wireMain(){
       render(); return;
     }
     if(t.dataset.action==="rotateInst"){
-      const id = t.dataset.id;
-      state.layout.instances = (state.layout.instances||[]).map(x=> x.id===id ? {...x, rotated: !x.rotated} : x);
-      render(); return;
+      rotateLayoutInstance90(t.dataset.id);
+      return;
     }
     if(t.dataset.action==="toggleInstSide"){
       const id = t.dataset.id;
@@ -2718,15 +2754,9 @@ function wireMain(){
         }
         if(actionEl && actionEl.dataset.action==="rotateInst"){
           const id = actionEl.dataset.id;
-          state.layout.instances = (state.layout.instances||[]).map(x=>{
-            if(x.id!==id) return x;
-            const it = getItemById(x.itemId);
-            const next = {...x, rotated: !x.rotated};
-            if(!it) return next;
-            const er = effectiveRectForInst(next, it);
-            return {...next, __invalid: isInvalidPlacement(id, er.base, er.eff)};
-          });
-          render();
+          e.preventDefault();
+          e.stopPropagation();
+          rotateLayoutInstance90(id);
           return;
         }
         // Photo-hint shortcut (fires global click handler; we stop here to
