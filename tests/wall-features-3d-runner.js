@@ -21,7 +21,7 @@ try{
     "./test-harness.js?v=task4-fix2",
     "../wall-features.js?v=wall-final-fix-2-green-1",
     "../app.js?v=wall-final-fix-green-1",
-    "../view3d.js?v=wall-final-fix-green-1",
+    "../view3d.js?v=37",
     "./wall-features-3d.test.js?v=task4-fix2",
   ]) await loadClassicScript(src);
   GymTests.finish();

@@ -238,6 +238,30 @@
     }finally{ fixture.destroy(); }
   });
 
+  GymTests.test("leaves the camera unchanged when every room-valid equipment frame is obstructed",()=>{
+    const fixture=createEquipmentDispatchFixture({items:[dedicatedItems[0]],instances:[
+      {id:"inst_ice",itemId:"ice",xFt:16,xIn:6,yFt:11,yIn:6,rotated:false},
+    ]});
+    try{
+      const obstruction=new THREE.Group();
+      obstruction.position.set(18,0,14);
+      obstruction.userData.worldFootprint={widthFt:35,depthFt:27,heightFt:1};
+      fixture.view.itemGroups.set("full-room-obstruction",obstruction);
+      const before={...fixture.view.orbit};
+      const targetBefore=fixture.view.target.toArray();
+      const positionBefore=fixture.view.camera.position.toArray();
+      const quaternionBefore=fixture.view.camera.quaternion.toArray();
+      const framedBefore=fixture.host.dataset.framedSelected||"";
+      state.layout.selectedInstId="inst_ice";
+      fixture.view.frameSelected();
+      GymTests.deepEqual(fixture.view.orbit,before,"An obstructed framing request must preserve the current camera orbit");
+      GymTests.deepEqual(fixture.view.target.toArray(),targetBefore,"An obstructed framing request must preserve the camera target");
+      GymTests.deepEqual(fixture.view.camera.position.toArray(),positionBefore,"An obstructed framing request must preserve the camera position");
+      GymTests.deepEqual(fixture.view.camera.quaternion.toArray(),quaternionBefore,"An obstructed framing request must preserve the camera orientation");
+      GymTests.equal(fixture.host.dataset.framedSelected||"",framedBefore,"An obstructed request must not report a successful frame");
+    }finally{ fixture.destroy(); }
+  });
+
   GymTests.test("frames the saved dense Ice and Yindun placements from a clear front-oblique path",()=>{
     const fixture=createEquipmentDispatchFixture({items:[dedicatedItems[0],dedicatedItems[7]],instances:[
       {id:"inst_ice",itemId:"ice",xFt:0,xIn:0,yFt:9,yIn:0,rotated:false},

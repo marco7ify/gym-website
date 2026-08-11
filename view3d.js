@@ -2392,8 +2392,7 @@ class Gym3DView {
         .filter((radius,index,all)=>index===0 || Math.abs(radius-all[index-1])>.01);
       const candidates=[...frontAngles,...oppositeAngles,...ringAngles];
       const choices=radii.flatMap(radius=>candidates.map(candidate=>({radius,candidate})));
-      const choice=choices.find(({radius,candidate})=>!this.frameCandidateBlocked(group,focus,radius,candidate,1.06))
-        || choices.find(({radius,candidate})=>!this.frameCandidateRoomBlocked(focus,radius,candidate,1.06));
+      const choice=choices.find(({radius,candidate})=>!this.frameCandidateBlocked(group,focus,radius,candidate,1.06));
       if(!choice) return;
       theta=choice.candidate;
       idealRadius=choice.radius;

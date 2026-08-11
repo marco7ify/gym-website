@@ -22,8 +22,8 @@ try{
     "../wall-features.js?v=2",
     "../app.js?v=83",
     "../equipment-models.js?v=2",
-    "../view3d.js?v=36",
-    "./equipment-dispatch-3d.test.js?v=5",
+    "../view3d.js?v=37",
+    "./equipment-dispatch-3d.test.js?v=7",
   ]) await loadClassicScript(src);
   GymTests.finish();
 }catch(error){
