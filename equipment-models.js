@@ -8,8 +8,8 @@
     const material=spec=>view.material(spec);
     const addBox=(size,pos,mat,options={})=>view.box(group,size,pos,mat,{...options,instId:inst.id});
     const addCylinder=(radius,length,pos,mat,options={})=>view.cylinder(group,radius,length,pos,mat,{...options,instId:inst.id});
-    const addBeam=(start,end,width,mat,depth=width)=>view.beam(group,start,end,width,depth,mat,{instId:inst.id});
-    const addTube=(start,end,radius,mat,segments=14)=>view.tube(group,start,end,radius,mat,{instId:inst.id,segments});
+    const addBeam=(start,end,width,mat,depth=width,options={})=>view.beam(group,start,end,width,depth,mat,{...options,instId:inst.id});
+    const addTube=(start,end,radius,mat,segments=14,options={})=>view.tube(group,start,end,radius,mat,{...options,instId:inst.id,segments});
     return {w,d,h,material,addBox,addCylinder,addBeam,addTube};
   }
 
@@ -154,10 +154,164 @@
     return "photo-matched RitFit GATOR bench";
   }
 
+  function buildBrightwayHS08RowModel(view,group,inst,base,height){
+    const {w,d,h,material,addBox,addCylinder,addBeam,addTube}=createModelKit(view,group,inst,base,height);
+    const frame=material({color:0x14171a,roughness:.5,metalness:.44,envMapIntensity:.72});
+    const black=material({color:0x050607,roughness:.91,metalness:.03,envMapIntensity:.13});
+    const shroud=material({color:0x1b2024,roughness:.7,metalness:.2,envMapIntensity:.35});
+    const chrome=material({color:0xb8c2c8,roughness:.2,metalness:.9,envMapIntensity:1.1});
+    const red=material({color:0xb91c1c,roughness:.42,metalness:.34,envMapIntensity:.72});
+    const grip=material({color:0x07090a,roughness:.96,metalness:0,envMapIntensity:.08});
+    const plateZ=d*.31;
+
+    // A narrow pair of rails keeps the floor open from the compact user zone to the rear stack.
+    [-1,1].forEach(sign=>{
+      addBeam({x:sign*w*.31,y:h*.055,z:-d*.39},{x:sign*w*.31,y:h*.055,z:d*.38},w*.035,frame,w*.045);
+      addBox({x:w*.12,y:h*.07,z:d*.23},{x:sign*w*.31,y:h*.06,z:-d*.36},frame);
+    });
+    addBeam({x:-w*.32,y:h*.08,z:d*.34},{x:w*.32,y:h*.08,z:d*.34},w*.04,frame,w*.04);
+
+    // Full-height rear stack: individually visible black selector plates, rods, and a restrained shroud.
+    addBox({x:w*.48,y:h*.7,z:d*.2},{x:0,y:h*.44,z:d*.34},shroud);
+    for(let plate=0;plate<11;plate++){
+      addBox({x:w*.4,y:h*.038,z:d*.12},{x:0,y:h*(.18+plate*.045),z:plateZ},black,{signature:"hs08-selector-plate"});
+    }
+    [-1,1].forEach(sign=>{
+      addCylinder(w*.018,h*.57,{x:sign*w*.16,y:h*.49,z:d*.28},chrome,{segments:14});
+      addBeam({x:sign*w*.23,y:h*.11,z:d*.32},{x:sign*w*.23,y:h*.82,z:d*.32},w*.026,frame,w*.026);
+    });
+    addBox({x:w*.5,y:h*.055,z:d*.23},{x:0,y:h*.8,z:d*.32},frame);
+
+    // The elevated rear U/yoke feeds two red articulated pull arms down toward the local-front pads.
+    addBox({x:w*.72,y:h*.075,z:d*.1},{x:0,y:h*.84,z:d*.31},red,{signature:"hs08-red-yoke"});
+    [-1,1].forEach(sign=>{
+      addBeam({x:sign*w*.3,y:h*.83,z:d*.29},{x:sign*w*.3,y:h*.67,z:d*.08},w*.035,red,w*.045);
+      addBeam({x:sign*w*.3,y:h*.67,z:d*.08},{x:sign*w*.22,y:h*.43,z:-d*.18},w*.035,red,w*.045);
+      addTube({x:sign*w*.22,y:h*.43,z:-d*.18},{x:sign*w*.25,y:h*.38,z:-d*.25},w*.018,red,12);
+      addCylinder(w*.032,w*.15,{x:sign*w*.25,y:h*.37,z:-d*.27},grip,{rotationZ:Math.PI/2,segments:14});
+    });
+    addBox({x:w*.42,y:h*.12,z:d*.28},{x:0,y:h*.25,z:-d*.12},black,{rotationX:-.12});
+    addBox({x:w*.44,y:h*.2,z:d*.13},{x:0,y:h*.39,z:-d*.17},black,{rotationX:.42});
+    [-1,1].forEach(sign=>{
+      addBox({x:w*.24,y:h*.055,z:d*.2},{x:sign*w*.22,y:h*.115,z:-d*.34},shroud,{signature:"hs08-footplate"});
+      addBox({x:w*.19,y:h*.015,z:d*.15},{x:sign*w*.22,y:h*.146,z:-d*.34},black,{castShadow:false});
+    });
+    return "photo-matched Brightway HS08 row";
+  }
+
+  function buildShizhuoSeatedStandingRowModel(view,group,inst,base,height){
+    const {w,d,h,material,addBox,addCylinder,addBeam,addTube}=createModelKit(view,group,inst,base,height);
+    const frame=material({color:0x14181b,roughness:.5,metalness:.45,envMapIntensity:.7});
+    const black=material({color:0x07090a,roughness:.94,metalness:.01,envMapIntensity:.08});
+    const platform=material({color:0x20262a,roughness:.82,metalness:.12,envMapIntensity:.25});
+    const chrome=material({color:0xb9c3c8,roughness:.21,metalness:.88,envMapIntensity:1.1});
+    const red=material({color:0xb91c1c,roughness:.42,metalness:.34,envMapIntensity:.7});
+
+    // This is deliberately a low, open chassis: no selector tower or enclosing shroud.
+    [-1,1].forEach(sign=>{
+      addBeam({x:sign*w*.28,y:h*.055,z:-d*.36},{x:sign*w*.28,y:h*.055,z:d*.24},w*.04,frame,w*.05);
+      addBox({x:w*.14,y:h*.075,z:d*.2},{x:sign*w*.28,y:h*.065,z:d*.25},frame);
+    });
+    addBox({x:w*.74,y:h*.06,z:d*.36},{x:0,y:h*.1,z:-d*.27},platform);
+    for(let stripe=0;stripe<5;stripe++) addBox({x:w*.62,y:h*.012,z:d*.018},{x:0,y:h*.135,z:-d*(.41-stripe*.055)},black,{castShadow:false});
+    addBeam({x:-w*.31,y:h*.12,z:-d*.14},{x:w*.31,y:h*.12,z:-d*.14},w*.035,frame,w*.035);
+    addCylinder(w*.055,w*.5,{x:0,y:h*.37,z:-d*.03},chrome,{rotationZ:Math.PI/2,segments:16});
+    addBox({x:w*.42,y:h*.13,z:d*.25},{x:0,y:h*.31,z:-d*.04},black,{rotationX:-.18});
+    addBox({x:w*.48,y:h*.17,z:d*.13},{x:0,y:h*.51,z:d*.02},black,{rotationX:.5});
+    [-1,1].forEach(sign=>{
+      addBox({x:w*.075,y:h*.43,z:d*.075},{x:sign*w*.27,y:h*.55,z:-d*.03},red,{rotationX:.64,signature:"shizhuo-red-arm"});
+      addTube({x:sign*w*.27,y:h*.37,z:-d*.18},{x:sign*w*.3,y:h*.3,z:-d*.27},.018,red,12);
+      addCylinder(w*.035,w*.16,{x:sign*w*.31,y:h*.29,z:-d*.29},black,{rotationZ:Math.PI/2,segments:14});
+      addCylinder(w*.022,w*.18,{x:sign*w*.29,y:h*.42,z:d*.22},chrome,{rotationZ:Math.PI/2,segments:14,signature:"shizhuo-empty-weight-horn"});
+      addCylinder(w*.036,w*.03,{x:sign*w*.39,y:h*.42,z:d*.22},black,{rotationZ:Math.PI/2,segments:14});
+    });
+    addBeam({x:-w*.24,y:h*.18,z:d*.22},{x:w*.24,y:h*.18,z:d*.22},w*.03,frame,w*.03);
+    addBox({x:w*.5,y:h*.045,z:d*.08},{x:0,y:h*.17,z:d*.26},frame);
+    return "photo-matched Shizhuo seated-standing row";
+  }
+
+  function buildWanjiaComboAdductorModel(view,group,inst,base,height){
+    const {w,d,h,material,addBox,addCylinder,addBeam,addTube}=createModelKit(view,group,inst,base,height);
+    const frame=material({color:0x15191c,roughness:.5,metalness:.44,envMapIntensity:.7});
+    const black=material({color:0x050607,roughness:.94,metalness:.01,envMapIntensity:.08});
+    const shroud=material({color:0x20262a,roughness:.7,metalness:.18,envMapIntensity:.32});
+    const chrome=material({color:0xbfc8cc,roughness:.2,metalness:.9,envMapIntensity:1.1});
+    const red=material({color:0xb91c1c,roughness:.43,metalness:.33,envMapIntensity:.68});
+
+    // Two spaced rails leave the centre work area open and readable from above.
+    [-1,1].forEach(sign=>{
+      addBeam({x:sign*w*.34,y:h*.055,z:-d*.37},{x:sign*w*.34,y:h*.055,z:d*.3},w*.038,frame,w*.05,{signature:"wanjia-open-base-rail"});
+    });
+    addBeam({x:-w*.34,y:h*.07,z:d*.28},{x:w*.34,y:h*.07,z:d*.28},w*.04,frame,w*.04);
+    addBox({x:w*.42,y:h*.13,z:d*.24},{x:0,y:h*.22,z:-d*.08},black);
+    addBox({x:w*.45,y:h*.2,z:d*.13},{x:0,y:h*.42,z:d*.02},black,{rotationX:.48});
+
+    // Side/rear stack remains dark and separate from the red pad mechanism.
+    addBox({x:w*.32,y:h*.68,z:d*.2},{x:w*.27,y:h*.42,z:d*.31},shroud);
+    for(let plate=0;plate<10;plate++){
+      addBox({x:w*.26,y:h*.042,z:d*.11},{x:w*.27,y:h*(.17+plate*.048),z:d*.31},black,{signature:"wanjia-selector-plate"});
+    }
+    [-1,1].forEach(sign=>{
+      addCylinder(w*.015,h*.57,{x:w*(.27+sign*.095),y:h*.49,z:d*.27},chrome,{segments:14});
+    });
+    addBox({x:w*.36,y:h*.05,z:d*.22},{x:w*.27,y:h*.79,z:d*.3},frame);
+
+    [-1,1].forEach(sign=>{
+      addBox({x:w*.065,y:h*.39,z:d*.08},{x:sign*w*.25,y:h*.51,z:-d*.06},red,{rotationX:sign*.5,signature:"wanjia-red-pivot-arm"});
+      addCylinder(h*.05,w*.14,{x:sign*w*.37,y:h*.58,z:-d*.12},black,{rotationZ:Math.PI/2,segments:14});
+      addCylinder(h*.05,w*.14,{x:sign*w*.37,y:h*.44,z:-d*.2},black,{rotationZ:Math.PI/2,segments:14});
+      addTube({x:sign*w*.34,y:h*.29,z:-d*.21},{x:sign*w*.42,y:h*.22,z:-d*.28},.016,chrome,12);
+      addCylinder(w*.026,w*.12,{x:sign*w*.42,y:h*.22,z:-d*.29},black,{rotationZ:Math.PI/2,segments:14});
+      addBox({x:w*.18,y:h*.055,z:d*.16},{x:sign*w*.25,y:h*.115,z:-d*.36},frame);
+    });
+    addBeam({x:-w*.23,y:h*.2,z:-d*.24},{x:w*.23,y:h*.2,z:-d*.24},w*.03,frame,w*.03);
+    addBox({x:w*.43,y:h*.055,z:d*.1},{x:0,y:h*.13,z:-d*.38},frame);
+    return "photo-matched Wanjia combo adductor";
+  }
+
+  function buildYindunThreeTierRackModel(view,group,inst,base,height){
+    const {w,d,h,material,addBox,addBeam}=createModelKit(view,group,inst,base,height);
+    const gray=material({color:0x626b70,roughness:.52,metalness:.5,envMapIntensity:.72});
+    const darkRubber=material({color:0x111417,roughness:.93,metalness:.02,envMapIntensity:.1});
+    const endX=[-w*.42,w*.42];
+    const railTiers=[.34,.55,.76];
+
+    // Two open A-frame ends support the long rails without adding a base slab.
+    endX.forEach(x=>{
+      [-1,1].forEach(sign=>{
+        addBeam({x,y:h*.08,z:sign*d*.39},{x,y:h*.84,z:sign*d*.2},w*.035,gray,w*.045);
+        addBeam({x,y:h*.08,z:sign*d*.39},{x,y:h*.84,z:sign*d*.05},w*.03,gray,w*.04);
+      });
+      addBeam({x,y:h*.08,z:-d*.4},{x,y:h*.08,z:d*.4},w*.035,gray,w*.04);
+      addBeam({x,y:h*.84,z:-d*.2},{x,y:h*.84,z:d*.2},w*.03,gray,w*.035);
+    });
+    railTiers.forEach((tier,tierIndex)=>{
+      [-1,1].forEach(sign=>{
+        addBeam({x:-w*.38,y:h*(tier-.035),z:sign*d*.24},{x:w*.38,y:h*(tier+.035),z:sign*d*.24},w*.035,gray,w*.045,{signature:"yindun-long-rail"});
+      });
+      const y=h*tier;
+      for(let station=0;station<6;station++){
+        const x=w*(-.29+station*.116);
+        [-1,1].forEach(sign=>{
+          // Opposing dark blocks make one empty V/saddle; the centre gap must remain visible.
+          addBox({x:w*.085,y:h*.09,z:d*.12},{x,y,z:sign*d*.18},darkRubber,{rotationX:sign*.34,signature:"yindun-empty-saddle"});
+        });
+      }
+      if(tierIndex<2) addBeam({x:w*.39,y:h*(tier+.04),z:-d*.2},{x:w*.39,y:h*(tier+.04),z:d*.2},w*.025,gray,w*.03);
+    });
+    addBeam({x:-w*.42,y:h*.12,z:-d*.36},{x:w*.42,y:h*.12,z:d*.36},w*.028,gray,w*.035);
+    addBeam({x:-w*.42,y:h*.12,z:d*.36},{x:w*.42,y:h*.12,z:-d*.36},w*.028,gray,w*.035);
+    return "photo-matched empty Yindun three-tier rack";
+  }
+
   BUILDERS["ice-barrel-500"]=buildIceBarrel500Model;
   BUILDERS["syedee-stair-machine"]=buildSyedeeStairMachineModel;
   BUILDERS["nordictrack-x16"]=buildNordicTrackX16Model;
   BUILDERS["ritfit-gator-bench"]=buildRitfitGatorBenchModel;
+  BUILDERS["brightway-hs08-row"]=buildBrightwayHS08RowModel;
+  BUILDERS["shizhuo-seated-standing-row"]=buildShizhuoSeatedStandingRowModel;
+  BUILDERS["wanjia-combo-adductor"]=buildWanjiaComboAdductorModel;
+  BUILDERS["yindun-three-tier-rack"]=buildYindunThreeTierRackModel;
 
   window.GymEquipmentModels=Object.freeze({has:key=>!!BUILDERS[key],keys:()=>Object.keys(BUILDERS),build,createModelKit});
 })();

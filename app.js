@@ -898,6 +898,20 @@ function equipmentModelProfileLabel(value){
   return MODEL3D_PROFILES.find(x=>x.value===value)?.label || "Standard family model";
 }
 
+function equipmentModelPresentation(profile,hasCustomAsset,fp){
+  const longFaceProfile=!hasCustomAsset && [
+    "maxwell-903bh","infrared-sauna","rx3-compact-smith","compact-smith",
+    "three-tier-rack","yindun-three-tier-rack",
+  ].includes(profile);
+  return {
+    longFaceProfile,
+    modelBase:longFaceProfile
+      ? {w:Math.max(.4,fp.L),h:Math.max(.4,fp.W)}
+      : {w:Math.max(.4,fp.W),h:Math.max(.4,fp.L)},
+    profileFacingRotation:profile==="maxwell-903bh" ? -Math.PI/2 : (longFaceProfile ? Math.PI/2 : 0),
+  };
+}
+
 function itemUsesPhotoMatched3d(item){
   return !itemHasLocal3dModel(item) && DEDICATED_MODEL_PROFILES.has(equipmentModelProfile(item));
 }

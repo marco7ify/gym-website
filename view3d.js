@@ -1083,13 +1083,11 @@ class Gym3DView {
       const group = new THREE.Group();
       const visualGroup = new THREE.Group();
       const fallbackGroup = new THREE.Group();
-      const longFaceProfile=!hasCustomAsset && ["maxwell-903bh","infrared-sauna","rx3-compact-smith","compact-smith","three-tier-rack"].includes(profile);
+      const presentation=equipmentModelPresentation(profile,hasCustomAsset,fp);
+      const {longFaceProfile,modelBase,profileFacingRotation}=presentation;
       const centerX=base.x+base.w/2,centerZ=base.y+base.h/2;
       group.position.set(centerX,this.floorElevationAt(centerX,centerZ),centerZ);
       group.rotation.y=inst.rotated ? Math.PI/2 : 0;
-      const profileFacingRotation=profile==="maxwell-903bh"
-        ? -Math.PI/2
-        : (longFaceProfile ? Math.PI/2 : 0);
       visualGroup.rotation.y=(item.model3dFacing==="reverse" ? Math.PI : 0)+profileFacingRotation;
       group.add(visualGroup);
       visualGroup.add(fallbackGroup);
@@ -1101,9 +1099,6 @@ class Gym3DView {
       group.userData.longFaceProfile = longFaceProfile;
       this.scene.add(group);
       this.itemGroups.set(inst.id,group);
-      const modelBase=longFaceProfile
-        ? {w:Math.max(.4,fp.L),h:Math.max(.4,fp.W)}
-        : {w:Math.max(.4,fp.W),h:Math.max(.4,fp.L)};
       this.addContactShadow(group,Math.max(.4,fp.W),Math.max(.4,fp.L));
       this.buildEquipmentModel(fallbackGroup,inst,item,modelBase,height);
       if(hasCustomAsset){

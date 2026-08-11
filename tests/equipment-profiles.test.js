@@ -17,16 +17,16 @@
   // measured placement envelope without changing the collision footprint.
   function modelProbe(){
     const parts=[];
-    const record=(kind,size,pos,options={})=>{
-      parts.push({kind,size,pos,options});
+    const record=(kind,size,pos,material,options={})=>{
+      parts.push({kind,size,pos,material,options});
       return {userData:{}};
     };
     const view={
       material:spec=>spec,
-      box:(group,size,pos,mat,options)=>record("box",size,pos,options),
-      cylinder:(group,radius,length,pos,mat,options)=>record("cylinder",{radius,length},pos,options),
-      beam:(group,start,end,width,depth,mat,options)=>record("beam",{start,end,radius:Math.hypot(width,depth)/2},{x:0,y:0,z:0},options),
-      tube:(group,start,end,radius,mat,options)=>record("tube",{start,end,radius},{x:0,y:0,z:0},options),
+      box:(group,size,pos,mat,options)=>record("box",size,pos,mat,options),
+      cylinder:(group,radius,length,pos,mat,options)=>record("cylinder",{radius,length},pos,mat,options),
+      beam:(group,start,end,width,depth,mat,options)=>record("beam",{start,end,radius:Math.hypot(width,depth)/2},{x:0,y:0,z:0},mat,options),
+      tube:(group,start,end,radius,mat,options)=>record("tube",{start,end,radius},{x:0,y:0,z:0},mat,options),
     };
     return {parts,view,group:{add(){}}};
   }
@@ -120,6 +120,88 @@
     });
   });
 
+  // The production changes these checks protect: a Task 3 exact profile can
+  // silently remain unregistered, lose its photo-defining open-frame parts,
+  // or let any rigid tube/beam escape the saved measured envelope.
+  GymTests.test("registers Task 3 exact builders with bounded signature geometry",()=>{
+    const cases=[
+      ["brightway-hs08-row",30,"photo-matched Brightway HS08 row",{w:2.82,d:4.2,h:6.28}],
+      ["shizhuo-seated-standing-row",24,"photo-matched Shizhuo seated-standing row",{w:3.67,d:5.21,h:4.18}],
+      ["wanjia-combo-adductor",28,"photo-matched Wanjia combo adductor",{w:2.38,d:4.99,h:4.61}],
+      ["yindun-three-tier-rack",24,"photo-matched empty Yindun three-tier rack",{w:5.58,d:2.22,h:3.24}],
+    ];
+    cases.forEach(([profile,minParts,modelType,envelope])=>{
+      GymTests.assert(window.GymEquipmentModels.has(profile),`${profile} should be registered`);
+      const probe=modelProbe();
+      const result=window.GymEquipmentModels.build(profile,probe.view,probe.group,{id:"probe"},{w:envelope.w,h:envelope.d},envelope.h);
+      GymTests.equal(result?.builderKey,profile,`${profile} should return its exact builder key`);
+      GymTests.equal(result?.modelType,modelType,`${profile} should return its exact model type`);
+      GymTests.assert(probe.parts.length>=minParts,`${profile} needs at least ${minParts} signature primitives`);
+      assertRigidEnvelope(probe.parts,envelope);
+    });
+  });
+
+  GymTests.test("keeps HS08 and Wanjia selector stacks at the local rear with individual black plates",()=>{
+    const cases=[
+      ["brightway-hs08-row",{w:2.82,d:4.2,h:6.28},"hs08-selector-plate",10,12],
+      ["wanjia-combo-adductor",{w:2.38,d:4.99,h:4.61},"wanjia-selector-plate",10,10],
+    ];
+    cases.forEach(([profile,envelope,signature,min,max])=>{
+      const probe=modelProbe();
+      window.GymEquipmentModels.build(profile,probe.view,probe.group,{id:"probe"},{w:envelope.w,h:envelope.d},envelope.h);
+      const plates=signatureParts(probe.parts,signature);
+      GymTests.assert(plates.length>=min && plates.length<=max,`${profile} must keep individual selector plates`);
+      plates.forEach((plate,index)=>{
+        GymTests.equal(plate.kind,"box",`${profile} plate ${index+1} must be a black plate box`);
+        GymTests.equal(plate.material.color,0x050607,`${profile} plate ${index+1} must stay black`);
+        GymTests.assert(plate.pos.z>0,`${profile} plate ${index+1} must remain behind the user zone`);
+      });
+    });
+  });
+
+  GymTests.test("keeps each Task 3 product's defining open-frame contract",()=>{
+    const hs08=modelProbe();
+    window.GymEquipmentModels.build("brightway-hs08-row",hs08.view,hs08.group,{id:"probe"},{w:2.82,h:4.2},6.28);
+    const hs08Yoke=signatureParts(hs08.parts,"hs08-red-yoke");
+    GymTests.equal(hs08Yoke.length,1,"HS08 needs one overhead red rear yoke");
+    GymTests.assert(hs08Yoke[0].pos.z>0 && hs08Yoke[0].pos.y>6.28*.7,"HS08 yoke must stay elevated behind the seat");
+    GymTests.equal(signatureParts(hs08.parts,"hs08-footplate").length,2,"HS08 needs two separate local-front footplates");
+
+    const shizhuo=modelProbe();
+    window.GymEquipmentModels.build("shizhuo-seated-standing-row",shizhuo.view,shizhuo.group,{id:"probe"},{w:3.67,h:5.21},4.18);
+    GymTests.equal(signatureParts(shizhuo.parts,"shizhuo-red-arm").length,2,"Shizhuo needs two independent red pull arms");
+    GymTests.equal(signatureParts(shizhuo.parts,"shizhuo-empty-weight-horn").length,2,"Shizhuo needs empty opposing weight horns");
+
+    const wanjia=modelProbe();
+    window.GymEquipmentModels.build("wanjia-combo-adductor",wanjia.view,wanjia.group,{id:"probe"},{w:2.38,h:4.99},4.61);
+    GymTests.equal(signatureParts(wanjia.parts,"wanjia-open-base-rail").length,2,"Wanjia needs two separated open base rails");
+    GymTests.equal(signatureParts(wanjia.parts,"wanjia-red-pivot-arm").length,2,"Wanjia needs paired red pivot arms");
+
+    const rack=modelProbe();
+    const rackPresentation=equipmentModelPresentation("yindun-three-tier-rack",false,{W:2.22,L:5.58});
+    window.GymEquipmentModels.build("yindun-three-tier-rack",rack.view,rack.group,{id:"probe"},rackPresentation.modelBase,3.24);
+    GymTests.equal(rack.parts.filter(part=>part.kind==="cylinder").length,0,"Yindun rack must add no dumbbells, bars, plates, or weight cylinders");
+    GymTests.equal(signatureParts(rack.parts,"yindun-empty-saddle").length,36,"Yindun needs six paired empty saddles on each of three rail tiers");
+    const longRails=signatureParts(rack.parts,"yindun-long-rail");
+    GymTests.equal(longRails.length,6,"Yindun needs paired rails on all three tiers");
+    longRails.forEach((rail,index)=>{
+      GymTests.assert(Math.abs(rail.size.end.x-rail.size.start.x)>4,"Yindun rail "+(index+1)+" must run along its long local X axis");
+      GymTests.closeTo(rail.size.end.z,rail.size.start.z,1e-9,"Yindun rail "+(index+1)+" must not shorten along local depth");
+    });
+  });
+
+  GymTests.test("applies the long-face base and correction only to the exact Yindun rack",()=>{
+    const fp={W:2.22,L:5.58};
+    exactProfiles.forEach(profile=>{
+      const presentation=equipmentModelPresentation(profile,false,fp);
+      if(profile==="yindun-three-tier-rack"){
+        GymTests.deepEqual(presentation,{longFaceProfile:true,modelBase:{w:5.58,h:2.22},profileFacingRotation:Math.PI/2});
+      }else{
+        GymTests.deepEqual(presentation,{longFaceProfile:false,modelBase:{w:2.22,h:5.58},profileFacingRotation:0});
+      }
+    });
+  });
+
   GymTests.test("routes each photo-matched item to its exact profile",()=>{
     const cases=[
       [{brand:"Ice Barrel",name:"Ice Barrel 500",category:"Cold Plunge"},"ice-barrel-500"],
@@ -209,7 +291,7 @@
     ["has","keys","build","createModelKit"].forEach(key=>GymTests.equal(typeof window.GymEquipmentModels[key],"function"));
     GymTests.deepEqual(window.GymEquipmentModels.keys(),[
       "ice-barrel-500","syedee-stair-machine","nordictrack-x16","ritfit-gator-bench",
+      "brightway-hs08-row","shizhuo-seated-standing-row","wanjia-combo-adductor","yindun-three-tier-rack",
     ]);
-    exactProfiles.slice(4).forEach(profile=>GymTests.assert(!window.GymEquipmentModels.has(profile),`${profile} belongs to a later builder task`));
   });
 })();
