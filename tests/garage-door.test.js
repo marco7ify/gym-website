@@ -520,6 +520,42 @@ GymTests.test("preserves a distinct manual garage while adding the stable Layout
   GymTests.deepEqual(migrated.areas.find(area=>area.id==="area_l3_bottom_garage_v1"),GymGarageDoors.seededLayout3Area());
 });
 
+GymTests.test("allocates a deterministic garage ID when unrelated areas own the stable candidates",()=>{
+  const fixture=legacyGarageLayout3Fixture();
+  const stableId=GymGarageDoors.seededLayout3Area().id;
+  fixture.layout.areas.push(
+    {id:stableId,kind:"nogospace",label:"Unrelated stable-ID owner",xFt:4,yFt:4,widthFt:2,heightFt:2},
+    {id:`${stableId}_2`,kind:"walkway",label:"Unrelated suffix owner",xFt:7,yFt:4,widthFt:2,heightFt:2},
+  );
+  const baseline=normalizeLayout({...deepCopy(fixture.layout),garageWallRevision:1},fixture.settings,{name:fixture.name,items:fixture.items});
+  const first=normalizeNamedLayout(fixture.name,fixture.layout,fixture.settings,fixture.items);
+  const garage=first.areas.find(area=>area.kind==="garagedoor");
+
+  GymTests.equal(garage.id,`${stableId}_3`);
+  GymTests.equal(new Set(first.areas.map(area=>area.id)).size,first.areas.length);
+  [stableId,`${stableId}_2`].forEach(id=>{
+    GymTests.deepEqual(first.areas.find(area=>area.id===id),baseline.areas.find(area=>area.id===id));
+  });
+  GymTests.deepEqual(garage,{...GymGarageDoors.seededLayout3Area(),id:`${stableId}_3`});
+  GymTests.deepEqual(normalizeNamedLayout(fixture.name,deepCopy(first),fixture.settings,fixture.items),first);
+
+  const deleted={...deepCopy(first),areas:first.areas.filter(area=>area.id!==garage.id)};
+  const afterDeletion=normalizeNamedLayout(fixture.name,deleted,fixture.settings,fixture.items);
+  GymTests.equal(afterDeletion.areas.some(area=>area.kind==="garagedoor"),false);
+  GymTests.deepEqual(normalizeNamedLayout(fixture.name,deepCopy(afterDeletion),fixture.settings,fixture.items),afterDeletion);
+});
+
+GymTests.test("keeps the stable ID when its owner is the equivalent seeded garage",()=>{
+  const fixture=legacyGarageLayout3Fixture();
+  const stableGarage={...GymGarageDoors.seededLayout3Area(),installerNote:"equivalent owner"};
+  fixture.layout.areas.push(stableGarage);
+  const first=normalizeNamedLayout(fixture.name,fixture.layout,fixture.settings,fixture.items);
+  const second=normalizeNamedLayout(fixture.name,deepCopy(first),fixture.settings,fixture.items);
+  GymTests.equal(first.areas.filter(area=>area.id===stableGarage.id).length,1);
+  GymTests.deepEqual(first.areas.find(area=>area.id===stableGarage.id),stableGarage);
+  GymTests.deepEqual(second,first);
+});
+
 GymTests.test("uses the exact equipment profile signal after rename without legacy wall features",()=>{
   const fixture=legacyGarageLayout3Fixture();
   fixture.name="Renovated gym";

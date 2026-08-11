@@ -176,6 +176,15 @@
     return {x:total(area,"x"),y:total(area,"y"),w:total(area,"width"),h:total(area,"height")};
   }
 
+  function uniqueAreaId(preferredId,areas){
+    const used=new Set((Array.isArray(areas)?areas:[]).map(area=>area?.id));
+    if(!used.has(preferredId)) return preferredId;
+    for(let suffix=2;;suffix+=1){
+      const candidate=`${preferredId}_${suffix}`;
+      if(!used.has(candidate)) return candidate;
+    }
+  }
+
   function migrateLayout3(layout,context={}){
     if(!layout||typeof layout!=="object"||number(layout.garageWallRevision)>=REVISION) return layout;
     const room=context.room||{};
@@ -209,7 +218,7 @@
       const existing=areas[matchingIndex];
       areas[matchingIndex]={...existing,...target,id:existing.id};
     }else{
-      areas.push(target);
+      areas.push({...target,id:uniqueAreaId(target.id,areas)});
     }
     next.areas=areas;
 
