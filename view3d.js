@@ -177,6 +177,16 @@ class Gym3DView {
     this.itemGroups = new Map();
     this.areaGroups = new Map();
     this.wallFeatureGroups = new Map();
+    this.rawBoundarySegments=GymGarageDoors.boundarySegments(this.roomData.rects);
+    this.garageDoorGroups=new Map();
+    this.garageDoorWarnings=[];
+    this.garageDoorMinimapSegments=[];
+    this.resolvedGarageDoors=this.resolveGarageDoorAreas();
+    this.standardDoorModelCount=0;
+    this.garageDoorModelCount=0;
+    this.garageDoorFallbackCount=0;
+    this.garageDoorPanelCount=0;
+    this.garageDoorTrackPairCount=0;
     this.invalidWallFeatureWarning = "";
     this.featurePointLights = 0;
     this.doorCollisionSegments = [];
@@ -215,6 +225,8 @@ class Gym3DView {
     this.addLights();
     this.buildRoom();
     this.buildDoors();
+    this.buildGarageDoors();
+    this.publishDoorDiagnostics();
     this.buildWallFeatures();
     this.buildZones();
     this.buildEquipment();
@@ -647,29 +659,51 @@ class Gym3DView {
     this.scene.add(new THREE.LineSegments(geometry, material));
   }
 
+  addGarageDoorWarning(message){
+    const text=String(message||"").trim();
+    if(text&&!this.garageDoorWarnings.includes(text)) this.garageDoorWarnings.push(text);
+  }
+
+  resolveGarageDoorAreas(){
+    return (state.layout.areas||[]).filter(area=>area.kind==="garagedoor").map(area=>{
+      const rect=areaRect(area);
+      const raw=GymGarageDoors.resolveOpening(rect,this.rawBoundarySegments,{areaId:area.id,label:area.label});
+      if(!raw.ok){
+        this.addGarageDoorWarning(`${area.label||"Garage door"}: ${raw.message}`);
+        return {area,rect,resolution:raw};
+      }
+      const resolution={
+        ...raw,
+        centerX:raw.axis==="z"?raw.fixed:(raw.start+raw.end)/2,
+        centerZ:raw.axis==="x"?raw.fixed:(raw.start+raw.end)/2,
+      };
+      return {area,rect,resolution};
+    });
+  }
+
+  garageDoorTrackDepth(resolution,maxFt=8){
+    if(!resolution?.ok) return 0;
+    const maximum=Math.max(0,safeNum(maxFt));
+    const margin=.25;
+    const step=.05;
+    let insideDistance=0;
+    for(let distance=.01;distance<=maximum+margin+step;distance+=step){
+      const x=resolution.centerX+resolution.inwardX*distance;
+      const z=resolution.centerZ+resolution.inwardZ*distance;
+      if(!pointInRoom(x,z,this.roomData.rects)) break;
+      insideDistance=distance;
+    }
+    if(insideDistance>=maximum+margin-.01) return maximum;
+    return Math.max(0,Math.min(maximum,insideDistance-margin));
+  }
+
   roomBoundarySegments(){
-    const rects = this.roomData.rects;
-    const xs = [...new Set(rects.flatMap(r=>[r.x,r.x+r.w]))].sort((a,b)=>a-b);
-    const zs = [...new Set(rects.flatMap(r=>[r.y,r.y+r.h]))].sort((a,b)=>a-b);
-    const result = [];
-    const eps = 0.002;
-    xs.forEach(x=>{
-      for(let i=0;i<zs.length-1;i++){
-        const a=zs[i], b=zs[i+1], mid=(a+b)/2;
-        const left=pointInRoom(x-eps,mid,rects), right=pointInRoom(x+eps,mid,rects);
-        if(left !== right) result.push({axis:"z",fixed:x,mid,length:b-a});
-      }
-    });
-    zs.forEach(z=>{
-      for(let i=0;i<xs.length-1;i++){
-        const a=xs[i], b=xs[i+1], mid=(a+b)/2;
-        const top=pointInRoom(mid,z-eps,rects), bottom=pointInRoom(mid,z+eps,rects);
-        if(top !== bottom) result.push({axis:"x",fixed:z,mid,length:b-a});
-      }
-    });
-    const openings=(state.layout.areas||[])
-      .filter(area=>area.kind==="door" || area.kind==="garagedoor")
+    const standardOpenings=(state.layout.areas||[])
+      .filter(area=>area.kind==="door")
       .map(area=>areaRect(area));
+    const garageOpenings=this.resolvedGarageDoors
+      .filter(entry=>entry.resolution.ok)
+      .map(entry=>entry.resolution);
     const subtractRange=(ranges,start,end)=>{
       const out=[];
       ranges.forEach(([a,b])=>{
@@ -680,10 +714,10 @@ class Gym3DView {
       return out;
     };
     const split=[];
-    result.filter(s=>s.length>0.01).forEach(seg=>{
-      const start=seg.mid-seg.length/2,end=seg.mid+seg.length/2;
+    this.rawBoundarySegments.filter(s=>s.length>0.01).forEach(seg=>{
+      const start=seg.start,end=seg.end;
       let ranges=[[start,end]];
-      openings.forEach(opening=>{
+      standardOpenings.forEach(opening=>{
         if(seg.axis==="x"){
           const touches=Math.abs(seg.fixed-opening.y)<.03 || Math.abs(seg.fixed-(opening.y+opening.h))<.03;
           if(touches) ranges=subtractRange(ranges,opening.x,opening.x+opening.w);
@@ -692,7 +726,12 @@ class Gym3DView {
           if(touches) ranges=subtractRange(ranges,opening.y,opening.y+opening.h);
         }
       });
-      ranges.filter(([a,b])=>b-a>.01).forEach(([a,b])=>split.push({...seg,mid:(a+b)/2,length:b-a}));
+      garageOpenings.forEach(opening=>{
+        if(opening.axis===seg.axis&&Math.abs(opening.fixed-seg.fixed)<.03){
+          ranges=subtractRange(ranges,opening.start,opening.end);
+        }
+      });
+      ranges.filter(([a,b])=>b-a>.01).forEach(([a,b])=>split.push({...seg,start:a,end:b,mid:(a+b)/2,length:b-a}));
     });
     return split;
   }
@@ -736,8 +775,9 @@ class Gym3DView {
 
   buildDoors(){
     const doors=(state.layout.areas||[]).filter(area=>area.kind==="door");
+    this.standardDoorModelCount=0;
     if(!doors.length){
-      this.host.dataset.doorModels="0";
+      this.host.dataset.standardDoorModels="0";
       return;
     }
     const slabMaterial=this.material({
@@ -876,9 +916,141 @@ class Gym3DView {
       assembly.userData.floorElevationFt=baseY;
       count++;
     });
-    this.host.dataset.doorModels=String(count);
+    this.standardDoorModelCount=count;
     this.host.dataset.standardDoorModels=String(count);
+  }
+
+  disposeGarageDoorStage(root,disposablesStart,protectedResources){
+    const protectedSet=new Set(
+      protectedResources instanceof Set
+        ? protectedResources
+        : Array.isArray(protectedResources)
+          ? protectedResources
+          : Object.values(protectedResources||{})
+    );
+    const stagedObjects=new Set();
+    const stagedGeometries=new Set();
+    root?.traverse?.(object=>{
+      stagedObjects.add(object);
+      if(object.geometry) stagedGeometries.add(object.geometry);
+    });
+    const stagedResources=new Set(this.disposables.slice(Math.max(0,disposablesStart)));
+    const disposed=new Set();
+    stagedGeometries.forEach(geometry=>{
+      if(protectedSet.has(geometry)) return;
+      geometry.dispose?.();
+      disposed.add(geometry);
+    });
+    stagedResources.forEach(resource=>{
+      if(protectedSet.has(resource)||disposed.has(resource)) return;
+      resource?.dispose?.();
+      disposed.add(resource);
+    });
+    this.disposables=this.disposables.filter(resource=>!disposed.has(resource));
+    this.clickTargets=this.clickTargets.filter(target=>!stagedObjects.has(target));
+    root?.removeFromParent?.();
+    return disposed.size;
+  }
+
+  buildGarageDoors(){
+    this.garageDoorModelCount=0;
+    this.garageDoorFallbackCount=0;
+    this.garageDoorPanelCount=0;
+    this.garageDoorTrackPairCount=0;
+    this.resolvedGarageDoors.filter(entry=>entry.resolution.ok).forEach(({area,resolution})=>{
+      const assembly=new THREE.Group();
+      const floorFt=this.floorElevationAt(
+        resolution.centerX+resolution.inwardX*.2,
+        resolution.centerZ+resolution.inwardZ*.2,
+      );
+      const heightFt=Math.max(.5,safeNum(area.garageDoorHeightFt)+safeNum(area.garageDoorHeightIn)/12);
+      assembly.position.set(resolution.centerX,floorFt,resolution.centerZ);
+      assembly.rotation.y=resolution.rotationY;
+      assembly.userData.areaId=area.id;
+
+      const resources=GymGarageDoor3D.prepareResources(this,area.garageDoorColor);
+      const protectedResources=new Set([
+        ...Object.values(resources),
+        this.roomWallMaterial,
+        this.roomTrimMaterial,
+      ].filter(Boolean));
+      const spec={
+        areaId:area.id,
+        widthFt:resolution.widthFt,
+        heightFt,
+        ceilingFt:Math.max(0,this.ceiling-floorFt),
+        floorFt:0,
+        trackDepthFt:this.garageDoorTrackDepth(resolution),
+        color:area.garageDoorColor,
+        boundary:resolution,
+        wallMaterial:this.roomWallMaterial||null,
+        preview:this.mode==="preview",
+        resources,
+      };
+
+      let staged=new THREE.Group();
+      staged.name="garage-door-detail-stage";
+      assembly.add(staged);
+      const disposablesStart=this.disposables.length;
+      let result;
+      let fallback=false;
+      try{
+        result=GymGarageDoor3D.buildRaisedPanel(this,staged,spec);
+      }catch(error){
+        this.disposeGarageDoorStage(staged,disposablesStart,protectedResources);
+        this.addGarageDoorWarning(`${area.label||"Garage door"}: detailed 3D model unavailable — using closed fallback.`);
+        staged=new THREE.Group();
+        staged.name="garage-door-fallback-stage";
+        assembly.add(staged);
+        result=GymGarageDoor3D.buildFallback(this,staged,spec);
+        fallback=true;
+      }
+
+      assembly.updateMatrixWorld(true);
+      const focusPoint=assembly.localToWorld(new THREE.Vector3(0,heightFt*.46,.35));
+      assembly.userData.modelType=result.modelType;
+      assembly.userData.boundaryMounted=true;
+      assembly.userData.boundaryWall=resolution.wall;
+      assembly.userData.garageBoundary=resolution;
+      assembly.userData.rotationY=resolution.rotationY;
+      assembly.userData.focusPoint={x:focusPoint.x,y:focusPoint.y,z:focusPoint.z};
+      assembly.userData.worldFootprint={widthFt:resolution.widthFt,depthFt:2/12,heightFt};
+      assembly.userData.openingWidthFt=resolution.widthFt;
+      assembly.userData.doorHeightFt=heightFt;
+      assembly.userData.floorElevationFt=floorFt;
+      assembly.userData.fallback=fallback;
+      assembly.userData.panelCount=safeNum(result.panelCount);
+      assembly.userData.trackPairs=safeNum(result.trackPairs);
+      assembly.userData.meshCount=safeNum(result.meshCount);
+      assembly.userData.shadowCasterCount=safeNum(result.shadowCasterCount);
+      assembly.userData.interiorInsetFt=safeNum(result.interiorInsetFt);
+
+      this.scene.add(assembly);
+      this.areaGroups.set(area.id,assembly);
+      this.garageDoorGroups.set(area.id,assembly);
+      this.garageDoorMinimapSegments.push({areaId:area.id,group:assembly});
+      this.garageDoorModelCount++;
+      this.garageDoorFallbackCount+=fallback?1:0;
+      this.garageDoorPanelCount+=safeNum(result.panelCount);
+      this.garageDoorTrackPairCount+=safeNum(result.trackPairs);
+    });
+  }
+
+  publishDoorDiagnostics(){
+    const standardOpenings=(state.layout.areas||[]).filter(area=>area.kind==="door").length;
+    const garageOpenings=this.resolvedGarageDoors.filter(entry=>entry.resolution.ok).length;
+    const invalidGarages=this.resolvedGarageDoors.length-garageOpenings;
+    this.host.dataset.doorOpenings=String(standardOpenings+this.resolvedGarageDoors.length);
+    this.host.dataset.standardDoorOpenings=String(standardOpenings);
+    this.host.dataset.garageDoorOpenings=String(garageOpenings);
+    this.host.dataset.doorModels=String(this.standardDoorModelCount+this.garageDoorModelCount);
+    this.host.dataset.standardDoorModels=String(this.standardDoorModelCount);
+    this.host.dataset.garageDoorModels=String(this.garageDoorModelCount);
     this.host.dataset.doorColliders=String(this.doorCollisionSegments.length);
+    this.host.dataset.invalidGarageDoors=String(invalidGarages);
+    this.host.dataset.garageDoorFallbacks=String(this.garageDoorFallbackCount);
+    this.host.dataset.garageDoorPanels=String(this.garageDoorPanelCount);
+    this.host.dataset.garageDoorTrackPairs=String(this.garageDoorTrackPairCount);
   }
 
   buildWallFeatures(){
@@ -2377,7 +2549,22 @@ class Gym3DView {
     const centerDistance=Math.hypot(dx,dz);
     let idealRadius=Math.max(5.8,Math.hypot(width,depth)*1.2+height*.7);
     let theta=centerDistance>.25?Math.atan2(dx,dz):-.78;
-    if(this.itemGroups.has(selectedId)){
+    if(group.userData.boundaryMounted){
+      const inward=new THREE.Vector3(0,0,1).applyAxisAngle(new THREE.Vector3(0,1,0),safeNum(group.userData.rotationY));
+      const preferredTheta=Math.atan2(inward.x,inward.z);
+      const halfFov=THREE.MathUtils.degToRad((safeNum(this.camera.fov)||54)*.5);
+      const fitRadius=Math.max(4,(Math.hypot(width,depth,height)*.5/Math.sin(halfFov))*1.08);
+      const radii=[
+        idealRadius,
+        Math.max(fitRadius,idealRadius*.8),
+        Math.max(fitRadius,idealRadius*.65),
+        fitRadius,
+      ].filter((radius,index,all)=>all.findIndex(candidate=>Math.abs(candidate-radius)<=.01)===index);
+      const radius=radii.find(candidate=>!this.frameCandidateBlocked(group,focus,candidate,preferredTheta,1.06));
+      if(radius===undefined) return;
+      theta=preferredTheta;
+      idealRadius=radius;
+    }else if(this.itemGroups.has(selectedId)){
       const totalRotation=safeNum(group.userData.rotationY)+safeNum(group.userData.visualRotationY);
       const front=new THREE.Vector3(0,0,-1).applyAxisAngle(new THREE.Vector3(0,1,0),totalRotation);
       const frontTheta=Math.atan2(front.x,front.z);
@@ -2618,7 +2805,8 @@ class Gym3DView {
   }
 
   updateWarnings(){
-    const warnings=this.builderFallbackWarnings.slice();
+    const warnings=[...new Set(this.garageDoorWarnings)];
+    warnings.push(...this.builderFallbackWarnings);
     this.roomInstances.forEach(inst=>{
       const item=getItemById(inst.itemId);
       if(!item) return;
@@ -2715,6 +2903,28 @@ class Gym3DView {
     };
   }
 
+  garageDoorMinimapLine(group,selectedId=state.layout.selectedAreaId){
+    const boundary=group?.userData?.garageBoundary;
+    if(!boundary?.ok) return null;
+    return boundary.axis==="x"
+      ? {
+        x1:boundary.start,
+        z1:boundary.fixed,
+        x2:boundary.end,
+        z2:boundary.fixed,
+        color:"#f59e0b",
+        lineWidth:group.userData.areaId===selectedId?4:3,
+      }
+      : {
+        x1:boundary.fixed,
+        z1:boundary.start,
+        x2:boundary.fixed,
+        z2:boundary.end,
+        color:"#f59e0b",
+        lineWidth:group.userData.areaId===selectedId?4:3,
+      };
+  }
+
   drawMinimap(time){
     if(this.mode!=="walkthrough" || time-this.minimapTime<80) return;
     this.minimapTime=time;
@@ -2737,6 +2947,17 @@ class Gym3DView {
     });
     this.wallFeatureGroups.forEach((group,id)=>{
       const line=this.wallFeatureMinimapLine(group,state.layout.selectedWallFeatureId);
+      ctx.strokeStyle=line.color;
+      ctx.lineWidth=line.lineWidth;
+      ctx.lineCap="round";
+      ctx.beginPath();
+      ctx.moveTo(ox+line.x1*scale,oz+line.z1*scale);
+      ctx.lineTo(ox+line.x2*scale,oz+line.z2*scale);
+      ctx.stroke();
+    });
+    this.garageDoorMinimapSegments.forEach(({group})=>{
+      const line=this.garageDoorMinimapLine(group,state.layout.selectedAreaId);
+      if(!line) return;
       ctx.strokeStyle=line.color;
       ctx.lineWidth=line.lineWidth;
       ctx.lineCap="round";
