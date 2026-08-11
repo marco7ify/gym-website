@@ -141,6 +141,15 @@ class Gym3DView {
     this.walkActive = false;
     this.reconstructedModelCount = 0;
     this.host.dataset.reconstructedModels = "0";
+    this.dedicatedModelCount = 0;
+    this.builderFailureCount = 0;
+    this.modelProfileKeys = new Set();
+    this.modelBuilderKeys = new Set();
+    this.builderFallbackWarnings = [];
+    this.host.dataset.dedicatedModels = "0";
+    this.host.dataset.builderFailures = "0";
+    this.host.dataset.modelProfiles = "";
+    this.host.dataset.modelBuilders = "";
     this.customAssetModelCount = 0;
     this.customAssetErrorCount = 0;
     this.customAssetRequestedCount = this.roomInstances.filter(inst=>itemHasLocal3dModel(getItemById(inst.itemId))).length;
@@ -1100,7 +1109,7 @@ class Gym3DView {
       this.scene.add(group);
       this.itemGroups.set(inst.id,group);
       this.addContactShadow(group,Math.max(.4,fp.W),Math.max(.4,fp.L));
-      this.buildEquipmentModel(fallbackGroup,inst,item,modelBase,height);
+      this.buildEquipmentModel(fallbackGroup,inst,item,modelBase,height,group);
       if(hasCustomAsset){
         this.loadCustomEquipmentModel({
           visualGroup,
@@ -1166,6 +1175,22 @@ class Gym3DView {
     });
     textures.forEach(texture=>texture.dispose?.());
     materials.forEach(material=>material.dispose?.());
+  }
+
+  disposeStagedDedicatedRoot(root,disposablesStart){
+    const resources=new Set(this.disposables.slice(disposablesStart));
+    root.traverse?.(object=>{
+      if(object.geometry) resources.add(object.geometry);
+      const materials=Array.isArray(object.material) ? object.material : [object.material];
+      materials.filter(Boolean).forEach(material=>{
+        resources.add(material);
+        Object.values(material).forEach(value=>{ if(value?.isTexture) resources.add(value); });
+      });
+    });
+    resources.forEach(resource=>resource?.dispose?.());
+    this.disposables.splice(disposablesStart);
+    root.removeFromParent();
+    root.clear();
   }
 
   registerExternalRoot(root,instId){
@@ -1631,10 +1656,76 @@ class Gym3DView {
     return "photo-matched RitFit Gazelle Pro 3-in-1";
   }
 
-  buildEquipmentModel(group,inst,item,base,height){
+  tryBuildDedicatedEquipmentModel(group,inst,item,base,height,profile){
+    const staged=new THREE.Group();
+    const clickStart=this.clickTargets.length;
+    const disposablesStart=this.disposables.length;
+    try{
+      let result=null;
+      if(profile==="rx3-compact-smith") result={builderKey:profile,modelType:this.buildRx3CompactSmithModel(staged,inst,base,height)};
+      else if(profile==="maxwell-903bh") result={builderKey:profile,modelType:this.buildMaxwell903BHModel(staged,inst,base,height)};
+      else if(profile==="gazelle-pro") result={builderKey:profile,modelType:this.buildGazelleModel(staged,inst,base,height)};
+      else result=window.GymEquipmentModels?.build(profile,this,staged,inst,base,height)||null;
+      if(!result){
+        this.clickTargets.length=clickStart;
+        this.disposeStagedDedicatedRoot(staged,disposablesStart);
+        return {built:false,error:null};
+      }
+      group.add(staged);
+      return {built:true,...result,root:staged};
+    }catch(error){
+      this.clickTargets.length=clickStart;
+      this.disposeStagedDedicatedRoot(staged,disposablesStart);
+      return {built:false,error:error instanceof Error ? error : new Error(String(error))};
+    }
+  }
+
+  updateDedicatedModelDiagnostics(){
+    this.host.dataset.dedicatedModels=String(this.dedicatedModelCount);
+    this.host.dataset.builderFailures=String(this.builderFailureCount);
+    this.host.dataset.modelProfiles=[...this.modelProfileKeys].sort().join(",");
+    this.host.dataset.modelBuilders=[...this.modelBuilderKeys].sort().join(",");
+  }
+
+  recordEquipmentDispatch(placementGroup,item,profile,result){
+    placementGroup.userData.modelProfile=profile;
+    placementGroup.userData.modelBuilder=result?.built ? result.builderKey : "";
+    placementGroup.userData.dedicatedModel=!!result?.built;
+    if(profile!=="standard") this.modelProfileKeys.add(profile);
+    if(result?.built){
+      this.dedicatedModelCount++;
+      this.modelBuilderKeys.add(result.builderKey);
+    }else if(result?.error || DEDICATED_MODEL_PROFILES.has(profile)){
+      this.builderFailureCount++;
+      const brand=String(item.brand||"").trim();
+      const name=String(item.name||"").trim();
+      const label=brand && name && !name.toLowerCase().startsWith(brand.toLowerCase())
+        ? `${brand} ${name}`
+        : (name||brand||profile);
+      this.builderFallbackWarnings.push(`${label}: dedicated 3D model unavailable — using measured fallback`);
+    }
+    this.updateDedicatedModelDiagnostics();
+  }
+
+  buildEquipmentModel(group,inst,item,base,height,placementGroup=group){
     const text = `${item.category||""} ${item.name||""}`.toLowerCase();
     const family=equipmentModelFamily(item);
     const profile=equipmentModelProfile(item);
+    const dedicated=this.tryBuildDedicatedEquipmentModel(group,inst,item,base,height,profile);
+    const w=Math.max(base.w,0.4), d=Math.max(base.h,0.4);
+    const isSelected = state.layout.selectedInstId === inst.id;
+    if(dedicated.built){
+      if(isSelected){
+        const selectedMat=this.material({color:0xf97316,transparent:true,opacity:.15,roughness:.72,depthWrite:false,envMapIntensity:.05});
+        const marker=this.box(group,{x:w+.18,y:.055,z:d+.18},{x:0,y:.07,z:0},selectedMat,{instId:inst.id});
+        marker.renderOrder=4;
+      }
+      group.userData.modelType=dedicated.modelType;
+      group.userData.measuredFootprint={widthFt:w,depthFt:d,heightFt:height};
+      placementGroup.userData.modelType=dedicated.modelType;
+      this.recordEquipmentDispatch(placementGroup,item,profile,dedicated);
+      return dedicated;
+    }
     const color = this.itemColor(item);
     const metal = this.material({color,roughness:.4,metalness:.34,envMapIntensity:.72});
     const dark = this.material({color:0x0b0e11,roughness:.62,metalness:.16,envMapIntensity:.42});
@@ -1643,18 +1734,14 @@ class Gym3DView {
     const silver = this.material({color:0xb6bec5,roughness:.24,metalness:.9,envMapIntensity:1.16});
     const red = this.material({color:0xb91c1c,roughness:.42,metalness:.38});
     const screen = this.material({color:0x164e63,emissive:0x0ea5e9,emissiveIntensity:.38,roughness:.24,metalness:.18});
-    const isSelected = state.layout.selectedInstId === inst.id;
     const selectedMat = metal;
-    const w=Math.max(base.w,0.4), d=Math.max(base.h,0.4);
 
     const add=(size,pos,mat=selectedMat,opts={})=>this.box(group,size,pos,mat,{...opts,instId:inst.id});
     const addCylinder=(radius,length,pos,mat=selectedMat,opts={})=>this.cylinder(group,radius,length,pos,mat,{...opts,instId:inst.id});
     const addBeam=(start,end,thickness,mat=selectedMat,depth=thickness)=>this.beam(group,start,end,thickness,depth,mat,{instId:inst.id});
     let modelType="general machine";
 
-    if(family==="sauna" && profile==="maxwell-903bh"){
-      modelType=this.buildMaxwell903BHModel(group,inst,base,height);
-    }else if(family==="sauna" && profile==="infrared-sauna"){
+    if(family==="sauna" && profile==="infrared-sauna"){
       modelType="glass-front infrared sauna";
       const wood=this.material({color:0xc89254,roughness:.72,metalness:.02});
       const trim=this.material({color:0xe1b77c,roughness:.66,metalness:.01});
@@ -1738,8 +1825,6 @@ class Gym3DView {
       add({x:w*.58,y:height*.13,z:d*.11},{x:0,y:height*.88,z:-d*.32},side,{rotationX:-.15});
       add({x:w*.4,y:height*.075,z:d*.025},{x:0,y:height*.9,z:-d*.385},screen,{castShadow:false});
       [-1,1].forEach(sign=>addBeam({x:sign*w*.405,y:height*.23,z:d*.3},{x:sign*w*.405,y:height*.62,z:-d*.18},.025,accent,.045));
-    }else if(family==="smith-cable" && profile==="rx3-compact-smith"){
-      modelType=this.buildRx3CompactSmithModel(group,inst,base,height);
     }else if(family==="smith-cable"){
       modelType="smith and cable machine";
       const post=Math.min(0.22,Math.max(0.1,Math.min(w,d)*0.1));
@@ -1785,31 +1870,27 @@ class Gym3DView {
       addCylinder(.045,w*.76,{x:0,y:height*.9,z:-d*.12},silver,{rotationZ:Math.PI/2});
       [-1,1].forEach(sign=>addBeam({x:sign*w*.22,y:height*.86,z:-d*.12},{x:sign*w*.4,y:height*.62,z:-d*.34},.045,silver,.045));
     }else if(family==="leg-press"){
-      if(profile==="gazelle-pro"){
-        modelType=this.buildGazelleModel(group,inst,base,height);
-      }else{
-        modelType="incline leg press";
-        add({x:w*.88,y:.12,z:d*.9},{x:0,y:.08,z:0},dark);
+      modelType="incline leg press";
+      add({x:w*.88,y:.12,z:d*.9},{x:0,y:.08,z:0},dark);
+      [-1,1].forEach(sign=>{
+        addBeam({x:sign*w*.3,y:.18,z:d*.38},{x:sign*w*.3,y:height*.78,z:-d*.2},.12,selectedMat,.18);
+        addBeam({x:sign*w*.18,y:.22,z:d*.33},{x:sign*w*.18,y:height*.72,z:-d*.18},.055,silver,.055);
+        addBeam({x:sign*w*.4,y:.16,z:-d*.35},{x:sign*w*.4,y:height*.85,z:-d*.35},.13,selectedMat,.13);
+      });
+      add({x:w*.62,y:.22,z:d*.28},{x:0,y:height*.51,z:-d*.02},pad,{rotationX:-.68});
+      add({x:w*.64,y:height*.14,z:d*.2},{x:0,y:height*.64,z:-d*.13},pad,{rotationX:-.68});
+      add({x:w*.76,y:.18,z:d*.22},{x:0,y:height*.26,z:d*.36},silver,{rotationX:-.45});
+      addCylinder(.07,w*.78,{x:0,y:height*.7,z:-d*.22},silver,{rotationZ:Math.PI/2});
+      [-1,1].forEach(sign=>addCylinder(Math.min(.18,w*.07),.16,{x:sign*w*.4,y:height*.7,z:-d*.22},dark,{rotationZ:Math.PI/2}));
+      [-1,1].forEach(sign=>add({x:w*.16,y:height*.13,z:d*.13},{x:sign*w*.17,y:height*.75,z:-d*.12},pad,{rotationX:-.68}));
+      if(profile==="sled-leg-press"){
+        modelType="3-in-1 leg press and hack squat";
         [-1,1].forEach(sign=>{
-          addBeam({x:sign*w*.3,y:.18,z:d*.38},{x:sign*w*.3,y:height*.78,z:-d*.2},.12,selectedMat,.18);
-          addBeam({x:sign*w*.18,y:.22,z:d*.33},{x:sign*w*.18,y:height*.72,z:-d*.18},.055,silver,.055);
-          addBeam({x:sign*w*.4,y:.16,z:-d*.35},{x:sign*w*.4,y:height*.85,z:-d*.35},.13,selectedMat,.13);
+          addBeam({x:sign*w*.43,y:.13,z:d*.42},{x:sign*w*.43,y:height*.88,z:-d*.32},.075,selectedMat,.075);
+          addCylinder(Math.min(.1,w*.04),w*.18,{x:sign*w*.42,y:height*.72,z:-d*.2},dark,{rotationZ:Math.PI/2});
+          addCylinder(Math.min(.1,w*.04),w*.18,{x:sign*w*.42,y:height*.42,z:d*.05},dark,{rotationZ:Math.PI/2});
         });
-        add({x:w*.62,y:.22,z:d*.28},{x:0,y:height*.51,z:-d*.02},pad,{rotationX:-.68});
-        add({x:w*.64,y:height*.14,z:d*.2},{x:0,y:height*.64,z:-d*.13},pad,{rotationX:-.68});
-        add({x:w*.76,y:.18,z:d*.22},{x:0,y:height*.26,z:d*.36},silver,{rotationX:-.45});
-        addCylinder(.07,w*.78,{x:0,y:height*.7,z:-d*.22},silver,{rotationZ:Math.PI/2});
-        [-1,1].forEach(sign=>addCylinder(Math.min(.18,w*.07),.16,{x:sign*w*.4,y:height*.7,z:-d*.22},dark,{rotationZ:Math.PI/2}));
-        [-1,1].forEach(sign=>add({x:w*.16,y:height*.13,z:d*.13},{x:sign*w*.17,y:height*.75,z:-d*.12},pad,{rotationX:-.68}));
-        if(profile==="sled-leg-press"){
-          modelType="3-in-1 leg press and hack squat";
-          [-1,1].forEach(sign=>{
-            addBeam({x:sign*w*.43,y:.13,z:d*.42},{x:sign*w*.43,y:height*.88,z:-d*.32},.075,selectedMat,.075);
-            addCylinder(Math.min(.1,w*.04),w*.18,{x:sign*w*.42,y:height*.72,z:-d*.2},dark,{rotationZ:Math.PI/2});
-            addCylinder(Math.min(.1,w*.04),w*.18,{x:sign*w*.42,y:height*.42,z:d*.05},dark,{rotationZ:Math.PI/2});
-          });
-          add({x:w*.74,y:.12,z:d*.25},{x:0,y:height*.13,z:d*.39},silver,{rotationX:-.58});
-        }
+        add({x:w*.74,y:.12,z:d*.25},{x:0,y:height*.13,z:d*.39},silver,{rotationX:-.58});
       }
     }else if(family==="bench"){
       modelType="adjustable bench";
@@ -1980,8 +2061,11 @@ class Gym3DView {
     }
     group.userData.modelType=modelType;
     group.userData.measuredFootprint={widthFt:w,depthFt:d,heightFt:height};
+    placementGroup.userData.modelType=modelType;
+    this.recordEquipmentDispatch(placementGroup,item,profile,dedicated);
     this.reconstructedModelCount++;
     this.host.dataset.reconstructedModels=String(this.reconstructedModelCount);
+    return dedicated;
   }
 
   addEquipmentLabel(group,instId,item,height,w,d){
@@ -2421,7 +2505,7 @@ class Gym3DView {
   }
 
   updateWarnings(){
-    const warnings=[];
+    const warnings=this.builderFallbackWarnings.slice();
     this.roomInstances.forEach(inst=>{
       const item=getItemById(inst.itemId);
       if(!item) return;
