@@ -100,7 +100,7 @@
     [-1,1].forEach(sign=>addBox({x:w*.06,y:h*.04,z:d*.67},{x:sign*w*.335,y:h*.25,z:d*.02},cushion,{rotationX:deckRotation}));
     addBox({x:w*.76,y:h*.2,z:d*.18},{x:0,y:h*.31,z:-d*.3},frame,{rotationX:deckRotation});
     addBox({x:w*.67,y:h*.09,z:d*.1},{x:0,y:h*.39,z:-d*.34},cushion,{rotationX:deckRotation});
-    addCylinder(w*.034,h*.06,{x:0,y:h*.17,z:d*.34},chrome,{rotationZ:Math.PI/2,segments:16});
+    addCylinder(w*.034,w*.61,{x:0,y:h*.17,z:d*.34},chrome,{rotationZ:Math.PI/2,segments:16,signature:"x16-rear-roller"});
     addBeam({x:-w*.34,y:h*.12,z:d*.34},{x:w*.34,y:h*.12,z:d*.34},w*.045,frame,d*.04);
     [-1,1].forEach(sign=>{
       addBeam({x:sign*w*.31,y:h*.13,z:d*.24},{x:sign*w*.31,y:h*.58,z:-d*.12},w*.035,frame,d*.03);
@@ -146,8 +146,8 @@
     // The roller bar and foam pair live at the elevated head/back end, not by the front feet.
     addCylinder(w*.025,w*.72,{x:0,y:h*.77,z:-d*.31},silver,{rotationZ:Math.PI/2,segments:16});
     [-1,1].forEach(sign=>{
-      addCylinder(w*.055,w*.12,{x:sign*w*.3,y:h*.77,z:-d*.31},foam,{rotationZ:Math.PI/2,segments:16});
-      addCylinder(w*.055,w*.12,{x:sign*w*.3,y:h*.68,z:-d*.25},foam,{rotationZ:Math.PI/2,segments:16});
+      addCylinder(h*.075,w*.12,{x:sign*w*.3,y:h*.77,z:-d*.31},foam,{rotationZ:Math.PI/2,segments:16,signature:"gator-elevated-foam-roller"});
+      addCylinder(h*.075,w*.12,{x:sign*w*.3,y:h*.68,z:-d*.25},foam,{rotationZ:Math.PI/2,segments:16,signature:"gator-elevated-foam-roller"});
       addTube({x:sign*w*.28,y:h*.68,z:-d*.25},{x:sign*w*.28,y:h*.77,z:-d*.31},w*.014,frame,12);
     });
     addBeam({x:-w*.2,y:h*.48,z:d*.04},{x:w*.2,y:h*.48,z:d*.04},w*.04,frame,d*.035);

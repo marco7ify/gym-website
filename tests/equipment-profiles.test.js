@@ -68,6 +68,10 @@
     });
   }
 
+  function signatureParts(parts,signature){
+    return parts.filter(part=>part.options?.signature===signature);
+  }
+
   GymTests.test("registers Task 2 exact builders with bounded signature geometry",()=>{
     const cases=[
       ["ice-barrel-500",10,"photo-matched Ice Barrel 500",{w:2.5583,d:4.8,h:3.5}],
@@ -83,6 +87,36 @@
       GymTests.equal(result?.modelType,modelType,`${profile} should return its exact model type`);
       GymTests.assert(probe.parts.length>=minParts,`${profile} needs at least ${minParts} signature primitives`);
       assertRigidEnvelope(probe.parts,envelope);
+    });
+  });
+
+  // These assertions protect the photo-defining rollers: a short X16 center
+  // stub or undersized GATOR foam cylinders must not pass the generic count
+  // and rigid-envelope checks.
+  GymTests.test("keeps the X16 rear roller transverse to the belt at signature scale",()=>{
+    const envelope={w:3.175,d:5.825,h:6.1083};
+    const probe=modelProbe();
+    window.GymEquipmentModels.build("nordictrack-x16",probe.view,probe.group,{id:"probe"},{w:envelope.w,h:envelope.d},envelope.h);
+    const rollers=signatureParts(probe.parts,"x16-rear-roller");
+    GymTests.equal(rollers.length,1,"X16 needs one tagged rear roller");
+    const [roller]=rollers;
+    GymTests.equal(roller?.kind,"cylinder","X16 rear roller must be a cylinder");
+    GymTests.assert(roller.size.length>=envelope.w*.58 && roller.size.length<=envelope.w*.64,"X16 rear roller must span the belt width");
+    GymTests.assert(roller.pos.z>envelope.d*.2,"X16 rear roller must stay at the rear deck end");
+  });
+
+  GymTests.test("keeps GATOR foam rollers large and elevated at the local back end",()=>{
+    const envelope={w:2.1667,d:4.8333,h:4.4167};
+    const probe=modelProbe();
+    window.GymEquipmentModels.build("ritfit-gator-bench",probe.view,probe.group,{id:"probe"},{w:envelope.w,h:envelope.d},envelope.h);
+    const rollers=signatureParts(probe.parts,"gator-elevated-foam-roller");
+    GymTests.equal(rollers.length,4,"GATOR needs four tagged elevated foam rollers");
+    rollers.forEach((roller,index)=>{
+      GymTests.equal(roller.kind,"cylinder",`GATOR foam roller ${index+1} must be a cylinder`);
+      const diameter=roller.size.radius*2;
+      GymTests.assert(diameter>=envelope.h*.14 && diameter<=envelope.h*.17,`GATOR foam roller ${index+1} must be photo-scale`);
+      GymTests.assert(roller.pos.z<-envelope.d*.04,`GATOR foam roller ${index+1} must remain at the local back/head end`);
+      GymTests.assert(roller.pos.y>envelope.h*.6,`GATOR foam roller ${index+1} must remain elevated`);
     });
   });
 
