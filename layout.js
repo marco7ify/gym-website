@@ -591,15 +591,17 @@ function layoutPanel(rows, currency){
 
     return `
       <g data-type="inst" data-id="${inst.id}">
-        ${halos.map(h=>`<rect x="${h.x}" y="${h.y}" width="${h.w}" height="${h.h}" class="halo" />`).join("")}
-        <rect x="${base.x}" y="${base.y}" width="${base.w}" height="${base.h}" class="${equipStrokeClass}${useImg ? " equipHasPhoto" : ""}" />
-        ${useImg ? `<svg x="${base.x}" y="${base.y}" width="${base.w}" height="${base.h}" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" overflow="hidden">
-          <image href="${imgHref}" xlink:href="${imgHref}" x="0" y="0" width="100" height="100" preserveAspectRatio="xMidYMid slice" opacity="0.78" />
-        </svg>
-        <rect x="${base.x}" y="${base.y}" width="${base.w}" height="${base.h}" fill="none" class="${equipStrokeClass}" />` : ""}
-        ${partialEdgesSvg}
+        <g class="instSelectControl" role="button" tabindex="0" aria-label="Select ${escapeAttr(name)}" aria-pressed="${selected?"true":"false"}">
+          ${halos.map(h=>`<rect x="${h.x}" y="${h.y}" width="${h.w}" height="${h.h}" class="halo" />`).join("")}
+          <rect x="${base.x}" y="${base.y}" width="${base.w}" height="${base.h}" class="${equipStrokeClass}${useImg ? " equipHasPhoto" : ""}" />
+          ${useImg ? `<svg x="${base.x}" y="${base.y}" width="${base.w}" height="${base.h}" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" overflow="hidden">
+            <image href="${imgHref}" xlink:href="${imgHref}" x="0" y="0" width="100" height="100" preserveAspectRatio="xMidYMid slice" opacity="0.78" />
+          </svg>
+          <rect x="${base.x}" y="${base.y}" width="${base.w}" height="${base.h}" fill="none" class="${equipStrokeClass}" />` : ""}
+          ${partialEdgesSvg}
+          ${labelHtml}
+        </g>
         ${photoHintHtml}
-        ${labelHtml}
         ${quickActions}
       </g>
     `;

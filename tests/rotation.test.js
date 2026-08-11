@@ -529,6 +529,41 @@ GymTests.test("selected SVG rotate affordance is keyboard-accessible",()=>{
   });
 });
 
+GymTests.test("every placed SVG equipment group is an accessible selection control",()=>{
+  const fixture=rotationUiFixture();
+  withRotationUiFixture(fixture,()=>{
+    const markup=layoutPanel(state.items,state.settings.currency);
+    GymTests.assert(markup.includes('data-type="inst" data-id="target">'));
+    GymTests.assert(markup.includes('class="instSelectControl" role="button" tabindex="0" aria-label="Select Rowing Machine" aria-pressed="true"'));
+    GymTests.equal(markup.includes('data-type="inst" data-id="target" role="button"'),false);
+  });
+});
+
+GymTests.test("Enter selects a focused SVG equipment group",()=>{
+  const fixture=rotationUiFixture();
+  withRotationUiFixture({...fixture,selectedInstId:null},()=>withRotationRender(()=>{
+    const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
+    svg.id="layoutSvg";
+    const group=document.createElementNS("http://www.w3.org/2000/svg","g");
+    group.dataset.type="inst";
+    group.dataset.id="target";
+    const control=document.createElementNS("http://www.w3.org/2000/svg","g");
+    control.classList.add("instSelectControl");
+    group.appendChild(control);
+    svg.appendChild(group);
+    document.body.appendChild(svg);
+    const event={key:"Enter",target:control,preventDefault(){},stopPropagation(){}};
+    try{
+      wireMain();
+      svg.onkeydown(event);
+      GymTests.equal(state.layout.selectedInstId,"target");
+      GymTests.equal(window.__rotationRenderCount,1);
+    }finally{
+      svg.remove();
+    }
+  }));
+});
+
 GymTests.test("Plan and Split render distinct stable focus identities for duplicate Rotate buttons",()=>{
   const fixture=rotationUiFixture();
   ["plan","split"].forEach(spatialViewMode=>withRotationUiFixture({...fixture,spatialViewMode},()=>{

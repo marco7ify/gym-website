@@ -34,8 +34,8 @@
     };
   }
 
-  function createEquipmentDispatchFixture({items=dedicatedItems,instances=null}={}){
-    state.settings=fixtureSettings();
+  function createEquipmentDispatchFixture({items=dedicatedItems,instances=null,settings=null}={}){
+    state.settings=settings || fixtureSettings();
     state.items=items.map(item=>normalizeItemRecord({...item,unit:"ft"}));
     state.layout=normalizeLayout({
       ...deepCopy(DEFAULT_LAYOUT),
@@ -116,9 +116,118 @@
     });
   }
 
+  function framePathStaysInsideRoom(view,target){
+    const focus=frameFocus(target);
+    const reach=view.orbit.radius*Math.sin(view.orbit.phi);
+    const camera={
+      x:focus.x+reach*Math.sin(view.orbit.theta),
+      z:focus.z+reach*Math.cos(view.orbit.theta),
+    };
+    for(let step=0;step<=24;step++){
+      const t=step/24;
+      if(!pointInRoom(camera.x+(focus.x-camera.x)*t,camera.z+(focus.z-camera.z)*t,view.roomData.rects)) return false;
+    }
+    return true;
+  }
+
+  function framePathHasRoomClearance(view,target,clearance=.22){
+    const focus=frameFocus(target);
+    const reach=view.orbit.radius*Math.sin(view.orbit.phi);
+    const camera={
+      x:focus.x+reach*Math.sin(view.orbit.theta),
+      z:focus.z+reach*Math.cos(view.orbit.theta),
+    };
+    const offsets=[[0,0],[clearance,0],[-clearance,0],[0,clearance],[0,-clearance]];
+    for(let step=0;step<=24;step++){
+      const t=step/24;
+      const x=camera.x+(focus.x-camera.x)*t;
+      const z=camera.z+(focus.z-camera.z)*t;
+      if(!offsets.every(([dx,dz])=>pointInRoom(x+dx,z+dz,view.roomData.rects))) return false;
+    }
+    return true;
+  }
+
+  GymTests.test("rejects a camera path crossing a narrow gap in a concave room union",()=>{
+    const roomRects=[
+      {x:0,y:0,w:5.2,h:1},
+      {x:5.22,y:0,w:4.78,h:1},
+    ];
+    GymTests.equal(
+      segmentCoveredByRoomRects({x:.5,z:.5},{x:9.5,z:.5},roomRects),
+      false,
+      "A sub-sample-width gap must not be treated as an uninterrupted room path",
+    );
+  });
+
+  GymTests.test("accepts a camera path crossing a shared room-extension seam",()=>{
+    GymTests.equal(
+      segmentCoveredByRoomRects(
+        {x:.5,z:.5},
+        {x:9.5,z:.5},
+        [{x:0,y:0,w:5,h:1},{x:5,y:0,w:5,h:1}],
+      ),
+      true,
+      "Touching room rectangles must provide uninterrupted path coverage",
+    );
+  });
+
+  GymTests.test("frames saved perimeter Yindun from an in-room clear full-density path",()=>{
+    const instances=[
+      {id:"saved_ice",itemId:"ice",xFt:0,xIn:0,yFt:9,yIn:0,rotated:false},
+      {id:"saved_stair",itemId:"stair",xFt:0,xIn:0,yFt:0,yIn:0,rotated:true},
+      {id:"saved_x16",itemId:"x16",xFt:6.5,xIn:0,yFt:0,yIn:0,rotated:true},
+      {id:"saved_gator",itemId:"gator",xFt:3,xIn:0,yFt:4,yIn:0,rotated:true},
+      {id:"saved_hs08",itemId:"hs08",xFt:15,xIn:0,yFt:3.5,yIn:0,rotated:true},
+      {id:"saved_shizhuo",itemId:"shizhuo",xFt:14,xIn:0,yFt:7,yIn:0,rotated:true},
+      {id:"saved_wanjia",itemId:"wanjia",xFt:7.5,xIn:0,yFt:14.51,yIn:0,rotated:false},
+      {id:"saved_yindun",itemId:"yindun",xFt:0,xIn:0,yFt:3,yIn:0,rotated:false},
+    ];
+    const settings={...fixtureSettings(),roomWidthFt:19.8,roomLengthFt:19.5};
+    const fixture=createEquipmentDispatchFixture({items:dedicatedItems.slice(0,8),instances,settings});
+    try{
+      const target=fixture.view.itemGroups.get("saved_yindun");
+      state.layout.selectedInstId="saved_yindun";
+      fixture.view.frameSelected();
+      GymTests.equal(framePathHasRoomClearance(fixture.view,target),true,"Saved perimeter Yindun frame must retain clearance from room walls");
+      GymTests.equal(cameraBlockedByOtherEquipment(fixture.view,target),false,"Saved perimeter Yindun frame must avoid other measured equipment footprints");
+    }finally{ fixture.destroy(); }
+  });
+
+  GymTests.test("keeps the full saved Stair Machine visible when framing near a room corner",()=>{
+    const instances=[
+      {id:"saved_ice",itemId:"ice",xFt:0,xIn:0,yFt:9,yIn:0,rotated:false},
+      {id:"saved_stair",itemId:"stair",xFt:0,xIn:0,yFt:0,yIn:0,rotated:true},
+      {id:"saved_x16",itemId:"x16",xFt:6.5,xIn:0,yFt:0,yIn:0,rotated:true},
+      {id:"saved_gator",itemId:"gator",xFt:3,xIn:0,yFt:4,yIn:0,rotated:true},
+      {id:"saved_hs08",itemId:"hs08",xFt:15,xIn:0,yFt:3.5,yIn:0,rotated:true},
+      {id:"saved_shizhuo",itemId:"shizhuo",xFt:14,xIn:0,yFt:7,yIn:0,rotated:true},
+      {id:"saved_wanjia",itemId:"wanjia",xFt:7.5,xIn:0,yFt:14.51,yIn:0,rotated:false},
+      {id:"saved_yindun",itemId:"yindun",xFt:0,xIn:0,yFt:3,yIn:0,rotated:false},
+    ];
+    const settings={...fixtureSettings(),roomWidthFt:19.8,roomLengthFt:19.5};
+    const fixture=createEquipmentDispatchFixture({items:dedicatedItems.slice(0,8),instances,settings});
+    try{
+      state.layout.selectedInstId="saved_stair";
+      fixture.view.frameSelected();
+      GymTests.assert(fixture.view.orbit.radius>=7.5,`Tall equipment must keep a full-machine framing distance; received ${fixture.view.orbit.radius}`);
+    }finally{ fixture.destroy(); }
+  });
+
+  GymTests.test("keeps a boundary equipment frame camera and sightline inside room walls",()=>{
+    const fixture=createEquipmentDispatchFixture({items:[dedicatedItems[0]],instances:[{
+      id:"inst_ice",itemId:"ice",xFt:0,xIn:0,yFt:0,yIn:0,rotated:false,
+    }]});
+    try{
+      const target=fixture.view.itemGroups.get("inst_ice");
+      state.layout.selectedInstId="inst_ice";
+      fixture.view.frameSelected();
+      GymTests.equal(framePathStaysInsideRoom(fixture.view,target),true,"Selected-frame camera and its sightline must not cross a room wall");
+    }finally{ fixture.destroy(); }
+  });
+
   GymTests.test("preserves the established front-oblique angle when an equipment selection is unobstructed",()=>{
     const fixture=createEquipmentDispatchFixture({items:[dedicatedItems[0]],instances:[{
-      id:"inst_ice",itemId:"ice",xFt:0,xIn:0,yFt:9,yIn:0,rotated:false,
+      id:"inst_ice",itemId:"ice",xFt:12,xIn:0,yFt:9,yIn:0,rotated:false,
     }]});
     try{
       const target=fixture.view.itemGroups.get("inst_ice");

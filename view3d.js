@@ -59,6 +59,54 @@ function frameSelectedGym3D(){
   if(view) view.frameSelected();
 }
 
+function segmentRectRoomInterval(start,end,rect){
+  const epsilon=1e-9;
+  let enter=0,exit=1;
+  for(const [origin,delta,min,max] of [
+    [start.x,end.x-start.x,rect.x,rect.x+rect.w],
+    [start.z,end.z-start.z,rect.y,rect.y+rect.h],
+  ]){
+    if(Math.abs(delta)<=epsilon){
+      if(origin<min-epsilon || origin>max+epsilon) return null;
+      continue;
+    }
+    let a=(min-origin)/delta,b=(max-origin)/delta;
+    if(a>b) [a,b]=[b,a];
+    enter=Math.max(enter,a);
+    exit=Math.min(exit,b);
+    if(enter>exit+epsilon) return null;
+  }
+  return [Math.max(0,enter),Math.min(1,exit)];
+}
+
+function segmentCoveredByRoomRects(start,end,rects){
+  const epsilon=1e-9;
+  const intervals=(rects||[])
+    .map(rect=>segmentRectRoomInterval(start,end,rect))
+    .filter(Boolean)
+    .sort((a,b)=>a[0]-b[0] || b[1]-a[1]);
+  let covered=0;
+  for(const [from,to] of intervals){
+    if(from>covered+epsilon) return false;
+    covered=Math.max(covered,to);
+    if(covered>=1-epsilon) return true;
+  }
+  return false;
+}
+
+function segmentHasRoomClearance(start,end,rects,clearance=.22){
+  const offsets=[
+    [0,0],
+    [clearance,0],[-clearance,0],
+    [0,clearance],[0,-clearance],
+  ];
+  return offsets.every(([dx,dz])=>segmentCoveredByRoomRects(
+    {x:start.x+dx,z:start.z+dz},
+    {x:end.x+dx,z:end.z+dz},
+    rects,
+  ));
+}
+
 class Gym3DView {
   constructor(host, mode){
     this.host = host;
@@ -2263,12 +2311,22 @@ class Gym3DView {
     this.camera.lookAt(this.target);
   }
 
+  frameCandidateRoomBlocked(focus,radius,theta,phi){
+    const reach=radius*Math.sin(phi);
+    const camera={
+      x:focus.x+reach*Math.sin(theta),
+      z:focus.z+reach*Math.cos(theta),
+    };
+    return !segmentHasRoomClearance(camera,focus,this.roomData.rects,.22);
+  }
+
   frameCandidateBlocked(target,focus,radius,theta,phi){
     const reach=radius*Math.sin(phi);
     const camera={
       x:focus.x+reach*Math.sin(theta),
       z:focus.z+reach*Math.cos(theta),
     };
+    if(this.frameCandidateRoomBlocked(focus,radius,theta,phi)) return true;
     const crossesRect=(rect=>{
       const dx=focus.x-camera.x, dz=focus.z-camera.z;
       let enter=0, exit=1;
@@ -2317,14 +2375,28 @@ class Gym3DView {
     const focus=group.userData.focusPoint || {x:group.position.x,y:Math.min(height*.43,this.ceiling*.38),z:group.position.z};
     const dx=cx-focus.x,dz=cz-focus.z;
     const centerDistance=Math.hypot(dx,dz);
-    const idealRadius=Math.max(5.8,Math.hypot(width,depth)*1.2+height*.7);
+    let idealRadius=Math.max(5.8,Math.hypot(width,depth)*1.2+height*.7);
     let theta=centerDistance>.25?Math.atan2(dx,dz):-.78;
     if(this.itemGroups.has(selectedId)){
       const totalRotation=safeNum(group.userData.rotationY)+safeNum(group.userData.visualRotationY);
       const front=new THREE.Vector3(0,0,-1).applyAxisAngle(new THREE.Vector3(0,1,0),totalRotation);
       const frontTheta=Math.atan2(front.x,front.z);
-      const candidates=[.16,-.32,.32,-.65,.65].map(offset=>frontTheta+offset);
-      theta=candidates.find(candidate=>!this.frameCandidateBlocked(group,focus,idealRadius,candidate,1.06)) ?? candidates[0];
+      const offsets=[.16,-.32,.32,-.65,.65,-.96,.96];
+      const frontAngles=offsets.map(offset=>frontTheta+offset);
+      const oppositeAngles=offsets.map(offset=>frontTheta+Math.PI+offset);
+      const roomCenterTheta=Math.atan2(cx-focus.x,cz-focus.z);
+      const ringAngles=[roomCenterTheta,...Array.from({length:7},(_,index)=>roomCenterTheta+(index+1)*Math.PI/4)];
+      const halfFov=THREE.MathUtils.degToRad((safeNum(this.camera.fov)||54)*.5);
+      const fitRadius=Math.max(4,(Math.hypot(width,depth,height)*.5/Math.sin(halfFov))*1.08);
+      const radii=[idealRadius,Math.max(fitRadius,idealRadius*.75),Math.max(fitRadius,idealRadius*.55),fitRadius]
+        .filter((radius,index,all)=>index===0 || Math.abs(radius-all[index-1])>.01);
+      const candidates=[...frontAngles,...oppositeAngles,...ringAngles];
+      const choices=radii.flatMap(radius=>candidates.map(candidate=>({radius,candidate})));
+      const choice=choices.find(({radius,candidate})=>!this.frameCandidateBlocked(group,focus,radius,candidate,1.06))
+        || choices.find(({radius,candidate})=>!this.frameCandidateRoomBlocked(focus,radius,candidate,1.06));
+      if(!choice) return;
+      theta=choice.candidate;
+      idealRadius=choice.radius;
     }else if(this.wallFeatureGroups.has(selectedId)){
       const front=new THREE.Vector3(0,0,1).applyAxisAngle(new THREE.Vector3(0,1,0),safeNum(group.userData.rotationY));
       theta=Math.atan2(front.x,front.z);

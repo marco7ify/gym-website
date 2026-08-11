@@ -23,10 +23,10 @@ const classicScripts=[
   "./wall-features.js?v=2",
   "./app.js?v=83",
   "./equipment-models.js?v=2",
-  "./view3d.js?v=34",
+  "./view3d.js?v=36",
   "./panels.js?v=73",
-  "./layout.js?v=83",
-  "./events.js?v=80",
+  "./layout.js?v=85",
+  "./events.js?v=81",
   "./render.js?v=70",
 ];
 

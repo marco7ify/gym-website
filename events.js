@@ -3374,6 +3374,15 @@ function wireMain(){
           rotateLayoutInstance90(rotate.dataset.id);
           return;
         }
+        const inst=e.target.closest && e.target.closest('g[data-type="inst"]');
+        if(inst){
+          e.preventDefault();
+          e.stopPropagation();
+          clearAllSelections();
+          state.layout.selectedInstId=inst.dataset.id;
+          render();
+          return;
+        }
         const g=e.target.closest && e.target.closest('g[data-type="wallfeature"]');
         if(!g) return;
         e.preventDefault();
