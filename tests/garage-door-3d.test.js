@@ -107,6 +107,36 @@
     };
   }
 
+  function savedLayout3Equipment(){
+    const items=[
+      {id:"maxwell",unit:"in",width:43,length:63,height:75.8},
+      {id:"ice",unit:"in",width:30.7,length:57.6,height:42},
+      {id:"x16",unit:"in",width:38.1,length:69.9,height:73.3},
+      {id:"stair",unit:"in",width:32,length:50,height:82,requiredCeilingFt:8.7},
+      {id:"rx3",unit:"in",width:32,length:48,height:86},
+      {id:"gator",unit:"in",width:26,length:58,height:53},
+      {id:"gazelle",unit:"in",width:49,length:87,height:57},
+      {id:"hs08",unit:"ft",width:2.82,length:4.2,height:6.28},
+      {id:"shizhuo",unit:"ft",width:3.67,length:5.21,height:4.18},
+      {id:"yindun",unit:"ft",width:2.22,length:5.58,height:3.24},
+      {id:"combo",unit:"ft",width:2.38,length:4.99,height:4.61},
+    ];
+    const instances=[
+      ["maxwell","maxwell",-1.75,14.25,false],
+      ["ice","ice",0,9,false],
+      ["x16","x16",6.5,0,true],
+      ["stair","stair",0,0,true],
+      ["rx3","rx3",3,9,true],
+      ["gator","gator",3,4,true],
+      ["gazelle","gazelle",12.583333015441895,15.41666666666697,true],
+      ["hs08","hs08",15,3.5,true],
+      ["shizhuo","shizhuo",14,7,true],
+      ["yindun","yindun",0,3,false],
+      ["combo","combo",7.5,14.51,false],
+    ].map(([id,itemId,xFt,yFt,rotated])=>({id,itemId,xFt,xIn:0,yFt,yIn:0,rotated,deadspaceFt:null,deadspaceIn:0,deadspaceSides:null,__invalid:false}));
+    return {items,instances};
+  }
+
   function baseSpec(resources){
     return {
       areaId:"area_l3_bottom_garage_v1",
@@ -423,6 +453,74 @@
       GymTests.equal(plainLine.lineWidth,3);
       GymTests.equal(view.garageDoorMinimapSegments.length,1);
       GymTests.equal(view.doorCollisionSegments.length,0);
+    }finally{ fixture.destroy(); }
+  });
+
+  GymTests.test("frames the garage from a safe interior angle in the exact saved dense Layout 3",()=>{
+    const area=GymGarageDoors.seededLayout3Area();
+    const equipment=savedLayout3Equipment();
+    const fixture=createFixture({
+      areas:[area],
+      wallExtensions:[{id:"left_extension",label:"Extension",wall:"left",startFt:14,startIn:3,lengthFt:5,lengthIn:8,depthFt:1,depthIn:9}],
+      items:equipment.items,
+      instances:equipment.instances,
+      walls:true,
+    });
+    try{
+      GymTests.equal(fixture.view.itemGroups.size,11);
+      const group=fixture.view.garageDoorGroups.get(area.id);
+      state.layout.selectedInstId=null;
+      state.layout.selectedWallFeatureId=null;
+      state.layout.selectedAreaId=area.id;
+      fixture.view.frameSelected();
+      GymTests.equal(fixture.host.dataset.framedSelected,area.id);
+      const expectedTargetX=10+1/60;
+      const verticalHalfFov=THREE.MathUtils.degToRad((fixture.view.camera.fov||54)*.5);
+      const horizontalHalfFov=Math.atan(Math.tan(verticalHalfFov)*fixture.view.camera.aspect);
+      const limitingHalfFov=Math.min(verticalHalfFov,horizontalHalfFov);
+      const expectedFitRadius=Math.hypot(
+        Math.max(expectedTargetX-(1+11/12),(17+11/12)-expectedTargetX),
+        Math.max(7*.46,7-7*.46),
+        .35
+      )/Math.sin(limitingHalfFov)*1.08;
+      GymTests.closeTo(fixture.view.target.x,expectedTargetX,1e-9);
+      GymTests.closeTo(fixture.view.target.y,group.userData.focusPoint.y,1e-9);
+      GymTests.closeTo(fixture.view.target.z,group.userData.focusPoint.z,1e-9);
+      GymTests.closeTo(fixture.view.orbit.radius,expectedFitRadius,1e-9);
+      GymTests.closeTo(fixture.view.orbit.theta,Math.PI-.16,1e-9);
+      GymTests.assert(fixture.view.camera.position.z<group.userData.focusPoint.z,"Expected the framed camera to remain on the interior side");
+      GymTests.equal(fixture.view.frameCandidateRoomBlocked(fixture.view.target,fixture.view.orbit.radius,fixture.view.orbit.theta,fixture.view.orbit.phi),false);
+      GymTests.equal(fixture.view.frameCandidateBlocked(group,fixture.view.target,fixture.view.orbit.radius,fixture.view.orbit.theta,fixture.view.orbit.phi),false);
+    }finally{ fixture.destroy(); }
+  });
+
+  GymTests.test("leaves the camera unchanged when padded equipment blocks the whole garage opening",()=>{
+    const area=GymGarageDoors.seededLayout3Area();
+    const fixture=createFixture({
+      areas:[area],
+      items:[{id:"opening_blocker",name:"Opening blocker",category:"Storage",unit:"ft",width:16,length:4,height:1}],
+      instances:[{id:"inst_opening_blocker",itemId:"opening_blocker",xFt:1+11/12,xIn:0,yFt:15.5,yIn:0,rotated:false}],
+      walls:true,
+    });
+    try{
+      const group=fixture.view.garageDoorGroups.get(area.id);
+      state.layout.selectedInstId=null;
+      state.layout.selectedWallFeatureId=null;
+      state.layout.selectedAreaId=area.id;
+      const before={
+        position:fixture.view.camera.position.toArray(),
+        target:fixture.view.target.toArray(),
+        orbit:{...fixture.view.orbit},
+        framed:fixture.host.dataset.framedSelected||"",
+      };
+      fixture.view.frameSelected();
+      GymTests.deepEqual({
+        position:fixture.view.camera.position.toArray(),
+        target:fixture.view.target.toArray(),
+        orbit:{...fixture.view.orbit},
+        framed:fixture.host.dataset.framedSelected||"",
+      },before);
+      GymTests.deepEqual(fixture.view.boundaryFrameFocusCandidates(group,group.userData.focusPoint),[]);
     }finally{ fixture.destroy(); }
   });
 

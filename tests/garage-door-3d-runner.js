@@ -18,14 +18,14 @@ function loadClassicScript(src){
 
 try{
   for(const src of [
-    "./test-harness.js?v=garage-task5-final-1",
-    "../wall-features.js?v=garage-task5-final-1",
-    "../garage-doors.js?v=garage-task5-final-1",
-    "../app.js?v=garage-task5-final-1",
-    "../garage-door-3d.js?v=garage-task5-final-1",
-    "../view3d.js?v=garage-task5-final-1",
-    "./garage-door-fixtures.js?v=garage-task5-final-1",
-    "./garage-door-3d.test.js?v=garage-task5-final-1",
+    "./test-harness.js?v=1",
+    "../wall-features.js?v=3",
+    "../garage-doors.js?v=1",
+    "../app.js?v=85",
+    "../garage-door-3d.js?v=1",
+    "../view3d.js?v=39",
+    "./garage-door-fixtures.js?v=1",
+    "./garage-door-3d.test.js?v=5",
   ]) await loadClassicScript(src);
   GymTests.finish();
 }catch(error){

@@ -82,6 +82,96 @@ GymTests.test("persists non-garage area policy overrides while absent values kee
   }
 });
 
+window.addEventListener("load",()=>GymTests.test("Block All preserves the saved Gazelle and Combo beside the architectural garage",()=>{
+  const settings={
+    ...deepCopy(DEFAULT_SETTINGS),
+    roomWidthFt:19,roomWidthIn:10,roomLengthFt:19,roomLengthIn:6,
+    clearanceFt:1,clearanceIn:6,defaultDeadspaceSides:[],
+    reservedAreaKindsBlockPlacement:[],reservedAreaKindsSubtractSpace:["nogospace"],
+  };
+  const items=[
+    {id:"maxwell",unit:"in",width:43,length:63,height:75.8},
+    {id:"ice",unit:"in",width:30.7,length:57.6,height:42},
+    {id:"x16",unit:"in",width:38.1,length:69.9,height:73.3},
+    {id:"stair",unit:"in",width:32,length:50,height:82,requiredCeilingFt:8.7},
+    {id:"rx3",unit:"in",width:32,length:48,height:86},
+    {id:"gator",unit:"in",width:26,length:58,height:53},
+    {id:"gazelle",unit:"in",width:49,length:87,height:57},
+    {id:"hs08",unit:"ft",width:2.82,length:4.2,height:6.28},
+    {id:"shizhuo",unit:"ft",width:3.67,length:5.21,height:4.18},
+    {id:"yindun",unit:"ft",width:2.22,length:5.58,height:3.24},
+    {id:"combo",unit:"ft",width:2.38,length:4.99,height:4.61},
+  ];
+  const instances=[
+    ["maxwell","maxwell",-1.75,14.25,false],
+    ["ice","ice",0,9,false],
+    ["x16","x16",6.5,0,true],
+    ["stair","stair",0,0,true],
+    ["rx3","rx3",3,9,true],
+    ["gator","gator",3,4,true],
+    ["gazelle","gazelle",12.583333015441895,15.41666666666697,true],
+    ["hs08","hs08",15,3.5,true],
+    ["shizhuo","shizhuo",14,7,true],
+    ["yindun","yindun",0,3,false],
+    ["combo","combo",7.5,14.51,false],
+  ].map(([id,itemId,xFt,yFt,rotated])=>({id,itemId,xFt,xIn:0,yFt,yIn:0,rotated,deadspaceFt:null,deadspaceIn:0,deadspaceSides:null,__invalid:false}));
+  const layout=normalizeLayout({
+    ...deepCopy(DEFAULT_LAYOUT),
+    instances,
+    areas:[
+      {id:"entry",kind:"door",label:"Door",xFt:12.5,xIn:0,yFt:0,yIn:0,widthFt:3,widthIn:1,heightFt:1,heightIn:0,doorOrientation:"auto",doorSwing:"down",doorHinge:"start",doorRadiusFt:null,doorRadiusIn:0,doorClearEnabled:true},
+      {id:"nogo",kind:"nogospace",label:"No-go",xFt:17.75,xIn:0,yFt:0,yIn:0,widthFt:2,widthIn:1,heightFt:3,heightIn:0},
+      GymGarageDoors.seededLayout3Area(),
+    ],
+    wallExtensions:[{id:"extension",label:"Extension",wall:"left",startFt:14,startIn:3,lengthFt:5,lengthIn:8,depthFt:1,depthIn:9}],
+  },settings,{name:"Layout 3",items});
+  const previous={layout:state.layout,settings:state.settings,items:state.items,render:window.render};
+  const clickAction=action=>{
+    const button=document.createElement("button");
+    button.dataset.action=action;
+    document.body.appendChild(button);
+    try{ document.body.onclick({target:button}); }
+    finally{ button.remove(); }
+  };
+  try{
+    state.settings=settings;
+    state.items=items;
+    state.layout=layout;
+    window.render=()=>{};
+    wireMain();
+    const savedGazelle=state.layout.instances.find(instance=>instance.id==="gazelle");
+    const savedGazelleItem=state.items.find(item=>item.id===savedGazelle.itemId);
+    const savedGazelleRect=effectiveRectForInst(savedGazelle,savedGazelleItem).base;
+    GymTests.equal(rectInsideRoom(savedGazelleRect),true,"The saved 3e-13 boundary sliver must stay within the declared 1e-9 tolerance");
+    GymTests.equal(rectInsideRoom({...savedGazelleRect,y:savedGazelleRect.y+2e-9}),false,"A material overflow beyond the declared 1e-9 tolerance must stay invalid");
+    clickAction("reservedSubtractAll");
+    clickAction("reservedBlockAll");
+    const garage=state.layout.areas.find(area=>area.kind==="garagedoor");
+    const gazelle=state.layout.instances.find(instance=>instance.id==="gazelle");
+    const gazelleItem=state.items.find(item=>item.id===gazelle.itemId);
+    const gazelleRect=effectiveRectForInst(gazelle,gazelleItem);
+    const areaConflicts=state.layout.areas.filter(area=>{
+      if(!areaBlocksPlacement(area)) return false;
+      const clearance=doorClearanceRect(area);
+      return rectsOverlap(gazelleRect.base,areaRect(area)) || (clearance&&rectsOverlap(gazelleRect.base,clearance));
+    }).map(area=>area.id);
+    const equipmentConflicts=state.layout.instances.filter(instance=>{
+      if(instance.id===gazelle.id) return false;
+      const item=state.items.find(candidate=>candidate.id===instance.itemId);
+      return item&&rectsOverlap(gazelleRect.eff,effectiveRectForInst(instance,item).eff);
+    }).map(instance=>instance.id);
+    GymTests.equal(garage.blocksPlacement,false,"Block All must preserve the garage's explicit false override");
+    const roomData=room();
+    GymTests.equal(gazelle.__invalid,false,`Gazelle invalidation path: ${JSON.stringify({inside:rectInsideRoom(gazelleRect.base),base:gazelleRect.base,room:{W:roomData.W,L:roomData.L,validRects:roomData.validRects},areaConflicts,equipmentConflicts})}`);
+    GymTests.equal(state.layout.instances.find(instance=>instance.id==="combo").__invalid,false,"Combo must remain valid after Block All");
+  }finally{
+    state.layout=previous.layout;
+    state.settings=previous.settings;
+    state.items=previous.items;
+    window.render=previous.render;
+  }
+}));
+
 GymTests.test("maps each exterior wall to an inward-facing rotation",()=>{
   const segments=GymGarageDoors.boundarySegments([{x:0,y:0,w:10,h:8}]);
   const byWall=Object.fromEntries(segments.map(segment=>[segment.wall,segment]));

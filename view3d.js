@@ -2533,6 +2533,79 @@ class Gym3DView {
     });
   }
 
+  boundaryFrameFocusCandidates(group,focus){
+    const boundary=group.userData.garageBoundary;
+    if(!boundary || (boundary.axis!=="x" && boundary.axis!=="z")) return [focus];
+    const start=Math.min(safeNum(boundary.start),safeNum(boundary.end));
+    const end=Math.max(safeNum(boundary.start),safeNum(boundary.end));
+    const tangentKey=boundary.axis;
+    const normalKey=boundary.axis==="x"?"z":"x";
+    const center=safeNum(focus[tangentKey]);
+    const normal=safeNum(focus[normalKey]);
+    const intervals=[];
+    this.itemGroups.forEach(itemGroup=>{
+      const footprint=itemGroup.userData.worldFootprint;
+      if(!footprint) return;
+      const pad=.12;
+      const rect={
+        minX:itemGroup.position.x-footprint.widthFt/2-pad,
+        maxX:itemGroup.position.x+footprint.widthFt/2+pad,
+        minZ:itemGroup.position.z-footprint.depthFt/2-pad,
+        maxZ:itemGroup.position.z+footprint.depthFt/2+pad,
+      };
+      const minNormal=normalKey==="x"?rect.minX:rect.minZ;
+      const maxNormal=normalKey==="x"?rect.maxX:rect.maxZ;
+      if(normal<minNormal || normal>maxNormal) return;
+      const minTangent=tangentKey==="x"?rect.minX:rect.minZ;
+      const maxTangent=tangentKey==="x"?rect.maxX:rect.maxZ;
+      const clippedStart=Math.max(start,minTangent);
+      const clippedEnd=Math.min(end,maxTangent);
+      if(clippedEnd>=clippedStart) intervals.push([clippedStart,clippedEnd]);
+    });
+    intervals.sort((a,b)=>a[0]-b[0]);
+    const merged=[];
+    intervals.forEach(interval=>{
+      const previous=merged[merged.length-1];
+      if(previous && interval[0]<=previous[1]+1e-9) previous[1]=Math.max(previous[1],interval[1]);
+      else merged.push([...interval]);
+    });
+    const clear=[];
+    let cursor=start;
+    merged.forEach(interval=>{
+      if(interval[0]>cursor+1e-9) clear.push([cursor,interval[0]]);
+      cursor=Math.max(cursor,interval[1]);
+    });
+    if(cursor<end-1e-9) clear.push([cursor,end]);
+    const epsilon=1/60;
+    return clear.map(([clearStart,clearEnd])=>{
+      const low=clearStart+(clearStart>start+1e-9?epsilon:0);
+      const high=clearEnd-(clearEnd<end-1e-9?epsilon:0);
+      if(high<low) return null;
+      const candidate={x:focus.x,y:focus.y,z:focus.z};
+      candidate[tangentKey]=clamp(center,low,high);
+      return candidate;
+    }).filter(Boolean).sort((a,b)=>Math.abs(a[tangentKey]-center)-Math.abs(b[tangentKey]-center));
+  }
+
+  boundaryFrameFitRadius(group,focus,height){
+    const boundary=group.userData.garageBoundary;
+    const verticalHalfFov=THREE.MathUtils.degToRad((safeNum(this.camera.fov)||54)*.5);
+    const cameraAspect=Math.max(.5,safeNum(this.camera.aspect)||1);
+    const horizontalHalfFov=Math.atan(Math.tan(verticalHalfFov)*cameraAspect);
+    const limitingHalfFov=Math.min(verticalHalfFov,horizontalHalfFov);
+    if(!boundary || (boundary.axis!=="x" && boundary.axis!=="z")){
+      const footprint=group.userData.worldFootprint||{};
+      return Math.max(4,(Math.hypot(safeNum(footprint.widthFt),safeNum(footprint.depthFt),height)*.5/Math.sin(limitingHalfFov))*1.08);
+    }
+    const tangent=boundary.axis==="x"?focus.x:focus.z;
+    const normal=boundary.axis==="x"?focus.z:focus.x;
+    const tangentExtent=Math.max(Math.abs(tangent-safeNum(boundary.start)),Math.abs(safeNum(boundary.end)-tangent));
+    const floor=safeNum(group.userData.floorElevationFt);
+    const verticalExtent=Math.max(Math.abs(focus.y-floor),Math.abs(floor+height-focus.y));
+    const normalExtent=Math.abs(normal-safeNum(boundary.fixed));
+    return Math.max(4,Math.hypot(tangentExtent,verticalExtent,normalExtent)/Math.max(.01,Math.sin(limitingHalfFov))*1.08);
+  }
+
   frameSelected(){
     if(this.mode!=="preview") return;
     const selectedId=state.layout.selectedInstId || state.layout.selectedAreaId || state.layout.selectedWallFeatureId;
@@ -2544,7 +2617,7 @@ class Gym3DView {
     const height=Math.max(.5,safeNum(footprint.heightFt));
     const cx=(this.bounds.minX+this.bounds.maxX)/2;
     const cz=(this.bounds.minY+this.bounds.maxY)/2;
-    const focus=group.userData.focusPoint || {x:group.position.x,y:Math.min(height*.43,this.ceiling*.38),z:group.position.z};
+    let focus=group.userData.focusPoint || {x:group.position.x,y:Math.min(height*.43,this.ceiling*.38),z:group.position.z};
     const dx=cx-focus.x,dz=cz-focus.z;
     const centerDistance=Math.hypot(dx,dz);
     let idealRadius=Math.max(5.8,Math.hypot(width,depth)*1.2+height*.7);
@@ -2552,18 +2625,23 @@ class Gym3DView {
     if(group.userData.boundaryMounted){
       const inward=new THREE.Vector3(0,0,1).applyAxisAngle(new THREE.Vector3(0,1,0),safeNum(group.userData.rotationY));
       const preferredTheta=Math.atan2(inward.x,inward.z);
-      const halfFov=THREE.MathUtils.degToRad((safeNum(this.camera.fov)||54)*.5);
-      const fitRadius=Math.max(4,(Math.hypot(width,depth,height)*.5/Math.sin(halfFov))*1.08);
-      const radii=[
-        idealRadius,
-        Math.max(fitRadius,idealRadius*.8),
-        Math.max(fitRadius,idealRadius*.65),
-        fitRadius,
-      ].filter((radius,index,all)=>all.findIndex(candidate=>Math.abs(candidate-radius)<=.01)===index);
-      const radius=radii.find(candidate=>!this.frameCandidateBlocked(group,focus,candidate,preferredTheta,1.06));
-      if(radius===undefined) return;
-      theta=preferredTheta;
-      idealRadius=radius;
+      const focusCandidates=this.boundaryFrameFocusCandidates(group,focus);
+      const angleOffsets=[0,.16,-.16,.32,-.32];
+      const choices=focusCandidates.flatMap(candidateFocus=>{
+        const fitRadius=this.boundaryFrameFitRadius(group,candidateFocus,height);
+        const radii=[
+          idealRadius,
+          Math.max(fitRadius,idealRadius*.8),
+          Math.max(fitRadius,idealRadius*.65),
+          fitRadius,
+        ].filter((radius,index,all)=>all.findIndex(candidate=>Math.abs(candidate-radius)<=.01)===index);
+        return radii.flatMap(radius=>angleOffsets.map(offset=>({focus:candidateFocus,radius,theta:preferredTheta+offset})));
+      });
+      const choice=choices.find(candidate=>!this.frameCandidateBlocked(group,candidate.focus,candidate.radius,candidate.theta,1.06));
+      if(!choice) return;
+      focus=choice.focus;
+      theta=choice.theta;
+      idealRadius=choice.radius;
     }else if(this.itemGroups.has(selectedId)){
       const totalRotation=safeNum(group.userData.rotationY)+safeNum(group.userData.visualRotationY);
       const front=new THREE.Vector3(0,0,-1).applyAxisAngle(new THREE.Vector3(0,1,0),totalRotation);

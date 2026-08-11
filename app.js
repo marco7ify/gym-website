@@ -285,6 +285,7 @@ function rectInsideRoom(rect){
   }
   yBreaks.sort((a,b)=>a-b);
   for(let i=0;i<yBreaks.length-1;i++){
+    if(yBreaks[i+1]-yBreaks[i]<=1e-9) continue;
     const mid=(yBreaks[i]+yBreaks[i+1])/2;
     const spans=rs
       .filter(zone=>zone.y<=mid && zone.y+zone.h>=mid)

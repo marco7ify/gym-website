@@ -6,7 +6,7 @@
   while(Date.now()<deadline){
     const ready=frame.contentDocument?.readyState==="complete";
     const scripts=ready ? Array.from(frame.contentDocument.querySelectorAll("body script[src]")) : [];
-    if(scripts.length>=9) break;
+    if(scripts.length>=11) break;
     await new Promise(resolve=>setTimeout(resolve,50));
   }
 
@@ -22,33 +22,37 @@
   const logicProductionScripts=Array.from(logicDocument.querySelectorAll('script[src^="../"]'))
     .map(script=>leafUrl(script.getAttribute("src")))
     .filter(url=>[
-      "app.js?","equipment-models.js?","layout.js?","events.js?",
+      "wall-features.js?","garage-doors.js?","app.js?","equipment-models.js?","layout.js?","events.js?",
     ].some(prefix=>url.startsWith(prefix)));
 
   GymTests.test("loads the current runtime entry URL",()=>{
-    GymTests.equal(leafUrl(runtimeScript?.src||""),"gltf-runtime.js?v=33");
+    GymTests.equal(leafUrl(runtimeScript?.src||""),"gltf-runtime.js?v=36");
   });
 
   GymTests.test("loads every classic production asset at its current cache URL",()=>{
     GymTests.deepEqual(classicScripts,[
       "model-assets.js?v=4",
-      "wall-features.js?v=2",
-      "app.js?v=83",
+      "wall-features.js?v=3",
+      "garage-doors.js?v=1",
+      "app.js?v=85",
       "equipment-models.js?v=2",
-      "view3d.js?v=37",
+      "garage-door-3d.js?v=1",
+      "view3d.js?v=39",
       "panels.js?v=73",
-      "layout.js?v=85",
-      "events.js?v=81",
+      "layout.js?v=86",
+      "events.js?v=82",
       "render.js?v=70",
     ]);
   });
 
   GymTests.test("loads current app and equipment assets in the shared logic runner",()=>{
     GymTests.deepEqual(logicProductionScripts,[
-      "app.js?v=83",
+      "wall-features.js?v=3",
+      "garage-doors.js?v=1",
+      "app.js?v=85",
       "equipment-models.js?v=2",
-      "layout.js?v=85",
-      "events.js?v=81",
+      "layout.js?v=86",
+      "events.js?v=82",
     ]);
   });
 
