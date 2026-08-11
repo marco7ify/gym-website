@@ -373,3 +373,195 @@ GymTests.test("SVG rotate pointer uses the guarded rotation command once",()=>{
     GymTests.equal(window.__rotationRenderCount,1);
   }));
 });
+
+function withRotationUiFixture(config, run){
+  const previousTab=state.tab;
+  const previousDrag=state.drag;
+  return withPlacementFixture(config,()=>{
+    state.tab=config.tab || "layout";
+    state.drag=config.drag || {active:false,type:null,id:null};
+    state.layout.selectedInstId=config.selectedInstId || null;
+    state.layout.spatialViewMode=config.spatialViewMode || "plan";
+    state.layout.walkthroughOpen=!!config.walkthroughOpen;
+    try{
+      return run();
+    }finally{
+      state.tab=previousTab;
+      state.drag=previousDrag;
+    }
+  });
+}
+
+function rotationUiFixture(){
+  const item={...placementFixtureItem("item_target","Rowing Machine"),length:4,width:2};
+  const inst=placementFixtureInstance("target",item.id,4,4);
+  return {items:[item],instances:[inst],selectedInstId:inst.id};
+}
+
+GymTests.test("selected Plan layout renders the accessible rotation toolbar and matching live status",()=>{
+  const fixture=rotationUiFixture();
+  withRotationUiFixture(fixture,()=>{
+    state.layoutActionStatus={instId:"target",tone:"warning",message:"Rotation needs clearance."};
+    const markup=layoutPanel(state.items,state.settings.currency);
+    GymTests.assert(markup.includes('class="selectedEquipmentToolbar"'));
+    GymTests.assert(markup.includes('data-action="rotateInst"'));
+    GymTests.assert(markup.includes('aria-keyshortcuts="R"'));
+    GymTests.assert(markup.includes('↻ Rotate 90°'));
+    GymTests.assert(markup.includes('role="status"'));
+    GymTests.assert(markup.includes('aria-live="polite"'));
+    GymTests.assert(markup.includes('Rotation needs clearance.'));
+  });
+});
+
+GymTests.test("rotation toolbar is omitted without a selected item and in 3D-only mode",()=>{
+  const fixture=rotationUiFixture();
+  withRotationUiFixture({...fixture,selectedInstId:null},()=>{
+    GymTests.equal(layoutPanel(state.items,state.settings.currency).includes('selectedEquipmentToolbar'),false);
+  });
+  withRotationUiFixture({...fixture,spatialViewMode:"3d"},()=>{
+    GymTests.equal(layoutPanel(state.items,state.settings.currency).includes('selectedEquipmentToolbar'),false);
+  });
+});
+
+GymTests.test("rotation status is scoped to the selected equipment",()=>{
+  const fixture=rotationUiFixture();
+  withRotationUiFixture(fixture,()=>{
+    state.layoutActionStatus={instId:"another-instance",tone:"error",message:"Do not announce this."};
+    const markup=layoutPanel(state.items,state.settings.currency);
+    GymTests.equal(markup.includes('Do not announce this.'),false);
+  });
+});
+
+GymTests.test("selected inspector uses the full-text native rotation button beside Remove",()=>{
+  const fixture=rotationUiFixture();
+  withRotationUiFixture(fixture,()=>{
+    const markup=selectedEquipmentPanel(state.layout.instances[0]);
+    GymTests.assert(markup.includes('class="planRotateBtn" data-action="rotateInst" data-id="target" aria-keyshortcuts="R"'));
+    GymTests.assert(markup.includes('↻ Rotate 90° <kbd>R</kbd>'));
+    GymTests.equal(markup.includes('>Rotate</button>'),false);
+  });
+});
+
+GymTests.test("selected SVG rotate affordance is keyboard-accessible",()=>{
+  const fixture=rotationUiFixture();
+  withRotationUiFixture(fixture,()=>{
+    const markup=layoutPanel(state.items,state.settings.currency);
+    GymTests.assert(markup.includes('class="instQuickRotate" data-action="rotateInst" data-id="target" role="button" tabindex="0" aria-label="Rotate 90°"'));
+    GymTests.assert(markup.includes('<title>Rotate 90°</title>'));
+  });
+});
+
+GymTests.test("focused inspector Rotate button survives a successful render",()=>{
+  const holder=document.createElement("div");
+  holder.innerHTML='<button type="button" class="planRotateBtn" data-action="rotateInst" data-id="target">↻ Rotate 90°</button>';
+  document.body.appendChild(holder);
+  try{
+    const before=holder.querySelector("button");
+    before.focus();
+    const focus=captureFocus();
+    holder.innerHTML='<button type="button" class="planRotateBtn" data-action="rotateInst" data-id="target">↻ Rotate 90°</button>';
+    restoreFocus(focus);
+    GymTests.equal(document.activeElement,holder.querySelector("button"));
+  }finally{
+    holder.remove();
+  }
+});
+
+function rotationShortcutEvent(overrides={}){
+  return {code:"KeyR",repeat:false,altKey:false,ctrlKey:false,metaKey:false,shiftKey:false,...overrides};
+}
+
+function withRotationShortcutState(config, run){
+  const fixture=rotationUiFixture();
+  return withRotationUiFixture({...fixture,...config},run);
+}
+
+GymTests.test("layout rotation shortcut is allowed on the page in Plan and Split",()=>{
+  withRotationShortcutState({spatialViewMode:"plan"},()=>{
+    GymTests.equal(layoutRotationShortcutAllowed(rotationShortcutEvent(),document.body),true);
+  });
+  withRotationShortcutState({spatialViewMode:"split"},()=>{
+    GymTests.equal(layoutRotationShortcutAllowed(rotationShortcutEvent(),document.body),true);
+  });
+});
+
+GymTests.test("layout rotation shortcut rejects unsafe keyboard contexts",()=>{
+  const cases=[
+    {name:"repeated key",event:rotationShortcutEvent({repeat:true})},
+    {name:"Alt modifier",event:rotationShortcutEvent({altKey:true})},
+    {name:"Control modifier",event:rotationShortcutEvent({ctrlKey:true})},
+    {name:"Meta modifier",event:rotationShortcutEvent({metaKey:true})},
+    {name:"Shift modifier",event:rotationShortcutEvent({shiftKey:true})},
+    {name:"different key",event:rotationShortcutEvent({code:"KeyQ"})},
+  ];
+  withRotationShortcutState({},()=>{
+    cases.forEach(({event,name})=>GymTests.equal(layoutRotationShortcutAllowed(event,document.body),false,name));
+  });
+  withRotationShortcutState({tab:"dashboard"},()=>{
+    GymTests.equal(layoutRotationShortcutAllowed(rotationShortcutEvent(),document.body),false);
+  });
+  withRotationShortcutState({selectedInstId:null},()=>{
+    GymTests.equal(layoutRotationShortcutAllowed(rotationShortcutEvent(),document.body),false);
+  });
+  withRotationShortcutState({spatialViewMode:"3d"},()=>{
+    GymTests.equal(layoutRotationShortcutAllowed(rotationShortcutEvent(),document.body),false);
+  });
+  withRotationShortcutState({drag:{active:true,type:"inst",id:"target"}},()=>{
+    GymTests.equal(layoutRotationShortcutAllowed(rotationShortcutEvent(),document.body),false);
+  });
+  withRotationShortcutState({walkthroughOpen:true},()=>{
+    GymTests.equal(layoutRotationShortcutAllowed(rotationShortcutEvent(),document.body),false);
+  });
+});
+
+GymTests.test("layout rotation shortcut rejects editing targets, dialogs, and pointer lock",()=>{
+  const targets=["input","textarea","select","div"];
+  withRotationShortcutState({},()=>{
+    targets.forEach(tag=>{
+      const target=document.createElement(tag);
+      if(tag==="div") target.contentEditable="true";
+      document.body.appendChild(target);
+      try{
+        GymTests.equal(layoutRotationShortcutAllowed(rotationShortcutEvent(),target),false,tag);
+      }finally{
+        target.remove();
+      }
+    });
+
+    const dialog=document.createElement("dialog");
+    dialog.open=true;
+    document.body.appendChild(dialog);
+    try{
+      GymTests.equal(layoutRotationShortcutAllowed(rotationShortcutEvent(),document.body),false);
+    }finally{
+      dialog.remove();
+    }
+
+    const previousPointerLock=Object.getOwnPropertyDescriptor(document,"pointerLockElement");
+    Object.defineProperty(document,"pointerLockElement",{configurable:true,value:document.body});
+    try{
+      GymTests.equal(layoutRotationShortcutAllowed(rotationShortcutEvent(),document.body),false);
+    }finally{
+      if(previousPointerLock) Object.defineProperty(document,"pointerLockElement",previousPointerLock);
+      else delete document.pointerLockElement;
+    }
+  });
+});
+
+GymTests.test("rotation shortcut listener is wired only once",()=>{
+  const originalAddEventListener=window.addEventListener;
+  const previousWired=window.__layoutRotationShortcutWired;
+  let keydownListeners=0;
+  window.__layoutRotationShortcutWired=false;
+  window.addEventListener=(type,...args)=>{
+    if(type==="keydown") keydownListeners+=1;
+  };
+  try{
+    wireLayoutRotationShortcut();
+    wireLayoutRotationShortcut();
+    GymTests.equal(keydownListeners,1);
+  }finally{
+    window.addEventListener=originalAddEventListener;
+    window.__layoutRotationShortcutWired=previousWired;
+  }
+});

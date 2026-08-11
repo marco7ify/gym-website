@@ -129,6 +129,31 @@ function rotateLayoutInstance90(instId){
   return {ok:true,reason:"rotated",instance:next};
 }
 
+function layoutRotationShortcutAllowed(event,target=document.activeElement){
+  if(event?.repeat || event?.code!=="KeyR") return false;
+  if(event?.altKey || event?.ctrlKey || event?.metaKey || event?.shiftKey) return false;
+  if(state.tab!=="layout" || !state.layout?.selectedInstId) return false;
+  if(state.layout?.spatialViewMode==="3d" || state.layout?.walkthroughOpen) return false;
+  if(state.drag?.active || document.pointerLockElement) return false;
+  if(document.querySelector("dialog[open]")) return false;
+
+  const tag=String(target?.tagName||"").toLowerCase();
+  if(["input","textarea","select"].includes(tag) || target?.isContentEditable || target?.closest?.("[contenteditable='true']")) return false;
+  return true;
+}
+
+function wireLayoutRotationShortcut(){
+  if(typeof window==="undefined" || window.__layoutRotationShortcutWired) return;
+  window.__layoutRotationShortcutWired=true;
+  window.addEventListener("keydown",event=>{
+    if(!layoutRotationShortcutAllowed(event,event.target||document.activeElement)) return;
+    event.preventDefault();
+    rotateLayoutInstance90(state.layout.selectedInstId);
+  });
+}
+
+wireLayoutRotationShortcut();
+
 function wallFeatureDragPatch(feature, originStartFt, deltaFt, roomData){
   const maxStart=Math.max(0,GymWallFeatures.wallLength(feature, roomData)-GymWallFeatures.width(feature));
   const parts=splitTotalFtToFtIn(clamp(safeNum(originStartFt)+safeNum(deltaFt),0,maxStart));
@@ -3343,6 +3368,13 @@ function wireMain(){
 
       svg.onkeydown=(e)=>{
         if(e.key!=="Enter" && e.key!==" ") return;
+        const rotate=e.target.closest && e.target.closest('[data-action="rotateInst"]');
+        if(rotate){
+          e.preventDefault();
+          e.stopPropagation();
+          rotateLayoutInstance90(rotate.dataset.id);
+          return;
+        }
         const g=e.target.closest && e.target.closest('g[data-type="wallfeature"]');
         if(!g) return;
         e.preventDefault();

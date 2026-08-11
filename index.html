@@ -734,6 +734,11 @@
       pointer-events: none;
     }
 
+    .instQuickRotate:focus-visible .instQuickActionBg {
+      stroke: #2563eb;
+      stroke-width: 0.12;
+    }
+
     .instQuickDeleteBg { fill: rgba(127, 29, 29, 0.92); }
     .instQuickDeleteX { font-size: 0.46px; }
 
@@ -2210,6 +2215,13 @@
 
     .spatialPlanPane {
       border-right: 1px solid #bfc7d1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .spatialPlanPane .svgWrap {
+      flex: 1 1 auto;
+      min-height: 0;
     }
 
     .spatialMode-3d .spatial3dPane {
@@ -2236,6 +2248,86 @@
       font-weight: 850;
       letter-spacing: 0.02em;
       text-transform: uppercase;
+    }
+
+    .selectedEquipmentToolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 8px 12px;
+      border-bottom: 1px solid #d7dde5;
+      background: #fffdf9;
+    }
+
+    .selectedEquipmentToolbarLabel {
+      min-width: 0;
+      flex: 1 1 150px;
+      color: #344054;
+      font-size: 12px;
+      font-weight: 750;
+      overflow-wrap: anywhere;
+    }
+
+    .planRotateBtn {
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 9px 13px;
+      border: 1px solid #c2410c;
+      border-radius: 8px;
+      background: #fff7ed;
+      color: #9a3412;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .planRotateBtn:hover { background: #ffedd5; }
+    .planRotateBtn:focus-visible { outline: 3px solid rgba(37, 99, 235, 0.55); outline-offset: 2px; }
+
+    .selectedEquipmentHeaderActions { flex: 0 1 auto; }
+
+    .selectedEquipmentStatus {
+      flex: 1 0 100%;
+      font-size: 12px;
+      font-weight: 650;
+      line-height: 1.35;
+    }
+
+    .selectedEquipmentStatus.success { color: #166534; }
+    .selectedEquipmentStatus.warning { color: #92400e; }
+    .selectedEquipmentStatus.error { color: #b91c1c; }
+
+    kbd {
+      min-width: 18px;
+      padding: 1px 5px;
+      border: 1px solid #cbd5e1;
+      border-bottom-width: 2px;
+      border-radius: 4px;
+      background: #fff;
+      color: #475569;
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1.25;
+      text-align: center;
+    }
+
+    .srOnly {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
     }
 
     .spatialPaneLabel span:last-child {
@@ -2812,6 +2904,11 @@
         overflow: hidden;
         clip: rect(0 0 0 0);
       }
+
+      .selectedEquipmentHeader { flex-wrap: wrap; }
+      .selectedEquipmentHeaderActions { width: 100%; justify-content: flex-start !important; }
+      .selectedEquipmentHeaderActions .planRotateBtn,
+      .selectedEquipmentHeaderActions .btn { flex: 1 1 140px; }
 
       .headerNav {
         overflow: hidden;

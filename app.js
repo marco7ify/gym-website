@@ -2581,7 +2581,9 @@ function captureFocus(){
   const el = document.activeElement;
   if(!el) return null;
   const tag = (el.tagName||"").toLowerCase();
-  if(!["input","textarea","select"].includes(tag)) return null;
+  const textControl=["input","textarea","select"].includes(tag);
+  const hasStableButtonTarget=tag==="button" && !!(el.id || (el.dataset?.action && el.dataset?.id));
+  if(!textControl && !hasStableButtonTarget) return null;
 
   const info = { tag, id: el.id || null, selector: null, selection: null };
   if(!info.id){
@@ -2594,7 +2596,7 @@ function captureFocus(){
       info.selector = parts.join("");
     }
   }
-  if(typeof el.selectionStart === "number"){
+  if(textControl && typeof el.selectionStart === "number"){
     info.selection = { start: el.selectionStart, end: el.selectionEnd, dir: el.selectionDirection || "none" };
   }
   return info;

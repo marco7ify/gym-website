@@ -543,7 +543,8 @@ function layoutPanel(rows, currency){
     const rotX = base.x + base.w - 0.86;
     const rotY = delY;
     const quickActions = selected ? `
-      <g class="instQuickRotate" data-action="rotateInst" data-id="${inst.id}">
+      <g class="instQuickRotate" data-action="rotateInst" data-id="${inst.id}" role="button" tabindex="0" aria-label="Rotate 90°">
+        <title>Rotate 90°</title>
         <circle cx="${rotX}" cy="${rotY}" r="0.22" class="instQuickActionBg" />
         <text x="${rotX}" y="${rotY+0.02}" text-anchor="middle" dominant-baseline="middle" class="instQuickActionIcon">↻</text>
       </g>
@@ -834,6 +835,17 @@ function layoutPanel(rows, currency){
   const spatialMode = ["plan", "split", "3d"].includes(state.layout.spatialViewMode)
     ? state.layout.spatialViewMode
     : "plan";
+  const selectedItem = selectedInst ? getItemById(selectedInst.itemId) : null;
+  const selectedStatus = state.layoutActionStatus?.instId===selectedInst?.id
+    ? state.layoutActionStatus
+    : null;
+  const selectedEquipmentToolbar = selectedInst && selectedItem && spatialMode!=="3d" ? `
+    <div class="selectedEquipmentToolbar" role="group" aria-label="Selected equipment actions">
+      <span class="selectedEquipmentToolbarLabel">Selected: ${escapeHtml(selectedItem.name||"Equipment")}</span>
+      <button type="button" class="planRotateBtn" data-action="rotateInst" data-id="${escapeAttr(selectedInst.id)}" aria-keyshortcuts="R">↻ Rotate 90° <kbd>R</kbd></button>
+      ${selectedStatus ? `<div class="selectedEquipmentStatus ${escapeAttr(selectedStatus.tone||"success")}">${escapeHtml(selectedStatus.message||"")}</div>` : ""}
+    </div>
+  ` : "";
   const activeLayoutName = (state.layouts || []).find(x=>x.id===state.activeLayoutId)?.name || "Current layout";
   // Right sidebar - layout tools (collapsible) + layout selector
   const rightSidebar = `
@@ -1053,6 +1065,7 @@ function layoutPanel(rows, currency){
       <div class="spatialCanvasGrid spatialMode-${spatialMode}">
         <div class="spatialPlanPane">
           <div class="spatialPaneLabel"><span>Floor plan</span><span>Drag equipment to reposition</span></div>
+          ${selectedEquipmentToolbar}
           <div class="svgWrap">
             <div class="svgTopTag">
               ${round1(r.W)} × ${round1(r.L)} ft • ${round1(r.area)} sq ft • Ceiling ${round1(settingsCeilingHeightTotalFt())} ft
@@ -1293,6 +1306,7 @@ function layoutPanel(rows, currency){
       ${rightSidebar}
     </div>
     ${state.layoutFocusMode ? "" : coverageHtml}
+    <div class="srOnly" role="status" aria-live="polite" aria-atomic="true">${selectedStatus ? escapeHtml(selectedStatus.message||"") : ""}</div>
   `;
 }
 
@@ -1320,12 +1334,15 @@ function selectedEquipmentPanel(inst){
 
   return `
     <div class="card">
-      <div class="hd">
+      <div class="hd selectedEquipmentHeader">
         <div>
           <div class="h1">Selected equipment</div>
           <div class="h2">${escapeHtml(item.name||"Item")}${item.brand?` • ${escapeHtml(item.brand)}`:""}</div>
         </div>
-        <button type="button" class="btn danger" data-action="removeInst" data-id="${inst.id}">Remove</button>
+        <div class="row selectedEquipmentHeaderActions" style="justify-content:flex-end;gap:8px;flex-wrap:wrap;">
+          <button type="button" class="planRotateBtn" data-action="rotateInst" data-id="${escapeAttr(inst.id)}" aria-keyshortcuts="R">↻ Rotate 90° <kbd>R</kbd></button>
+          <button type="button" class="btn danger" data-action="removeInst" data-id="${escapeAttr(inst.id)}">Remove</button>
+        </div>
       </div>
       <div class="bd">
         <div class="row" style="justify-content:flex-start; gap:8px; flex-wrap:wrap;">
@@ -1390,11 +1407,6 @@ function selectedEquipmentPanel(inst){
         <div class="two" style="margin-top:10px;">
           ${layoutFtInRow(layoutAxisLabel("X"), inst.id, inst.xFt, inst.xIn ?? 0, "inst_x_ft", "inst_x_in", "inst_x")}
           ${layoutFtInRow(layoutAxisLabel("Y"), inst.id, inst.yFt, inst.yIn ?? 0, "inst_y_ft", "inst_y_in", "inst_y")}
-        </div>
-
-        <div class="row" style="justify-content:flex-start;margin-top:10px;">
-          <button type="button" class="btn" data-action="rotateInst" data-id="${inst.id}">Rotate</button>
-          <span class="muted" style="font-size:12px;">Red border = invalid placement.</span>
         </div>
 
         ${safeHttpUrl(item.productLink) ? `<div style="margin-top:10px;">${productLinkAnchorHtml(item.productLink, productLinkLabel(item.productLink) + " ↗")}</div>` : ""}
