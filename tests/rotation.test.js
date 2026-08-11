@@ -279,6 +279,44 @@ GymTests.test("rotation command preserves a hard-invalid instance and renders on
   }));
 });
 
+function assertHardRotationPreservesInstance(config, expectedKind){
+  withPlacementFixture(config,()=>withRotationRender(()=>{
+    const target=state.layout.instances.find(instance=>instance.id==="target");
+    const before=deepCopy(target);
+    const result=rotateLayoutInstance90(target.id);
+    GymTests.equal(result.ok,false);
+    GymTests.equal(result.reason,"hard-invalid");
+    GymTests.equal(result.conflict.kind,expectedKind);
+    GymTests.deepEqual(state.layout.instances.find(instance=>instance.id==="target"),before);
+    GymTests.equal(window.__rotationRenderCount,1);
+  }));
+}
+
+GymTests.test("rotation command byte-preserves every hard conflict class",()=>{
+  const target=()=>({...placementFixtureItem("item_target","Treadmill"),length:4,width:2});
+  const inst=()=>placementFixtureInstance("target","item_target",4,4);
+  assertHardRotationPreservesInstance({
+    items:[target()],
+    instances:[inst()],
+    areas:[{id:"reserved",kind:"walkway",label:"Stretch lane",xFt:3.1,xIn:0,yFt:5.1,yIn:0,widthFt:.5,widthIn:0,heightFt:.5,heightIn:0}],
+  },"reserved-area");
+  assertHardRotationPreservesInstance({
+    items:[target()],
+    instances:[inst()],
+    areas:[{id:"door",kind:"door",label:"Side door",xFt:2.5,xIn:0,yFt:5,yIn:0,widthFt:.5,widthIn:0,heightFt:.1,heightIn:0,doorOrientation:"horizontal",doorSwing:"down",doorHinge:"start",doorRadiusFt:2,doorRadiusIn:0,doorClearEnabled:true}],
+  },"door-clearance");
+  const blocker={...placementFixtureItem("item_blocker","Bench"),length:.5,width:.5};
+  assertHardRotationPreservesInstance({
+    items:[target(),blocker],
+    instances:[inst(),placementFixtureInstance("blocker","item_blocker",3.1,5.1)],
+  },"equipment-overlap");
+  const edgeItem={...placementFixtureItem("item_edge","Treadmill"),length:5,width:2};
+  assertHardRotationPreservesInstance({
+    items:[edgeItem],
+    instances:[placementFixtureInstance("target",edgeItem.id,18,1)],
+  },"outside-room");
+});
+
 GymTests.test("rotation command keeps a soft conflict as an invalid rotated instance",()=>{
   const target={...placementFixtureItem("item_target","Cable Machine"),length:4,width:2};
   const blocker=placementFixtureItem("item_blocker","Bench");
@@ -410,6 +448,16 @@ GymTests.test("selected Plan layout renders the accessible rotation toolbar and 
     GymTests.assert(markup.includes('role="status"'));
     GymTests.assert(markup.includes('aria-live="polite"'));
     GymTests.assert(markup.includes('Rotation needs clearance.'));
+  });
+});
+
+GymTests.test("selected Split layout renders the accessible rotation toolbar",()=>{
+  const fixture=rotationUiFixture();
+  withRotationUiFixture({...fixture,spatialViewMode:"split"},()=>{
+    const markup=layoutPanel(state.items,state.settings.currency);
+    GymTests.assert(markup.includes('class="selectedEquipmentToolbar"'));
+    GymTests.assert(markup.includes('data-action="rotateInst" data-id="target"'));
+    GymTests.assert(markup.includes('aria-keyshortcuts="R"'));
   });
 });
 
@@ -548,7 +596,7 @@ GymTests.test("layout rotation shortcut rejects editing targets, dialogs, and po
   });
 });
 
-GymTests.test("rotation shortcut listener is wired only once",()=>{
+GymTests.test("rotation shortcut listener remains singleton through ten layout renders",()=>{
   const originalAddEventListener=window.addEventListener;
   const previousWired=window.__layoutRotationShortcutWired;
   let keydownListeners=0;
@@ -557,9 +605,13 @@ GymTests.test("rotation shortcut listener is wired only once",()=>{
     if(type==="keydown") keydownListeners+=1;
   };
   try{
-    wireLayoutRotationShortcut();
-    wireLayoutRotationShortcut();
-    GymTests.equal(keydownListeners,1);
+    withRotationShortcutState({},()=>{
+      for(let renderPass=0;renderPass<10;renderPass+=1){
+        layoutPanel(state.items,state.settings.currency);
+        wireLayoutRotationShortcut();
+      }
+      GymTests.equal(keydownListeners,1);
+    });
   }finally{
     window.addEventListener=originalAddEventListener;
     window.__layoutRotationShortcutWired=previousWired;

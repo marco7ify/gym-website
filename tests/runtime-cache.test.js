@@ -19,18 +19,18 @@
     .map(script=>leafUrl(script.src));
 
   GymTests.test("loads the current runtime entry URL",()=>{
-    GymTests.equal(leafUrl(runtimeScript?.src||""),"gltf-runtime.js?v=22");
+    GymTests.equal(leafUrl(runtimeScript?.src||""),"gltf-runtime.js?v=23");
   });
 
   GymTests.test("loads every classic production asset at its current cache URL",()=>{
     GymTests.deepEqual(classicScripts,[
       "model-assets.js?v=4",
       "wall-features.js?v=2",
-      "app.js?v=77",
+      "app.js?v=78",
       "view3d.js?v=33",
       "panels.js?v=73",
-      "layout.js?v=81",
-      "events.js?v=78",
+      "layout.js?v=82",
+      "events.js?v=79",
       "render.js?v=70",
     ]);
   });
