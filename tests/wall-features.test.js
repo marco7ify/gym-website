@@ -120,6 +120,27 @@ GymTests.test("maps a wall feature into its interior 3D transform", () => {
   GymTests.deepEqual(transform,{x:4.5,y:4.25,z:19.42,rotationY:Math.PI,width:5,height:5.5,depth:.08});
 });
 
+GymTests.test("maps a top-wall feature flush to the interior wall inset", () => {
+  const transform=GymWallFeatures.worldTransform(
+    {wall:"top",startFt:2,widthFt:5,bottomFt:1,bottomIn:6,heightFt:5,heightIn:6},
+    {W:20,L:19.5,ceiling:9},
+    {}
+  );
+  GymTests.deepEqual(transform,{x:4.5,y:4.25,z:.08,rotationY:0,width:5,height:5.5,depth:.08});
+});
+
+GymTests.test("maps left and right features to their interior wall insets", () => {
+  const room={W:20,L:19.5,ceiling:9};
+  const left=GymWallFeatures.worldTransform(
+    {wall:"left",startFt:3,widthFt:5,bottomFt:1,bottomIn:6,heightFt:5,heightIn:6},room,{}
+  );
+  const right=GymWallFeatures.worldTransform(
+    {wall:"right",startFt:3,widthFt:5,bottomFt:1,bottomIn:6,heightFt:5,heightIn:6},room,{}
+  );
+  GymTests.deepEqual(left,{x:.08,y:4.25,z:5.5,rotationY:Math.PI/2,width:5,height:5.5,depth:.08});
+  GymTests.deepEqual(right,{x:19.92,y:4.25,z:5.5,rotationY:-Math.PI/2,width:5,height:5.5,depth:.08});
+});
+
 GymTests.test("provides seven independent Layout 3 starter records", () => {
   const starter=GymWallFeatures.layout3Starter();
   GymTests.deepEqual(starter.map(feature=>({

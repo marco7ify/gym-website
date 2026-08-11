@@ -115,7 +115,7 @@
     const runStart=start(feature), runWidth=width(feature);
     const center=featureCenter(feature,room);
     let x=runStart+runWidth/2;
-    let z=EDGE;
+    let z=.08;
     let rotationY=0;
     switch(feature && feature.wall){
       case "bottom":
