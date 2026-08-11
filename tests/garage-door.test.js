@@ -32,6 +32,56 @@ GymTests.test("honors explicit area policy before the enabled-kind fallback",()=
   });
 });
 
+GymTests.test("persists non-garage area policy overrides while absent values keep the global fallback",()=>{
+  const settings={
+    ...deepCopy(DEFAULT_SETTINGS),
+    reservedAreaKindsBlockPlacement:["door"],
+    reservedAreaKindsSubtractSpace:["door"],
+  };
+  const first=normalizeLayout({
+    ...deepCopy(DEFAULT_LAYOUT),
+    areas:[
+      {id:"door_allow",kind:"door",label:"Allowed door",xFt:1,yFt:1,widthFt:2,heightFt:2,blocksPlacement:false,subtractsSpace:false},
+      {id:"nogo_force",kind:"nogospace",label:"Forced no-go",xFt:1,yFt:5,widthFt:2,heightFt:2,blocksPlacement:true,subtractsSpace:true},
+      {id:"door_fallback",kind:"door",label:"Fallback door",xFt:5,yFt:1,widthFt:2,heightFt:2},
+    ],
+  },settings);
+  const second=normalizeLayout(deepCopy(first),settings);
+  const allowed=second.areas.find(area=>area.id==="door_allow");
+  const forced=second.areas.find(area=>area.id==="nogo_force");
+  const fallback=second.areas.find(area=>area.id==="door_fallback");
+
+  GymTests.deepEqual({blocksPlacement:allowed.blocksPlacement,subtractsSpace:allowed.subtractsSpace},{blocksPlacement:false,subtractsSpace:false});
+  GymTests.deepEqual({blocksPlacement:forced.blocksPlacement,subtractsSpace:forced.subtractsSpace},{blocksPlacement:true,subtractsSpace:true});
+  GymTests.equal(Object.prototype.hasOwnProperty.call(fallback,"blocksPlacement"),false);
+  GymTests.equal(Object.prototype.hasOwnProperty.call(fallback,"subtractsSpace"),false);
+  GymTests.equal(areaBlocksPlacement(allowed,settings),false);
+  GymTests.equal(areaSubtractsSpace(allowed,settings),false);
+  GymTests.equal(areaBlocksPlacement(forced,settings),true);
+  GymTests.equal(areaSubtractsSpace(forced,settings),true);
+  GymTests.equal(areaBlocksPlacement(fallback,settings),true);
+  GymTests.equal(areaSubtractsSpace(fallback,settings),true);
+
+  const previous={layout:state.layout,settings:state.settings};
+  try{
+    state.settings=settings;
+    state.layout={...second,areas:[allowed]};
+    const allowedOverlap={x:1,y:1,w:2,h:2};
+    GymTests.equal(reservedSqFt(),0);
+    GymTests.equal(isInvalidPlacement("candidate",allowedOverlap,allowedOverlap),false);
+    GymTests.equal(hardPlacementConflict("candidate",allowedOverlap),null);
+
+    state.layout={...second,areas:[forced]};
+    const forcedOverlap={x:1,y:5,w:2,h:2};
+    GymTests.equal(reservedSqFt(),4);
+    GymTests.equal(isInvalidPlacement("candidate",forcedOverlap,forcedOverlap),true);
+    GymTests.equal(hardPlacementConflict("candidate",forcedOverlap)?.kind,"reserved-area");
+  }finally{
+    state.layout=previous.layout;
+    state.settings=previous.settings;
+  }
+});
+
 GymTests.test("maps each exterior wall to an inward-facing rotation",()=>{
   const segments=GymGarageDoors.boundarySegments([{x:0,y:0,w:10,h:8}]);
   const byWall=Object.fromEntries(segments.map(segment=>[segment.wall,segment]));
@@ -139,17 +189,15 @@ GymTests.test("does not recreate a refreshed wall feature deleted after migratio
 
 GymTests.test("reuses a matching resolved manual garage and canonicalizes every seeded field",()=>{
   const fixture=legacyGarageLayout3Fixture();
-  const canonical=normalizeLayout({...deepCopy(fixture.layout),garageWallRevision:1},fixture.settings,{name:fixture.name,items:fixture.items});
-  delete canonical.garageWallRevision;
-  canonical.areas.push({
+  fixture.layout.areas.push({
     id:"manual_garage",kind:"garagedoor",label:"Old opening",xFt:1,xIn:11,yFt:18,yIn:6,widthFt:16,widthIn:0,heightFt:1,heightIn:0,
     garageDoorHeightFt:9,garageDoorHeightIn:0,garageDoorStyle:"plain",garageDoorColor:"#ffffff",
     blocksPlacement:true,subtractsSpace:true,installerNote:"preserve me",
   });
-  const migrated=GymGarageDoors.migrateLayout3(canonical,garageMigrationContext(fixture,canonical));
-  const actual=migrated.areas.find(area=>area.id==="manual_garage");
+  const normalized=normalizeNamedLayout(fixture.name,fixture.layout,fixture.settings,fixture.items);
+  const actual=normalized.areas.find(area=>area.id==="manual_garage");
   GymTests.deepEqual(actual,{...GymGarageDoors.seededLayout3Area(),id:"manual_garage",installerNote:"preserve me"});
-  GymTests.equal(migrated.areas.filter(area=>area.kind==="garagedoor").length,1);
+  GymTests.equal(normalized.areas.filter(area=>area.kind==="garagedoor").length,1);
 });
 
 GymTests.test("preserves a distinct manual garage while adding the stable Layout 3 seed",()=>{

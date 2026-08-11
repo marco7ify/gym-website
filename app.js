@@ -1351,6 +1351,7 @@ function normalizeLayout(l, settingsForRoomMigration, {name="",items=[]}={}){
 
   base.areas = base.areas.map(a=>{
     const o = {
+      ...(a.kind==="garagedoor"?a:{}),
       id: a.id || uid("area"),
       kind: a.kind || "walkway",
       label: a.label || "",
@@ -1368,7 +1369,11 @@ function normalizeLayout(l, settingsForRoomMigration, {name="",items=[]}={}){
       doorRadiusFt: (a.doorRadiusFt===null || a.doorRadiusFt===undefined || a.doorRadiusFt==="") ? null : safeNum(a.doorRadiusFt),
       doorRadiusIn: Math.max(0, safeNum(a.doorRadiusIn)),
       doorClearEnabled: (a.doorClearEnabled===undefined) ? true : !!a.doorClearEnabled,
+      ...(typeof a.blocksPlacement==="boolean"?{blocksPlacement:a.blocksPlacement}:{}),
+      ...(typeof a.subtractsSpace==="boolean"?{subtractsSpace:a.subtractsSpace}:{}),
     };
+    if(typeof a.blocksPlacement!=="boolean") delete o.blocksPlacement;
+    if(typeof a.subtractsSpace!=="boolean") delete o.subtractsSpace;
     const wRaw = safeNum(o.widthFt) + safeNum(o.widthIn)/12;
     const hRaw = safeNum(o.heightFt) + safeNum(o.heightIn)/12;
     if(wRaw < 0.5 - 1e-9){ o.widthFt = 3; o.widthIn = 0; }
