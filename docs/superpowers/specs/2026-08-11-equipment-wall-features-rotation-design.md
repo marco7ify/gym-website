@@ -162,6 +162,34 @@ A feature is invalid when any part of its run:
 
 The editor clamps simple boundary and ceiling overflows. Door and missing-wall conflicts remain visible, are outlined in red, and produce a warning so the user can adjust or remove the feature. Invalid wall features are not rendered as floating objects in 3D.
 
+### Layout 3 starter decoration
+
+Layout 3 starts with the approved **Warm performance club** arrangement. The existing black walls and black rolled-rubber floor remain unchanged. Walnut slats, silver mirrors, and warm-white lighting provide contrast so the dark equipment stays legible in Walkthrough mode.
+
+These are ordinary wall features, not a locked theme. The user can select, drag, resize, recolor, move to another wall, or remove every seeded feature through the same wall-feature inspector.
+
+| Feature | Wall | Along-wall start | Mount height | Size | Finish | Brightness |
+| --- | --- | ---: | ---: | ---: | --- | ---: |
+| Primary training mirror | Bottom | 2 ft 0 in | 1 ft 6 in | 5 ft 0 in × 5 ft 6 in | `#cbd5e1` | n/a |
+| Secondary aisle mirror | Right | 11 ft 0 in | 1 ft 6 in | 4 ft 0 in × 5 ft 6 in | `#cbd5e1` | n/a |
+| Gazelle focal slat wall | Bottom | 12 ft 9 in | 0 ft 0 in | 6 ft 9 in × 8 ft 6 in | walnut `#8f5f3a` | n/a |
+| Slat frame, left | Bottom | 12 ft 7 in | 0 ft 4 in | 1 in × 8 ft 0 in | warm `#ffb36b` | 80% |
+| Slat frame, right | Bottom | 19 ft 7 in | 0 ft 4 in | 1 in × 8 ft 0 in | warm `#ffb36b` | 80% |
+| Mirror wash | Bottom | 2 ft 0 in | 7 ft 3 in | 5 ft 0 in × 1 in | warm white `#ffd7aa` | 65% |
+| Cardio ambient strip | Top | 2 ft 9 in | 8 ft 4 in | 9 ft 6 in × 1 in | warm white `#ffd7aa` | 70% |
+
+Placement rationale:
+
+- The primary mirror fits between the sauna and adductor area and reflects the open center, bench, and RX3 training zone.
+- The secondary mirror occupies the open right-wall run between the seated/standing row and Gazelle, creating perpendicular depth without an endless mirror-to-mirror tunnel.
+- The full-height walnut panel sits behind the Gazelle and forms the focal view from the entrance while visually connecting the equipment area to the wooden sauna.
+- The two vertical LEDs frame the walnut panel instead of washing the entire black wall with colored light.
+- The mirror wash supplies useful face and body illumination without visible glare at normal eye height.
+- The cardio strip stops 3 inches before the door and starts beyond the low-ceiling section. Its world-space top remains below the 9-foot ceiling after accounting for the 4-inch raised floor.
+- Nothing is seeded on the left wall because equipment occupies its usable portion and the room extension removes its lower segment.
+
+The migration seeds this starter arrangement only into Layout 3; existing Layouts 1 and 2 remain unchanged. Afterward, creating a new layout from the current shell copies whatever wall features the current layout contains, according to the persistence rules below.
+
 ## 3. Fast Equipment Rotation
 
 ### Controls
