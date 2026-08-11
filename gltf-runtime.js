@@ -21,7 +21,7 @@ window.dispatchEvent(new CustomEvent("gym-gltf-ready"));
 const classicScripts=[
   "./model-assets.js?v=4",
   "./wall-features.js?v=3",
-  "./garage-doors.js?v=1",
+  "./garage-doors.js?v=2",
   "./app.js?v=85",
   "./equipment-models.js?v=2",
   "./garage-door-3d.js?v=1",

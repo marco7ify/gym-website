@@ -20,7 +20,7 @@ try{
   for(const src of [
     "./test-harness.js?v=1",
     "../wall-features.js?v=3",
-    "../garage-doors.js?v=1",
+    "../garage-doors.js?v=2",
     "../app.js?v=85",
     "../garage-door-3d.js?v=1",
     "../view3d.js?v=39",
