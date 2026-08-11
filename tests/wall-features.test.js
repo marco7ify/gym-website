@@ -141,6 +141,15 @@ GymTests.test("maps left and right features to their interior wall insets", () =
   GymTests.deepEqual(right,{x:19.92,y:4.25,z:5.5,rotationY:-Math.PI/2,width:5,height:5.5,depth:.08});
 });
 
+GymTests.test("raises a wall feature with a four-inch finished floor", () => {
+  const transform=GymWallFeatures.worldTransform(
+    {wall:"top",startFt:2,widthFt:5,bottomFt:1,bottomIn:6,heightFt:5,heightIn:6},
+    {W:20,L:19.5,ceiling:9},
+    {floorZones:[{xFt:0,yFt:0,widthFt:20,heightFt:1,elevationIn:4}]}
+  );
+  GymTests.deepEqual(transform,{x:4.5,y:55/12,z:.08,rotationY:0,width:5,height:5.5,depth:.08});
+});
+
 GymTests.test("provides seven independent Layout 3 starter records", () => {
   const starter=GymWallFeatures.layout3Starter();
   GymTests.deepEqual(starter.map(feature=>({
@@ -273,13 +282,13 @@ GymTests.test("resets an active wall feature drag on stable drag cleanup", () =>
   GymTests.equal(state.drag.id,null);
 });
 
-GymTests.test("shows a truthful disabled frame control for selected wall features before 3D geometry exists", () => {
+GymTests.test("enables framing for a selected wall feature in a 3D view", () => {
   const control=spatialFrameSelectedControl({
     spatialMode:"split",
     selectedInstId:null,
     selectedAreaId:null,
     selectedWallFeatureId:"wf1",
   });
-  GymTests.assert(control.includes("disabled"));
-  GymTests.assert(control.includes("Wall-feature framing will be available with the 3D wall feature view."));
+  GymTests.assert(control.includes('data-action="spatial_frame_selected"'));
+  GymTests.assert(!control.includes("disabled"));
 });

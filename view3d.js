@@ -128,6 +128,9 @@ class Gym3DView {
     this.clickTargets = [];
     this.itemGroups = new Map();
     this.areaGroups = new Map();
+    this.wallFeatureGroups = new Map();
+    this.invalidWallFeatureWarning = "";
+    this.featurePointLights = 0;
     this.doorCollisionSegments = [];
     this.labelSprites = new Map();
     this.hoveredInstId = null;
@@ -155,6 +158,7 @@ class Gym3DView {
     this.addLights();
     this.buildRoom();
     this.buildDoors();
+    this.buildWallFeatures();
     this.buildZones();
     this.buildEquipment();
     this.buildOutlets();
@@ -818,6 +822,131 @@ class Gym3DView {
     this.host.dataset.doorModels=String(count);
     this.host.dataset.standardDoorModels=String(count);
     this.host.dataset.doorColliders=String(this.doorCollisionSegments.length);
+  }
+
+  buildWallFeatures(){
+    const counts={wall:0,mirror:0,slat:0,led:0,invalid:0};
+    const publish=()=>{
+      this.host.dataset.wallFeatures=String(counts.wall);
+      this.host.dataset.mirrorFeatures=String(counts.mirror);
+      this.host.dataset.slatFeatures=String(counts.slat);
+      this.host.dataset.ledFeatures=String(counts.led);
+      this.host.dataset.invalidWallFeatures=String(counts.invalid);
+      this.host.dataset.wallFeatureLights=String(this.featurePointLights);
+    };
+    if(!this.settings.walls){
+      publish();
+      return;
+    }
+
+    const roomData={...this.roomData,ceiling:this.ceiling};
+    (state.layout.wallFeatures||[]).forEach(feature=>{
+      const validation=GymWallFeatures.validate(feature,state.layout,roomData);
+      if(!validation.valid){
+        counts.invalid++;
+        if(!this.invalidWallFeatureWarning){
+          const name=feature.label || ({mirror:"Mirror",slat:"Wood slat panel",led:"LED strip"})[feature.kind] || "Wall feature";
+          this.invalidWallFeatureWarning=`${name}: ${validation.reasons[0]?.message||"invalid placement"}`;
+        }
+        return;
+      }
+
+      const transform=GymWallFeatures.worldTransform(feature,roomData,state.layout);
+      const group=new THREE.Group();
+      group.position.set(transform.x,transform.y,transform.z);
+      group.rotation.y=transform.rotationY;
+      group.userData.wallFeatureId=feature.id;
+      group.userData.wallFeature=feature;
+      group.userData.rotationY=transform.rotationY;
+      group.userData.worldFootprint={widthFt:transform.width,depthFt:.28,heightFt:transform.height};
+      group.userData.focusPoint={x:transform.x,y:transform.y,z:transform.z};
+      group.userData.selectionMaterials=[];
+      this.scene.add(group);
+
+      if(feature.kind==="mirror") this.buildMirrorWallFeature(group,feature,transform);
+      else if(feature.kind==="slat") this.buildSlatWallFeature(group,feature,transform);
+      else this.buildLedWallFeature(group,feature,transform);
+
+      group.traverse(object=>{
+        if(!object.isMesh) return;
+        object.userData.wallFeatureId=feature.id;
+        this.clickTargets.push(object);
+      });
+      this.wallFeatureGroups.set(feature.id,group);
+      counts.wall++;
+      counts[feature.kind]++;
+    });
+    publish();
+  }
+
+  buildMirrorWallFeature(group,feature,transform){
+    const backer=this.material({color:0x20262c,roughness:.72,metalness:.18,envMapIntensity:.42});
+    const frame=this.material({color:0xaeb9c3,roughness:.24,metalness:.86,envMapIntensity:1.16});
+    const face=new THREE.MeshPhysicalMaterial({
+      color:feature.color||0xcbd5e1,
+      metalness:1,
+      roughness:.04,
+      clearcoat:1,
+      clearcoatRoughness:.035,
+      envMap:this.scene.environment||null,
+      envMapIntensity:1.45,
+    });
+    face.userData.baseEmissive=face.emissive?.getHex?.()||0;
+    face.userData.baseEmissiveIntensity=safeNum(face.emissiveIntensity);
+    this.disposables.push(face);
+
+    const width=transform.width,height=transform.height;
+    const frameSize=Math.min(.09,Math.max(.045,Math.min(width,height)*.022));
+    this.box(group,{x:width,y:height,z:1/12},{x:0,y:0,z:1/24},backer,{castShadow:false});
+    this.box(group,{x:Math.max(.02,width-frameSize*2),y:Math.max(.02,height-frameSize*2),z:.018},{x:0,y:0,z:.095},face,{castShadow:false});
+    this.box(group,{x:width,y:frameSize,z:.105},{x:0,y:height/2-frameSize/2,z:.078},frame,{castShadow:false});
+    this.box(group,{x:width,y:frameSize,z:.105},{x:0,y:-height/2+frameSize/2,z:.078},frame,{castShadow:false});
+    this.box(group,{x:frameSize,y:Math.max(.02,height-frameSize*2),z:.105},{x:-width/2+frameSize/2,y:0,z:.078},frame,{castShadow:false});
+    this.box(group,{x:frameSize,y:Math.max(.02,height-frameSize*2),z:.105},{x:width/2-frameSize/2,y:0,z:.078},frame,{castShadow:false});
+    group.userData.selectionMaterials.push(backer,frame);
+  }
+
+  buildSlatWallFeature(group,feature,transform){
+    const felt=this.material({color:0x242a2f,roughness:.96,metalness:0,envMapIntensity:.12});
+    const wood=this.material({color:feature.color||0x8f5f3a,roughness:.62,metalness:.015,envMapIntensity:.4});
+    const width=transform.width,height=transform.height;
+    const slatCount=clamp(Math.round(width/(2.5/12)),3,60);
+    const center=width/slatCount;
+    const slatWidth=Math.min(.16,Math.max(.075,center*.56));
+    this.box(group,{x:width,y:height,z:1/12},{x:0,y:0,z:1/24},felt,{castShadow:false});
+    for(let index=0;index<slatCount;index++){
+      const x=-width/2+center*(index+.5);
+      this.box(group,{x:slatWidth,y:height,z:.12},{x,y:0,z:.1},wood,{castShadow:false});
+    }
+    group.userData.slatCount=slatCount;
+    group.userData.selectionMaterials.push(felt);
+  }
+
+  buildLedWallFeature(group,feature,transform){
+    const channel=this.material({color:0x727b84,roughness:.32,metalness:.9,envMapIntensity:1.08});
+    const brightness=clamp(safeNum(feature.brightnessPct)/100,0,1);
+    const diffuser=this.material({
+      color:feature.color||0xffb36b,
+      emissive:feature.color||0xffb36b,
+      emissiveIntensity:.7+brightness*1.1,
+      transparent:true,
+      opacity:.82,
+      roughness:.3,
+      metalness:0,
+      depthWrite:false,
+      envMapIntensity:.18,
+    });
+    const width=Math.max(.055,transform.width),height=Math.max(.055,transform.height);
+    this.box(group,{x:width,y:height,z:.075},{x:0,y:0,z:.038},channel,{castShadow:false});
+    this.box(group,{x:Math.max(.045,width-.025),y:Math.max(.045,height-.025),z:.035},{x:0,y:0,z:.094},diffuser,{castShadow:false,receiveShadow:false});
+    if(this.featurePointLights<8){
+      const light=new THREE.PointLight(feature.color||0xffb36b,.42*brightness,6,2);
+      light.position.set(0,0,.48);
+      light.castShadow=false;
+      group.add(light);
+      this.featurePointLights++;
+    }
+    group.userData.selectionMaterials.push(channel);
   }
 
   floorElevationAt(x,z){
@@ -2057,8 +2186,8 @@ class Gym3DView {
 
   frameSelected(){
     if(this.mode!=="preview") return;
-    const selectedId=state.layout.selectedInstId || state.layout.selectedAreaId;
-    const group=this.itemGroups.get(selectedId) || this.areaGroups.get(selectedId);
+    const selectedId=state.layout.selectedInstId || state.layout.selectedAreaId || state.layout.selectedWallFeatureId;
+    const group=this.itemGroups.get(selectedId) || this.areaGroups.get(selectedId) || this.wallFeatureGroups.get(selectedId);
     if(!group) return;
     const footprint=group.userData.worldFootprint||{};
     const width=Math.max(.5,safeNum(footprint.widthFt));
@@ -2075,6 +2204,9 @@ class Gym3DView {
       const totalRotation=safeNum(group.userData.rotationY)+safeNum(group.userData.visualRotationY);
       const front=new THREE.Vector3(0,0,-1).applyAxisAngle(new THREE.Vector3(0,1,0),totalRotation);
       theta=Math.atan2(front.x,front.z)+.16;
+    }else if(this.wallFeatureGroups.has(selectedId)){
+      const front=new THREE.Vector3(0,0,1).applyAxisAngle(new THREE.Vector3(0,1,0),safeNum(group.userData.rotationY));
+      theta=Math.atan2(front.x,front.z);
     }
     this.target.set(focus.x,focus.y,focus.z);
     this.orbit={
@@ -2201,10 +2333,11 @@ class Gym3DView {
       ((event.clientX-rect.left)/rect.width)*2-1,
       -((event.clientY-rect.top)/rect.height)*2+1
     );
-    const instId=this.pickInst(pointer);
-    if(!instId) return;
+    const picked=this.pickTarget(pointer);
+    if(!picked) return;
     if(typeof clearAllSelections === "function") clearAllSelections();
-    state.layout.selectedInstId=instId;
+    if(picked.type==="wallFeature") state.layout.selectedWallFeatureId=picked.id;
+    else state.layout.selectedInstId=picked.id;
     this.rememberCamera();
     if(this.mode === "walkthrough"){
       gym3DControllers.forEach(controller=>controller.updateSelection());
@@ -2219,6 +2352,15 @@ class Gym3DView {
     raycaster.setFromCamera(pointer,this.camera);
     const hit=raycaster.intersectObjects(this.clickTargets,false).find(x=>x.object.userData.instId);
     return hit?.object?.userData?.instId || null;
+  }
+
+  pickTarget(pointer){
+    const raycaster=new THREE.Raycaster();
+    raycaster.setFromCamera(pointer,this.camera);
+    const hit=raycaster.intersectObjects(this.clickTargets,false).find(x=>x.object.userData.instId || x.object.userData.wallFeatureId);
+    if(hit?.object?.userData?.wallFeatureId) return {type:"wallFeature",id:hit.object.userData.wallFeatureId};
+    if(hit?.object?.userData?.instId) return {type:"equipment",id:hit.object.userData.instId};
+    return null;
   }
 
   setHoveredInst(instId){
@@ -2267,7 +2409,19 @@ class Gym3DView {
         });
       });
     });
+    this.wallFeatureGroups.forEach((group,id)=>{
+      const selected=id===state.layout.selectedWallFeatureId;
+      group.userData.selected=selected;
+      (group.userData.selectionMaterials||[]).forEach(material=>{
+        if(!material?.emissive?.setHex) return;
+        material.emissive.setHex(selected?0xf97316:(material.userData.baseEmissive||0));
+        material.emissiveIntensity=selected
+          ? Math.max(.2,safeNum(material.userData.baseEmissiveIntensity))
+          : safeNum(material.userData.baseEmissiveIntensity);
+      });
+    });
     this.host.dataset.selectedInstId=state.layout.selectedInstId || "";
+    this.host.dataset.selectedWallFeatureId=state.layout.selectedWallFeatureId || "";
     this.updateLabelVisibility();
   }
 
@@ -2286,6 +2440,7 @@ class Gym3DView {
     if(this.customAssetErrorCount){
       warnings.push(`${this.customAssetErrorCount} local 3D model${this.customAssetErrorCount===1?"":"s"} unavailable — using measured fallback`);
     }
+    if(this.invalidWallFeatureWarning) warnings.push(this.invalidWallFeatureWarning);
     this.host.querySelectorAll("[data-gym3d-warnings]").forEach(el=>{
       el.innerHTML=warnings.length
         ? `<strong>${warnings.length} warning${warnings.length===1?"":"s"}</strong><span>${escapeHtml(warnings[0])}</span>`
@@ -2371,6 +2526,20 @@ class Gym3DView {
       const r=effectiveRectForInst(inst,item).base;
       ctx.fillStyle=inst.id===state.layout.selectedInstId?"#f97316":"#8c99a6";
       ctx.fillRect(ox+r.x*scale,oz+r.y*scale,Math.max(2,r.w*scale),Math.max(2,r.h*scale));
+    });
+    this.wallFeatureGroups.forEach((group,id)=>{
+      const feature=group.userData.wallFeature||{};
+      const width=Math.max(0,safeNum(group.userData.worldFootprint?.widthFt));
+      const half=width/2;
+      const rotation=safeNum(group.userData.rotationY);
+      const dx=Math.cos(rotation)*half,dz=-Math.sin(rotation)*half;
+      ctx.strokeStyle=feature.kind==="mirror" ? "#dbeafe" : (feature.color||"#8f5f3a");
+      ctx.lineWidth=id===state.layout.selectedWallFeatureId?4:2;
+      ctx.lineCap="round";
+      ctx.beginPath();
+      ctx.moveTo(ox+(group.position.x-dx)*scale,oz+(group.position.z-dz)*scale);
+      ctx.lineTo(ox+(group.position.x+dx)*scale,oz+(group.position.z+dz)*scale);
+      ctx.stroke();
     });
     ctx.strokeStyle="#47c48a";
     ctx.lineWidth=3;

@@ -20,9 +20,6 @@ function wallFeatureDisplayName(kind){
 function spatialFrameSelectedControl(selection){
   const hasSelection=!!(selection.selectedInstId || selection.selectedAreaId || selection.selectedWallFeatureId);
   if(!hasSelection || selection.spatialMode==="plan") return "";
-  if(selection.selectedWallFeatureId && !selection.selectedInstId && !selection.selectedAreaId){
-    return `<span class="wallFeatureFrameControl"><button type="button" class="focusCanvasBtn" disabled aria-disabled="true" aria-describedby="wallFeatureFrameHelp">Frame selected</button><span id="wallFeatureFrameHelp" class="wallFeatureFrameHelp">Wall-feature framing will be available with the 3D wall feature view.</span></span>`;
-  }
   return `<button type="button" class="focusCanvasBtn" data-action="spatial_frame_selected">Frame selected</button>`;
 }
 
