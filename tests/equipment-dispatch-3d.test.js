@@ -34,12 +34,13 @@
     };
   }
 
-  function createEquipmentDispatchFixture({items=dedicatedItems,instances=null,settings=null}={}){
+  function createEquipmentDispatchFixture({items=dedicatedItems,instances=null,settings=null,ceilingZones=null}={}){
     state.settings=settings || fixtureSettings();
     state.items=items.map(item=>normalizeItemRecord({...item,unit:"ft"}));
     state.layout=normalizeLayout({
       ...deepCopy(DEFAULT_LAYOUT),
       spatial3d:{...DEFAULT_LAYOUT.spatial3d,walls:false,labelMode:"off",clearances:false},
+      ceilingZones:ceilingZones || deepCopy(DEFAULT_LAYOUT.ceilingZones),
       instances:instances || state.items.map((item,index)=>({
         id:`inst_${item.id}`,
         itemId:item.id,
@@ -69,6 +70,13 @@
 
   function assertNear(actual,expected,message){
     GymTests.assert(Math.abs(actual-expected)<=.001,`${message}: expected ${expected}, received ${actual}`);
+  }
+
+  function meshGeometrySignature(mesh){
+    mesh.geometry.computeBoundingBox();
+    const size=new THREE.Vector3();
+    mesh.geometry.boundingBox.getSize(size);
+    return [mesh.geometry.type,mesh.geometry.attributes.position.count,...size.toArray().map(value=>value.toFixed(6))].join(":");
   }
 
   GymTests.test("keeps semantic metadata and interaction targets on every model primitive",()=>{
@@ -408,6 +416,51 @@
     }finally{ fixture.destroy(); }
   });
 
+  GymTests.test("publishes the complete Stair semantic mesh contract through real Three primitives",()=>{
+    const fixture=createEquipmentDispatchFixture({items:[dedicatedItems[1]]});
+    try{
+      const group=fixture.view.itemGroups.get("inst_stair");
+      const tagged=groupMeshes(group).filter(mesh=>String(mesh.userData.partTag||"").startsWith("stair-"));
+      GymTests.equal(group.userData.modelType,"photo-matched syedee Stair Machine");
+      GymTests.assert(tagged.length>0 && tagged.length<=56,"The dedicated Stair root must expose its bounded tagged assembly");
+      GymTests.assert(tagged.every(mesh=>mesh.userData.instId==="inst_stair"),"Every tagged Stair mesh must preserve its interaction target");
+      [
+        ["stair-tread",8],["stair-riser",7],["stair-side-shroud",2],["stair-shroud-inset",2],
+        ["stair-entry-step",1],["stair-base-rail",2],["stair-handrail",8],
+        ["stair-console-housing",1],["stair-console-screen",1],["stair-orange-accent",2],
+      ].forEach(([tag,count])=>GymTests.equal(tagged.filter(mesh=>mesh.userData.partTag===tag).length,count));
+      GymTests.assert(tagged.filter(mesh=>mesh.userData.partTag==="stair-cross-foot").length>=2,"Real Stair needs front and rear cross feet");
+      const edgeLights=tagged.filter(mesh=>mesh.userData.partTag==="stair-white-edge-light");
+      GymTests.assert(edgeLights.filter(mesh=>mesh.userData.side==="left").length>=2,"Real Stair needs a left white edge-light set");
+      GymTests.equal(edgeLights.filter(mesh=>mesh.userData.side==="right").length,edgeLights.filter(mesh=>mesh.userData.side==="left").length,"Real Stair needs matching white edge-light sets");
+      GymTests.assert(new Set(tagged.map(mesh=>mesh.material)).size<=8,"Real Stair meshes must reuse at most eight material objects");
+      GymTests.assert(new Set(tagged.map(meshGeometrySignature)).size<=24,"Real Stair meshes must reuse at most 24 geometry signatures");
+      const floorParts=tagged.filter(mesh=>mesh.userData.partTag==="stair-base-rail" || mesh.userData.partTag==="stair-cross-foot");
+      assertNear(Math.min(...floorParts.map(mesh=>new THREE.Box3().setFromObject(mesh).min.y)),0,"Real Stair base must touch the floor");
+      ["stair-console-screen","stair-white-edge-light","stair-orange-accent"].forEach(tag=>{
+        tagged.filter(mesh=>mesh.userData.partTag===tag).forEach(mesh=>{
+          GymTests.assert(mesh.material.emissive.getHex()!==0,`${tag} must be emissive`);
+          GymTests.equal(mesh.castShadow,false,`${tag} must not cast shadows`);
+          GymTests.equal(mesh.receiveShadow,false,`${tag} must not receive shadows`);
+        });
+      });
+    }finally{ fixture.destroy(); }
+  });
+
+  GymTests.test("keeps the saved Stair low-ceiling warning singular and unchanged",()=>{
+    const item={...dedicatedItems[1],requiredCeilingFt:8.7};
+    const fixture=createEquipmentDispatchFixture({
+      items:[item],
+      instances:[{id:"saved_stair",itemId:"stair",xFt:0,xIn:0,yFt:0,yIn:0,rotated:true}],
+      ceilingZones:[{id:"existing_ceiling",label:"Low ceiling",xFt:0,xIn:0,yFt:0,yIn:6,widthFt:2,widthIn:6,heightFt:5,heightIn:0,ceilingHeightFt:5,ceilingHeightIn:0}],
+    });
+    try{
+      const warnings=fixture.host.querySelector("[data-gym3d-warnings]");
+      GymTests.equal(warnings.querySelector("strong").textContent,"1 warning");
+      GymTests.equal(warnings.querySelector("span").textContent,"Stair Machine: needs 8.7 ft ceiling");
+    }finally{ fixture.destroy(); }
+  });
+
   GymTests.test("preserves the eight saved Layout 3 footprints, origins, rotations, and validity",()=>{
     const instances=[
       {id:"saved_ice",itemId:"ice",xFt:0,xIn:0,yFt:9,yIn:0,rotated:false,__invalid:false},
@@ -500,6 +553,59 @@
       GymTests.equal(restoredX16.userData.dedicatedModel,true);
       GymTests.equal([...restored.view.itemGroups.keys()].filter(id=>id==="inst_x16").length,1,"Recovery must restore one dedicated X16 placement");
       GymTests.assert(groupMeshes(restoredX16).some(mesh=>mesh.userData.partTag==="x16-belt"),"Recovery must restore the dedicated tagged X16 assembly");
+    }finally{ restored.destroy(); }
+  });
+
+  GymTests.test("falls back only the throwing Stair and restores its clean semantic assembly",()=>{
+    const originalModels=window.GymEquipmentModels;
+    const stagedMeshes=[];
+    try{
+      window.GymEquipmentModels={
+        ...originalModels,
+        build(profile,view,group,inst,...args){
+          if(profile==="syedee-stair-machine"){
+            const material=view.material({color:0xffffff,emissive:0xffffff});
+            stagedMeshes.push(
+              view.extrudedPanel(group,[{x:-.2,y:0},{x:.2,y:0},{x:.1,y:.3},{x:-.1,y:.3}],.05,{x:0,y:0,z:0},material,{instId:inst.id,partTag:"stair-test-shell",side:"left"}),
+              view.beam(group,{x:-.2,y:.05,z:0},{x:.2,y:.05,z:0},.02,.02,material,{instId:inst.id,partTag:"stair-test-light",side:"left",partIndex:0,castShadow:false,receiveShadow:false}),
+            );
+            throw new Error("test Stair builder failure");
+          }
+          return originalModels.build(profile,view,group,inst,...args);
+        },
+      };
+      const fixture=createEquipmentDispatchFixture();
+      try{
+        const {host,view}=fixture;
+        const stair=view.itemGroups.get("inst_stair");
+        GymTests.equal(view.itemGroups.size,11);
+        GymTests.equal(host.dataset.builderFailures,"1");
+        GymTests.equal(host.dataset.dedicatedModels,"10");
+        GymTests.equal(stair.userData.dedicatedModel,false);
+        GymTests.equal(stair.userData.modelBuilder,"");
+        GymTests.equal(stair.userData.modelType,"stair climber");
+        GymTests.equal([...view.itemGroups.keys()].filter(id=>id==="inst_stair").length,1,"Stair failure must create one generic fallback placement");
+        GymTests.assert(!groupMeshes(stair).some(mesh=>String(mesh.userData.partTag||"").startsWith("stair-")),"Generic fallback must retain no staged Stair semantic mesh");
+        GymTests.assert(!view.clickTargets.some(mesh=>String(mesh.userData.partTag||"").startsWith("stair-")),"Generic fallback must retain no staged Stair click target");
+        stagedMeshes.forEach(mesh=>{
+          GymTests.assert(!view.disposables.includes(mesh.geometry),"Generic fallback must retain no staged Stair geometry");
+          GymTests.assert(!view.disposables.includes(mesh.material),"Generic fallback must retain no staged Stair material");
+          GymTests.assert(!mesh.parent,"Generic fallback must retain no staged Stair object");
+        });
+        GymTests.assert(host.querySelector("[data-gym3d-warnings]").textContent.includes("Stair Machine"),"The published warning must identify the Stair dedicated fallback");
+        GymTests.assert(!host.dataset.modelBuilders.split(",").includes("syedee-stair-machine"),"A failed Stair builder must not appear in successful builder diagnostics");
+      }finally{ fixture.destroy(); }
+    }finally{
+      window.GymEquipmentModels=originalModels;
+    }
+    const restored=createEquipmentDispatchFixture();
+    try{
+      GymTests.equal(restored.host.dataset.builderFailures,"0");
+      GymTests.equal(restored.host.dataset.dedicatedModels,"11");
+      const restoredStair=restored.view.itemGroups.get("inst_stair");
+      GymTests.equal(restoredStair.userData.dedicatedModel,true);
+      GymTests.equal([...restored.view.itemGroups.keys()].filter(id=>id==="inst_stair").length,1,"Recovery must restore one dedicated Stair placement");
+      GymTests.assert(groupMeshes(restoredStair).some(mesh=>mesh.userData.partTag==="stair-side-shroud"),"Recovery must restore the dedicated tagged Stair assembly");
     }finally{ restored.destroy(); }
   });
 

@@ -55,36 +55,104 @@
   }
 
   function buildSyedeeStairMachineModel(view,group,inst,base,height){
-    const {w,d,h,material,addBox,addBeam,addTube}=createModelKit(view,group,inst,base,height);
+    const {w,d,h,material,addBox,addBeam,addTube,addExtrudedPanel}=createModelKit(view,group,inst,base,height);
     const powder=material({color:0x111417,roughness:.54,metalness:.42,envMapIntensity:.68});
     const shroud=material({color:0x20252a,roughness:.68,metalness:.24,envMapIntensity:.42});
+    const inset=material({color:0x090c0f,roughness:.82,metalness:.12,envMapIntensity:.2});
     const tread=material({color:0x090b0d,roughness:.88,metalness:.06,envMapIntensity:.18});
     const rail=material({color:0x080a0c,roughness:.48,metalness:.36,envMapIntensity:.52});
-    const warm=material({color:0xffe1aa,emissive:0xffc56b,emissiveIntensity:.8,roughness:.35,metalness:.04});
-    const amber=material({color:0xd96b24,emissive:0xa44513,emissiveIntensity:.48,roughness:.38,metalness:.18});
-    for(let i=0;i<8;i++){
-      addBox({x:w*.62,y:h*.035,z:d*.16},{x:0,y:h*(.12+i*.065),z:d*(.31-i*.075)},tread);
+    const screen=material({color:0x0b5367,emissive:0x16b7d4,emissiveIntensity:.72,roughness:.2,metalness:.1,depthWrite:false});
+    const white=material({color:0xf3fbff,emissive:0xdffaff,emissiveIntensity:1.4,roughness:.24,metalness:.02});
+    const orange=material({color:0xff6b22,emissive:0xff4b0c,emissiveIntensity:1.05,roughness:.32,metalness:.12});
+
+    // Open floor frame and low rear entry keep the staircase visibly suspended.
+    const baseRailHalf=w*.055/2;
+    [-1,1].forEach(sign=>addBeam(
+      {x:sign*w*.37,y:baseRailHalf,z:-d*.43},
+      {x:sign*w*.37,y:baseRailHalf,z:d*.43},
+      w*.055,powder,w*.055,
+      {partTag:"stair-base-rail",side:sign<0?"left":"right"}
+    ));
+    const crossFootHalf=w*.05/2;
+    [-1,1].forEach((sign,index)=>addBeam(
+      {x:-w*.40,y:crossFootHalf,z:sign*d*.405},
+      {x:w*.40,y:crossFootHalf,z:sign*d*.405},
+      w*.05,powder,w*.05,
+      {partTag:"stair-cross-foot",partIndex:index}
+    ));
+    addBox(
+      {x:w*.66,y:h*.13,z:d*.17},
+      {x:0,y:h*.065,z:d*.39},tread,
+      {partTag:"stair-entry-step",castShadow:false}
+    );
+
+    // One continuous rear-to-front cascade reads as moving stairs, not a plinth.
+    for(let index=0;index<8;index++){
+      const y=h*(.11+index*.062);
+      const z=d*(.34-index*.085);
+      addBox({x:w*.60,y:h*.018,z:d*.145},{x:0,y,z},tread,
+        {partTag:"stair-tread",partIndex:index,castShadow:false});
+      if(index<7) addBox({x:w*.60,y:h*.062,z:d*.018},{x:0,y:y+h*.031,z:z-d*.0715},tread,
+        {partTag:"stair-riser",partIndex:index,castShadow:false});
     }
+
+    const shellPoints=[
+      {x:d*.46,y:h*.035},{x:d*.46,y:h*.16},{x:d*.27,y:h*.18},
+      {x:-d*.27,y:h*.61},{x:-d*.43,y:h*.61},{x:-d*.43,y:h*.035},
+    ];
+    const insetPoints=[
+      {x:d*.405,y:h*.075},{x:d*.405,y:h*.14},{x:d*.235,y:h*.195},
+      {x:-d*.235,y:h*.555},{x:-d*.365,y:h*.555},{x:-d*.365,y:h*.075},
+    ];
     [-1,1].forEach(sign=>{
-      addBox({x:w*.13,y:h*.55,z:d*.42},{x:sign*w*.34,y:h*.37,z:d*.12},shroud,{rotationX:-.2});
-      addBeam({x:sign*w*.34,y:h*.09,z:d*.4},{x:sign*w*.34,y:h*.62,z:-d*.12},w*.075,shroud,d*.12);
-      addBeam({x:sign*w*.34,y:h*.62,z:-d*.12},{x:sign*w*.31,y:h*.8,z:-d*.2},w*.065,shroud,d*.1);
-      addBox({x:w*.14,y:h*.05,z:d*.22},{x:sign*w*.31,y:h*.04,z:d*.39},powder);
-      // Kinked mostly-black rails rather than chrome curves.
-      addTube({x:sign*w*.31,y:h*.23,z:d*.28},{x:sign*w*.37,y:h*.55,z:d*.04},w*.017,rail,12);
-      addTube({x:sign*w*.37,y:h*.55,z:d*.04},{x:sign*w*.33,y:h*.77,z:-d*.16},w*.018,rail,12);
-      addTube({x:sign*w*.33,y:h*.77,z:-d*.16},{x:sign*w*.25,y:h*.82,z:-d*.19},w*.018,rail,12);
+      const side=sign<0?"left":"right";
+      addExtrudedPanel(shellPoints,w*.08,{x:sign*w*.44,y:0,z:0},shroud,
+        {rotationY:-Math.PI/2,partTag:"stair-side-shroud",side});
+      addExtrudedPanel(insetPoints,w*.09,{x:sign*w*.44,y:0,z:0},inset,
+        {rotationY:-Math.PI/2,partTag:"stair-shroud-inset",side});
+
+      const lightX=sign*w*.488;
+      const edgeSegments=[
+        [{x:lightX,y:h*.045,z:-d*.43},{x:lightX,y:h*.045,z:d*.41}],
+        [{x:lightX,y:h*.045,z:-d*.41},{x:lightX,y:h*.59,z:-d*.41}],
+        [{x:lightX,y:h*.19,z:d*.265},{x:lightX,y:h*.59,z:-d*.265}],
+      ];
+      edgeSegments.forEach(([start,end],partIndex)=>addBeam(
+        start,end,w*.012,white,w*.012,
+        {partTag:"stair-white-edge-light",side,partIndex,castShadow:false,receiveShadow:false}
+      ));
+      addBeam(
+        {x:lightX,y:h*.475,z:-d*.10},
+        {x:lightX,y:h*.595,z:-d*.25},
+        w*.01,orange,w*.01,
+        {partTag:"stair-orange-accent",side,partIndex:0,castShadow:false,receiveShadow:false}
+      );
     });
-    addBox({x:w*.16,y:h*.64,z:d*.13},{x:0,y:h*.48,z:-d*.16},powder);
-    addBox({x:w*.68,y:h*.09,z:d*.1},{x:0,y:h*.83,z:-d*.19},shroud);
-    addBox({x:w*.66,y:h*.18,z:d*.035},{x:0,y:h*.84,z:-d*.245},tread,{castShadow:false});
-    addBox({x:w*.05,y:h*.34,z:d*.04},{x:0,y:h*.69,z:-d*.15},powder);
-    addBox({x:w*.04,y:h*.39,z:d*.025},{x:-w*.31,y:h*.5,z:d*.075},warm,{castShadow:false,receiveShadow:false});
-    addBox({x:w*.04,y:h*.35,z:d*.025},{x:w*.31,y:h*.47,z:d*.03},warm,{castShadow:false,receiveShadow:false});
-    addBox({x:w*.56,y:h*.02,z:d*.025},{x:0,y:h*.17,z:d*.35},warm,{castShadow:false,receiveShadow:false});
-    addBox({x:w*.035,y:h*.31,z:d*.028},{x:-w*.36,y:h*.41,z:d*.05},amber,{castShadow:false,receiveShadow:false});
-    addBeam({x:-w*.3,y:h*.12,z:d*.38},{x:w*.3,y:h*.12,z:d*.38},w*.05,powder,d*.05);
-    addBox({x:w*.52,y:h*.12,z:d*.2},{x:0,y:h*.15,z:d*.27},shroud);
+
+    // A narrow center mast supports a broad landscape console at local front -Z.
+    addBox({x:w*.13,y:h*.59,z:d*.065},{x:0,y:h*.465,z:-d*.29},powder,
+      {partTag:"stair-console-mast"});
+    addBox({x:w*.70,y:h*.20,z:d*.055},{x:0,y:h*.86,z:-d*.415},shroud,
+      {partTag:"stair-console-housing"});
+    addBox({x:w*.60,y:h*.135,z:d*.012},{x:0,y:h*.86,z:-d*.445},screen,
+      {partTag:"stair-console-screen",castShadow:false,receiveShadow:false});
+
+    const railPath=[
+      {x:.30*w,y:.22*h,z:.34*d},
+      {x:.39*w,y:.55*h,z:.05*d},
+      {x:.36*w,y:.76*h,z:-.22*d},
+      {x:.27*w,y:.79*h,z:-.35*d},
+    ];
+    [-1,1].forEach(sign=>{
+      const side=sign<0?"left":"right";
+      const points=railPath.map(point=>({...point,x:sign*point.x}));
+      for(let partIndex=0;partIndex<3;partIndex++) addTube(
+        points[partIndex],points[partIndex+1],w*.022,rail,12,
+        {partTag:"stair-handrail",side,partIndex}
+      );
+      addTube(points[3],{x:sign*w*.22,y:h*.79,z:-d*.43},w*.022,rail,12,
+        {partTag:"stair-handrail",side,partIndex:3});
+    });
     return "photo-matched syedee Stair Machine";
   }
 

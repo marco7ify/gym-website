@@ -29,7 +29,7 @@
       material:spec=>spec,
       box:(group,size,pos,mat,options)=>record("box",size,pos,mat,options),
       cylinder:(group,radius,length,pos,mat,options)=>record("cylinder",{radius,length},pos,mat,options),
-      beam:(group,start,end,width,depth,mat,options)=>record("beam",{start,end,radius:Math.hypot(width,depth)/2},{x:0,y:0,z:0},mat,options),
+      beam:(group,start,end,width,depth,mat,options)=>record("beam",{start,end,width,depth,radius:Math.hypot(width,depth)/2},{x:0,y:0,z:0},mat,options),
       tube:(group,start,end,radius,mat,options)=>record("tube",{start,end,radius},{x:0,y:0,z:0},mat,options),
       extrudedPanel:(group,points,depth,pos,mat,options)=>record("extruded-panel",{points,depth},pos,mat,options),
     };
@@ -69,6 +69,32 @@
       return {
         min:{x:part.pos.x-extent[0],y:part.pos.y-extent[1],z:part.pos.z-extent[2]},
         max:{x:part.pos.x+extent[0],y:part.pos.y+extent[1],z:part.pos.z+extent[2]},
+      };
+    }
+    if(part.kind==="extruded-panel"){
+      const {rotationX:rx=0,rotationY:ry=0,rotationZ:rz=0}=part.options||{};
+      const sx=Math.sin(rx),cx=Math.cos(rx),sy=Math.sin(ry),cy=Math.cos(ry),sz=Math.sin(rz),cz=Math.cos(rz);
+      const matrix=[
+        [cy*cz,-cy*sz,sy],
+        [sx*sy*cz+cx*sz,-sx*sy*sz+cx*cz,-sx*cy],
+        [-cx*sy*cz+sx*sz,cx*sy*sz+sx*cz,cx*cy],
+      ];
+      const vertices=part.size.points.flatMap(point=>[-part.size.depth/2,part.size.depth/2].map(z=>({
+        x:part.pos.x+matrix[0][0]*point.x+matrix[0][1]*point.y+matrix[0][2]*z,
+        y:part.pos.y+matrix[1][0]*point.x+matrix[1][1]*point.y+matrix[1][2]*z,
+        z:part.pos.z+matrix[2][0]*point.x+matrix[2][1]*point.y+matrix[2][2]*z,
+      })));
+      return {
+        min:{
+          x:Math.min(...vertices.map(vertex=>vertex.x)),
+          y:Math.min(...vertices.map(vertex=>vertex.y)),
+          z:Math.min(...vertices.map(vertex=>vertex.z)),
+        },
+        max:{
+          x:Math.max(...vertices.map(vertex=>vertex.x)),
+          y:Math.max(...vertices.map(vertex=>vertex.y)),
+          z:Math.max(...vertices.map(vertex=>vertex.z)),
+        },
       };
     }
     const radius=part.size.radius;
@@ -125,9 +151,23 @@
         GymTests.assert(Math.abs(part.pos.x)+extent[0]<=envelope.w/2+1e-9,`${label} exceeds width envelope`);
         GymTests.assert(part.pos.y-extent[1]>=-1e-9 && part.pos.y+extent[1]<=envelope.h+1e-9,`${label} exceeds height envelope`);
         GymTests.assert(Math.abs(part.pos.z)+extent[2]<=envelope.d/2+1e-9,`${label} exceeds depth envelope`);
+      }else if(part.kind==="extruded-panel"){
+        const bounds=partAabb(part);
+        GymTests.assert(bounds.min.x>=-envelope.w/2-1e-9 && bounds.max.x<=envelope.w/2+1e-9,`${label} exceeds width envelope`);
+        GymTests.assert(bounds.min.y>=-1e-9 && bounds.max.y<=envelope.h+1e-9,`${label} exceeds height envelope`);
+        GymTests.assert(bounds.min.z>=-envelope.d/2-1e-9 && bounds.max.z<=envelope.d/2+1e-9,`${label} exceeds depth envelope`);
       }else{
-        assertPointInEnvelope(part.size.start,part.size.radius,envelope,`${label} start`);
-        assertPointInEnvelope(part.size.end,part.size.radius,envelope,`${label} end`);
+        if(part.kind==="beam" && Math.abs(part.size.start.y-part.size.end.y)<1e-9){
+          const yHalf=Math.max(part.size.width,part.size.depth)/2;
+          [part.size.start,part.size.end].forEach((point,pointIndex)=>{
+            GymTests.assert(point.x-part.size.radius>=-envelope.w/2-1e-9 && point.x+part.size.radius<=envelope.w/2+1e-9,`${label} point ${pointIndex} exceeds width envelope`);
+            GymTests.assert(point.y-yHalf>=-1e-9 && point.y+yHalf<=envelope.h+1e-9,`${label} point ${pointIndex} exceeds height envelope`);
+            GymTests.assert(point.z-part.size.radius>=-envelope.d/2-1e-9 && point.z+part.size.radius<=envelope.d/2+1e-9,`${label} point ${pointIndex} exceeds depth envelope`);
+          });
+        }else{
+          assertPointInEnvelope(part.size.start,part.size.radius,envelope,`${label} start`);
+          assertPointInEnvelope(part.size.end,part.size.radius,envelope,`${label} end`);
+        }
       }
     });
   }
@@ -144,6 +184,24 @@
 
   function x16BeltCandidate(parts){
     return partsByTag(parts,"x16-belt")[0] || parts.find(part=>part.kind==="box" && part.material?.color===0x050708);
+  }
+
+  function stairProbeParts(){
+    const probe=modelProbe();
+    window.GymEquipmentModels.build("syedee-stair-machine",probe.view,probe.group,{id:"probe"},{w:2.6667,h:4.1667},6.8333);
+    return probe.parts;
+  }
+
+  function orderedMetadata(parts){
+    return parts.map(part=>[part.userData.side,part.userData.partIndex]);
+  }
+
+  function geometrySignature(part){
+    if(part.kind==="box") return `box:${part.size.x},${part.size.y},${part.size.z}`;
+    if(part.kind==="cylinder") return `cylinder:${part.size.radius},${part.size.length},${part.options?.segments||16}`;
+    if(part.kind==="extruded-panel") return `extruded:${JSON.stringify(part.size.points)}:${part.size.depth}`;
+    const {start,end,radius}=part.size;
+    return `${part.kind}:${Math.hypot(end.x-start.x,end.y-start.y,end.z-start.z)}:${radius}:${part.options?.segments||0}`;
   }
 
   GymTests.test("registers Task 2 exact builders with bounded signature geometry",()=>{
@@ -271,6 +329,156 @@
       partsByTag(parts,tag).forEach(part=>GymTests.assert(partAabb(part).max.z<0,`${tag} must remain at local front -Z`));
     });
     GymTests.assert(partAabb(partsByTag(parts,"x16-rear-roller")[0]).min.z>0,"X16 rear roller must remain at local rear +Z");
+  });
+
+  GymTests.test("replaces the Stair plinth with an open base and eight connected tread-riser stages",()=>{
+    const w=2.6667,d=4.1667,h=6.8333;
+    const parts=stairProbeParts();
+    const treads=partsByTag(parts,"stair-tread");
+    const risers=partsByTag(parts,"stair-riser");
+    GymTests.equal(treads.length,8,"Stair cascade needs exactly eight tagged treads");
+    GymTests.equal(risers.length,7,"Stair cascade needs exactly seven tagged risers");
+    GymTests.deepEqual(treads.map(part=>part.userData.partIndex),[0,1,2,3,4,5,6,7]);
+    GymTests.deepEqual(risers.map(part=>part.userData.partIndex),[0,1,2,3,4,5,6]);
+    treads.forEach((part,index)=>{
+      GymTests.deepEqual(part.size,{x:w*.60,y:h*.018,z:d*.145});
+      GymTests.closeTo(part.pos.y,h*(.11+index*.062),1e-9);
+      GymTests.closeTo(part.pos.z,d*(.34-index*.085),1e-9);
+      GymTests.equal(part.options.castShadow,false,"Tread surfaces must stay shadowless");
+    });
+    risers.forEach((part,index)=>{
+      GymTests.deepEqual(part.size,{x:w*.60,y:h*.062,z:d*.018});
+      GymTests.closeTo(part.pos.y,h*(.11+index*.062+.031),1e-9);
+      GymTests.closeTo(part.pos.z,d*(.34-index*.085-.0715),1e-9);
+      GymTests.equal(part.options.castShadow,false,"Riser faces must stay shadowless");
+    });
+    GymTests.equal(partsByTag(parts,"stair-entry-step").length,1,"Stair needs one low rear entry step");
+    GymTests.equal(partsByTag(parts,"stair-base-rail").length,2,"Stair needs two open longitudinal base rails");
+    GymTests.deepEqual(orderedMetadata(partsByTag(parts,"stair-base-rail")),[["left",undefined],["right",undefined]]);
+    partsByTag(parts,"stair-base-rail").forEach(part=>GymTests.closeTo(part.size.start.y,w*.055/2,1e-9,"Base rails must touch the floor"));
+    GymTests.assert(partsByTag(parts,"stair-cross-foot").length>=2,"Stair needs front and rear cross feet");
+    GymTests.deepEqual(partsByTag(parts,"stair-cross-foot").map(part=>part.userData.partIndex),[0,1]);
+    partsByTag(parts,"stair-cross-foot").forEach(part=>GymTests.closeTo(part.size.start.y,w*.05/2,1e-9,"Cross feet must touch the floor"));
+    const bulkyPlinth=parts.filter(part=>part.kind==="box" && part.pos.y<h*.3
+      && part.size.x>=w*.5 && part.size.y>=h*.1 && part.size.z>=d*.19
+      && part.userData.partTag!=="stair-entry-step");
+    GymTests.equal(bulkyPlinth.length,0,"The open Stair base must not retain the bulky center plinth");
+  });
+
+  GymTests.test("uses paired exact polygon Stair shrouds with semantic white and orange edge lighting",()=>{
+    const w=2.6667,d=4.1667,h=6.8333;
+    const parts=stairProbeParts();
+    const shellPoints=[
+      {x:d*.46,y:h*.035},{x:d*.46,y:h*.16},{x:d*.27,y:h*.18},
+      {x:-d*.27,y:h*.61},{x:-d*.43,y:h*.61},{x:-d*.43,y:h*.035},
+    ];
+    const shrouds=partsByTag(parts,"stair-side-shroud");
+    const insets=partsByTag(parts,"stair-shroud-inset");
+    GymTests.equal(shrouds.length,2,"Stair needs two extruded polygon side shrouds");
+    GymTests.equal(insets.length,2,"Stair needs two smaller polygon shroud insets");
+    GymTests.deepEqual(orderedMetadata(shrouds),[["left",undefined],["right",undefined]]);
+    GymTests.deepEqual(orderedMetadata(insets),[["left",undefined],["right",undefined]]);
+    shrouds.forEach(part=>{
+      GymTests.equal(part.kind,"extruded-panel");
+      GymTests.deepEqual(part.size.points,shellPoints,"Stair shell must preserve the approved normalized side profile");
+      GymTests.closeTo(Math.abs(part.pos.x),w*.44,1e-9);
+      GymTests.closeTo(part.options.rotationY,-Math.PI/2,1e-9,"Polygon X must map toward matching local Z");
+      const lowRearZ=-Math.sin(part.options.rotationY)*part.size.points[0].x;
+      const highFrontZ=-Math.sin(part.options.rotationY)*part.size.points[4].x;
+      GymTests.assert(lowRearZ>0 && highFrontZ<0 && part.size.points[4].y>part.size.points[0].y,"Stair shell must rise from rear +Z toward front -Z");
+    });
+    insets.forEach(part=>{
+      GymTests.equal(part.kind,"extruded-panel");
+      const shellBounds={
+        minX:Math.min(...shellPoints.map(point=>point.x)),maxX:Math.max(...shellPoints.map(point=>point.x)),
+        minY:Math.min(...shellPoints.map(point=>point.y)),maxY:Math.max(...shellPoints.map(point=>point.y)),
+      };
+      const insetBounds={
+        minX:Math.min(...part.size.points.map(point=>point.x)),maxX:Math.max(...part.size.points.map(point=>point.x)),
+        minY:Math.min(...part.size.points.map(point=>point.y)),maxY:Math.max(...part.size.points.map(point=>point.y)),
+      };
+      GymTests.assert(insetBounds.minX>shellBounds.minX && insetBounds.maxX<shellBounds.maxX
+        && insetBounds.minY>shellBounds.minY && insetBounds.maxY<shellBounds.maxY,
+      "Each shroud inset must stay strictly inside the outer shell bounds");
+    });
+    const lights=partsByTag(parts,"stair-white-edge-light");
+    const leftLights=lights.filter(part=>part.userData.side==="left");
+    const rightLights=lights.filter(part=>part.userData.side==="right");
+    GymTests.assert(leftLights.length>=2,"Stair needs a perimeter edge-light set on the left side");
+    GymTests.equal(rightLights.length,leftLights.length,"Stair needs matching white edge-light sets on both sides");
+    GymTests.deepEqual(leftLights.map(part=>part.userData.partIndex),leftLights.map((part,index)=>index));
+    GymTests.deepEqual(rightLights.map(part=>part.userData.partIndex),rightLights.map((part,index)=>index));
+    const leftVertical=leftLights.find(part=>Math.abs(part.size.start.z-part.size.end.z)<1e-9 && part.size.start.y!==part.size.end.y);
+    const leftDiagonal=leftLights.find(part=>part.size.start.z!==part.size.end.z && part.size.start.y!==part.size.end.y);
+    GymTests.assert(leftVertical && leftVertical.size.start.z<0,"White perimeter light must climb the local front -Z edge");
+    GymTests.assert(leftDiagonal && leftDiagonal.size.end.y>leftDiagonal.size.start.y && leftDiagonal.size.end.z<leftDiagonal.size.start.z,"White diagonal light must rise toward local front -Z");
+    GymTests.assert(lights.every(part=>part.material.emissive && part.options.castShadow===false && part.options.receiveShadow===false),"All Stair white edge lights must be emissive and shadowless");
+    const accents=partsByTag(parts,"stair-orange-accent");
+    GymTests.equal(accents.length,2,"Stair needs one short orange upper accent per side");
+    GymTests.deepEqual(orderedMetadata(accents),[["left",0],["right",0]]);
+    GymTests.assert(accents.every(part=>Math.min(part.size.start.y,part.size.end.y)>=h*.45 && part.size.end.y>part.size.start.y && part.size.end.z<part.size.start.z),"Orange accents must occupy the upper diagonal and rise toward local front -Z");
+    GymTests.assert(accents.every(part=>part.material.emissive && part.options.castShadow===false && part.options.receiveShadow===false),"All Stair orange accents must be emissive and shadowless");
+  });
+
+  GymTests.test("keeps the Stair console landscape and the paired handrail paths at approved proportions",()=>{
+    const w=2.6667,d=4.1667,h=6.8333;
+    const parts=stairProbeParts();
+    const housing=partsByTag(parts,"stair-console-housing")[0];
+    const screen=partsByTag(parts,"stair-console-screen")[0];
+    GymTests.equal(partsByTag(parts,"stair-console-housing").length,1,"Stair needs one console housing");
+    GymTests.equal(partsByTag(parts,"stair-console-screen").length,1,"Stair needs one console screen");
+    GymTests.deepEqual(housing.size,{x:w*.70,y:h*.20,z:d*.055});
+    GymTests.closeTo(housing.pos.y,h*.86,1e-9);
+    GymTests.closeTo(housing.pos.z,-d*.415,1e-9);
+    GymTests.deepEqual(screen.size,{x:w*.60,y:h*.135,z:d*.012});
+    GymTests.assert(screen.size.x>screen.size.y,"Stair console screen must be landscape");
+    GymTests.assert(screen.pos.x-screen.size.x/2>=housing.pos.x-housing.size.x/2
+      && screen.pos.x+screen.size.x/2<=housing.pos.x+housing.size.x/2
+      && screen.pos.y-screen.size.y/2>=housing.pos.y-housing.size.y/2
+      && screen.pos.y+screen.size.y/2<=housing.pos.y+housing.size.y/2,
+    "Stair screen face must remain bounded by its housing");
+    GymTests.assert(screen.material.emissive && screen.options.castShadow===false && screen.options.receiveShadow===false,"Stair screen must be emissive and shadowless");
+
+    const rails=partsByTag(parts,"stair-handrail");
+    GymTests.equal(rails.length,8,"Stair needs three rail path segments and one forward grip on each side");
+    GymTests.deepEqual(orderedMetadata(rails),[
+      ["left",0],["left",1],["left",2],["left",3],
+      ["right",0],["right",1],["right",2],["right",3],
+    ]);
+    const expectedLeft=[
+      [{x:-.30*w,y:.22*h,z:.34*d},{x:-.39*w,y:.55*h,z:.05*d}],
+      [{x:-.39*w,y:.55*h,z:.05*d},{x:-.36*w,y:.76*h,z:-.22*d}],
+      [{x:-.36*w,y:.76*h,z:-.22*d},{x:-.27*w,y:.79*h,z:-.35*d}],
+    ];
+    rails.slice(0,3).forEach((part,index)=>{
+      GymTests.deepEqual([part.size.start,part.size.end],expectedLeft[index]);
+      GymTests.closeTo(part.size.radius,.022*w,1e-9);
+      GymTests.equal(part.options.segments,12);
+    });
+    rails.slice(4,7).forEach((part,index)=>{
+      const [start,end]=expectedLeft[index].map(point=>({...point,x:-point.x}));
+      GymTests.deepEqual([part.size.start,part.size.end],[start,end]);
+      GymTests.closeTo(part.size.radius,.022*w,1e-9);
+      GymTests.equal(part.options.segments,12);
+    });
+    GymTests.assert(rails[3].size.end.z<rails[3].size.start.z && rails[7].size.end.z<rails[7].size.start.z,"Both short grips must project forward toward local -Z");
+  });
+
+  GymTests.test("publishes a bounded and economical Stair semantic assembly",()=>{
+    const envelope={w:2.6667,d:4.1667,h:6.8333};
+    const parts=stairProbeParts();
+    const expectedTags=[
+      "stair-base-rail","stair-console-housing","stair-console-mast","stair-console-screen",
+      "stair-cross-foot","stair-entry-step","stair-handrail",
+      "stair-orange-accent","stair-riser","stair-shroud-inset","stair-side-shroud","stair-tread",
+      "stair-white-edge-light",
+    ];
+    GymTests.assert(parts.every(part=>part.userData.instId==="probe" && part.userData.partTag),"Every visible Stair primitive needs stable semantic metadata");
+    GymTests.deepEqual([...new Set(parts.map(part=>part.userData.partTag))].sort(),expectedTags);
+    assertRigidEnvelope(parts,envelope);
+    GymTests.assert(parts.length<=56,`Stair must stay within 56 visible primitives; received ${parts.length}`);
+    GymTests.assert(new Set(parts.map(part=>part.material)).size<=8,"Stair must share at most eight materials");
+    GymTests.assert(new Set(parts.map(geometrySignature)).size<=24,"Stair must reuse at most 24 distinct geometry signatures");
   });
 
   GymTests.test("keeps GATOR foam rollers large and elevated at the local back end",()=>{
