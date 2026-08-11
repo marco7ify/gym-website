@@ -1,5 +1,15 @@
 // Event handlers for Gym Wishlist + Layout Planner
 
+function requestLayoutName(message,suggestedName,requestPrompt){
+  const invoke=requestPrompt || ((text,defaultValue)=>window.prompt(text,defaultValue));
+  try{
+    return invoke(message,suggestedName);
+  }catch(error){
+    if(String(error?.message||"").includes("prompt() is not supported")) return suggestedName;
+    throw error;
+  }
+}
+
 function refreshInstInvalid(id){
   state.layout.instances = (state.layout.instances||[]).map(x=>{
     if(x.id!==id) return x;
@@ -1166,7 +1176,7 @@ function wireMain(){
 
     // Layout library actions
     if(t.dataset.action==="layout_new"){
-      const name = prompt("New layout name:", `Layout ${((state.layouts||[]).length||0)+1}`) || "";
+      const name = requestLayoutName("New layout name:", `Layout ${((state.layouts||[]).length||0)+1}`) || "";
       if(!name.trim()) return;
       const cur = normalizeLayout(state.layout, state.settings);
       const newLayout = normalizeLayout({
@@ -1191,7 +1201,7 @@ function wireMain(){
     if(t.dataset.action==="layout_dup"){
       const curEntry = (state.layouts||[]).find(x=>x.id===state.activeLayoutId);
       const baseName = curEntry?.name || "Layout";
-      const name = prompt("Duplicate layout name:", `${baseName} (copy)`) || "";
+      const name = requestLayoutName("Duplicate layout name:", `${baseName} (copy)`) || "";
       if(!name.trim()) return;
       const id = uid("ly");
       state.layouts = [...(state.layouts||[]), { id, name: name.trim(), layout: normalizeLayout(deepCopy(state.layout), state.settings) }];
@@ -1218,7 +1228,7 @@ function wireMain(){
       const idx = (state.layouts||[]).findIndex(x=>x.id===state.activeLayoutId);
       if(idx<0) return;
       const curName = state.layouts[idx].name || "Layout";
-      const name = prompt("Rename layout:", curName) || "";
+      const name = requestLayoutName("Rename layout:", curName) || "";
       if(!name.trim()) return;
       state.layouts[idx].name = name.trim();
       render();

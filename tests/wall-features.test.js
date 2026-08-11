@@ -211,6 +211,35 @@ GymTests.test("preserves normalized wall feature feet and inches through a reloa
   GymTests.closeTo(GymWallFeatures.height(feature),1/12,1e-9);
 });
 
+GymTests.test("uses the suggested layout name when native prompts are unsupported", () => {
+  const name=requestLayoutName(
+    "Duplicate layout name:",
+    "Layout 3 (copy)",
+    ()=>{ throw new Error("prompt() is not supported"); }
+  );
+  GymTests.equal(name,"Layout 3 (copy)");
+});
+
+GymTests.test("preserves a layout name entered through the native prompt", () => {
+  const name=requestLayoutName("Duplicate layout name:","Layout 3 (copy)",()=>"Custom copy");
+  GymTests.equal(name,"Custom copy");
+});
+
+GymTests.test("treats cancelling a native layout-name prompt as cancellation", () => {
+  const name=requestLayoutName("Duplicate layout name:","Layout 3 (copy)",()=>null);
+  GymTests.equal(name,null);
+});
+
+GymTests.test("does not swallow unrelated layout-name prompt errors", () => {
+  let caught=null;
+  try{
+    requestLayoutName("Duplicate layout name:","Layout 3 (copy)",()=>{ throw new Error("unexpected failure"); });
+  }catch(error){
+    caught=error;
+  }
+  GymTests.equal(caught?.message,"unexpected failure");
+});
+
 GymTests.test("renders selectable mirror wall features with accessible identity", () => {
   const svg=wallFeatureSvg(
     {id:"wf1",kind:"mirror",wall:"bottom",startFt:2,widthFt:5},

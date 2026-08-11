@@ -50,3 +50,15 @@
 - P3: optionally add per-machine model overrides if the wishlist later contains multiple visually different products within the same equipment category.
 
 final result: passed
+
+## 2026-08-11 — Layout 3 wall-decoration verification
+
+- Verified the user's saved Layout 3 at the normal local origin in Plan, Split 2D + 3D, 3D, and Walkthrough. The door-entry view retained the walnut/Gazelle focal wall; the center-training view retained the bottom mirror; the aisle retained the right mirror; and the cardio wall retained its ambient strip. No decoration floated, clipped a door or ceiling, changed equipment placement, or added a walking collision.
+- Rendered inspector/UI counts and values were exact: two silver `#cbd5e1` mirrors, one walnut `#8f5f3a` slat panel, two `#ffb36b` 80% frame LEDs, one `#ffd7aa` 65% mirror wash, and one `#ffd7aa` 70% cardio strip. Split, 3D, and Walkthrough each reported 7 features (2 mirror / 1 slat / 4 LED), 4 feature lights, and 0 invalid features.
+- Layouts 1 and 2 each rendered zero wall features and retained their own white-wall/rolled-rubber choices. Layout 3 retained black walls, rolled rubber, 11 placed equipment models, and its exact seven-feature design after all QA.
+- A full version-12 all-layouts export re-imported successfully at the isolated origin with 3 layouts before duplication; the export contained Layout 1 = 17 equipment / 0 features, Layout 2 = 10 / 0, and Layout 3 = 11 / 7. `settings.aiApiKey` was absent from the downloaded JSON.
+- The isolated `Layout 3 (copy)` exercised add, inspector edit, wall switch, resize, recolor, Plan drag, one-inch nudge, delete, and reload persistence. Manually created top-door and missing-left-wall examples displayed their exact warnings; the disposable copies were deleted afterward.
+- With 9 LED strips, all 9 emissive geometries continued to render while `data-wall-feature-lights` remained capped at 8. A 71.4-second orbit/walk stress pass remained responsive; walkthrough coordinates changed from x 14.905 / z 2.150 / yaw 2.6180 to x 14.632 / z 2.623 / yaw 2.0927.
+- Fresh logic and 3D renderer runners both completed with zero failures. Final saved-layout, imported-copy, persistence, stress, and restored-original console checks reported zero warnings/errors.
+
+final wall-decoration result: passed
