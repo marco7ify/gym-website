@@ -40,6 +40,42 @@
     });
   });
 
+  GymTests.test("keeps clone brands and accessory names on broad fallback profiles",()=>{
+    const cases=[
+      [{brand:"Ice Barrel Clone Co.",name:"Ice Barrel 500",category:"Cold Plunge"},"step-in-plunge"],
+      [{brand:"Ice Barrel",name:"Ice Barrel 500 Replacement Lid",category:"Cold Plunge"},"step-in-plunge"],
+      [{brand:"syedee Authorized Reseller",name:"Stair Machine",category:"Cardio & Conditioning"},"commercial-stair"],
+      [{brand:"syedee",name:"Stair Machine Replacement Console",category:"Cardio & Conditioning"},"commercial-stair"],
+      [{brand:"Some NordicTrack",name:"X16 Treadmill",category:"Cardio & Conditioning"},"incline-treadmill"],
+      [{brand:"NordicTrack",name:"X16 Treadmill Walking Deck",category:"Cardio & Conditioning"},"incline-treadmill"],
+      [{brand:"RitFit Clone",name:"RitFit GATOR 1600LB Adjustable Weight Bench",category:"Benches"},"incline-bench"],
+      [{brand:"RitFit",name:"RitFit GATOR 1600LB Adjustable Weight Bench Replacement Pad",category:"Benches"},"incline-bench"],
+      [{brand:"Shandong Brightway Fitness Reseller",name:"HS08 — Rowing Machine",category:"Selectorized Upper"},"selectorized-seated-row"],
+      [{brand:"Shandong Brightway Fitness",name:"HS08 — Rowing Machine Attachment",category:"Selectorized Upper"},"selectorized-seated-row"],
+      [{brand:"Dezhou Shizhuo Fitness Technology Co., Ltd. Clone",name:"Seated/standing row",category:"Plate-Loaded Upper"},"seated-standing-row"],
+      [{brand:"Dezhou Shizhuo Fitness Technology Co., Ltd.",name:"Seated/standing row accessory",category:"Plate-Loaded Upper"},"seated-standing-row"],
+      [{brand:"Shandong Wanjia Fitness Equipment Clone",name:"Combo Adductor & Abductor",category:"Selectorized Lower",unit:"ft",length:4.99,width:2.38,height:4.61},"adductor-combo"],
+      [{brand:"Shandong Wanjia Fitness Equipment",name:"Combo Adductor & Abductor Attachment",category:"Selectorized Lower",unit:"ft",length:4.99,width:2.38,height:4.61},"adductor-combo"],
+      [{brand:"Dezhou Yindun Seiko Technology Co., Ltd. Reseller",name:"Three-Tier Dumbbell Rack",category:"Storage"},"three-tier-rack"],
+      [{brand:"Dezhou Yindun Seiko Technology Co., Ltd.",name:"Three-Tier Dumbbell Rack Cover",category:"Storage"},"three-tier-rack"],
+    ];
+    cases.forEach(([item,expected])=>{
+      const profile=equipmentModelProfile(item);
+      GymTests.equal(profile,expected);
+      GymTests.assert(!exactProfiles.includes(profile),`${item.brand} / ${item.name} must not receive an exact photo-matched profile`);
+      GymTests.assert(!itemUsesPhotoMatched3d(item),`${item.brand} / ${item.name} must not receive a photo-matched label`);
+    });
+  });
+
+  GymTests.test("accepts documented punctuation variants without ignoring extra words",()=>{
+    const cases=[
+      [{brand:"Dezhou Shizhuo Fitness Technology Co Ltd",name:"Seated - standing row",category:"Plate-Loaded Upper"},"shizhuo-seated-standing-row"],
+      [{brand:"Shandong Wanjia Fitness Equipment",name:"Combo Adductor and Abductor",category:"Selectorized Lower",unit:"ft",length:4.99,width:2.38,height:4.61},"wanjia-combo-adductor"],
+      [{brand:"Dezhou Yindun Seiko Technology Co Ltd",name:"Three Tier Dumbbell Rack",category:"Storage"},"yindun-three-tier-rack"],
+    ];
+    cases.forEach(([item,expected])=>GymTests.equal(equipmentModelProfile(item),expected));
+  });
+
   GymTests.test("requires Wanjia's measured dimensions for its exact profile",()=>{
     const item={brand:"Shandong Wanjia Fitness Equipment",name:"Combo Adductor & Abductor",category:"Selectorized Lower",unit:"ft",length:5.26,width:1.89,height:5.30};
     GymTests.equal(equipmentModelProfile(item),"adductor-combo");

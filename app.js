@@ -815,7 +815,7 @@ function inferEquipmentModelFamily(item){
   if(/pulley tower|weight stack.*tower|single tower/.test(text)) return "pulley-tower";
   if(/leg press|hack squat/.test(text)) return "leg-press";
   if(/adductor|abductor/.test(text)) return "adductor";
-  if(/rower|rowing|seated.?standing row|seated row|t.?bar.*row|linear row/.test(text)) return "rowing-machine";
+  if(/rower|rowing|seated(?:\s*[-/]\s*|\s+)standing row|seated row|t.?bar.*row|linear row/.test(text)) return "rowing-machine";
   if(/treadmill/.test(text)) return "treadmill";
   if(/bike|cycle/.test(text)) return "bike";
   if(/bench/.test(text)) return "bench";
@@ -839,24 +839,35 @@ function normalizedEquipmentModelText(value){
   return String(value||"").toLowerCase().replace(/\s+/g," ").trim();
 }
 
+function canonicalEquipmentModelText(value){
+  return String(value||"").normalize("NFKD").toLowerCase()
+    .replace(/[\u2010-\u2015\u2212]/g,"-")
+    .replace(/&/g," and ")
+    .replace(/[/-]/g," ")
+    .replace(/[^a-z0-9]+/g," ")
+    .replace(/\s+/g," ").trim();
+}
+
 function inferEquipmentModelProfile(item){
   const brand=normalizedEquipmentModelText(item?.brand);
   const name=normalizedEquipmentModelText(item?.name);
+  const canonicalBrand=canonicalEquipmentModelText(item?.brand);
+  const canonicalName=canonicalEquipmentModelText(item?.name);
   const text = `${brand} ${name} ${normalizedEquipmentModelText(item?.category)}`.trim();
-  const exact=(brandPattern,namePattern)=>brandPattern.test(brand) && namePattern.test(name);
+  const exact=(expectedBrand,expectedName)=>canonicalBrand===expectedBrand && canonicalName===expectedName;
   const wanjiaDimensions=()=>{
     const fp=footprint(item);
     return Math.abs(fp.L-4.99)<=.02 && Math.abs(fp.W-2.38)<=.02 && Math.abs(fp.H-4.61)<=.02;
   };
 
-  if(exact(/\bice barrel\b/,/\bice barrel 500\b/)) return "ice-barrel-500";
-  if(exact(/\bsyedee\b/,/\bstair machine\b/)) return "syedee-stair-machine";
-  if(exact(/\bnordictrack\b/,/\bx16 treadmill\b/)) return "nordictrack-x16";
-  if(exact(/\britfit\b/,/\britfit gator 1600lb adjustable weight bench\b/)) return "ritfit-gator-bench";
-  if(exact(/\bshandong brightway fitness\b/,/\bhs08\b.*\browing machine\b/)) return "brightway-hs08-row";
-  if(exact(/\bdezhou shizhuo fitness technology co\.?\s*,?\s*ltd\.?\b/,/\bseated\s*\/\s*standing row\b/)) return "shizhuo-seated-standing-row";
-  if(exact(/\bshandong wanjia fitness equipment\b/,/\bcombo adductor\s*&\s*abductor\b/) && wanjiaDimensions()) return "wanjia-combo-adductor";
-  if(exact(/\bdezhou yindun seiko technology co\.?\s*,?\s*ltd\.?\b/,/\bthree-tier dumbbell rack\b/)) return "yindun-three-tier-rack";
+  if(exact("ice barrel","ice barrel 500")) return "ice-barrel-500";
+  if(exact("syedee","stair machine")) return "syedee-stair-machine";
+  if(exact("nordictrack","x16 treadmill")) return "nordictrack-x16";
+  if(exact("ritfit","ritfit gator 1600lb adjustable weight bench")) return "ritfit-gator-bench";
+  if(exact("shandong brightway fitness","hs08 rowing machine")) return "brightway-hs08-row";
+  if(exact("dezhou shizhuo fitness technology co ltd","seated standing row")) return "shizhuo-seated-standing-row";
+  if(exact("shandong wanjia fitness equipment","combo adductor and abductor") && wanjiaDimensions()) return "wanjia-combo-adductor";
+  if(exact("dezhou yindun seiko technology co ltd","three tier dumbbell rack")) return "yindun-three-tier-rack";
 
   if(/rx3 tornado compact smith/.test(text)) return "rx3-compact-smith";
   if(/stair machine|stairmill|stair climber/.test(text)) return "commercial-stair";
