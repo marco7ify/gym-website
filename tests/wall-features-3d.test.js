@@ -29,11 +29,11 @@ function extraLedFeature(index){
   };
 }
 
-function createWallFeature3dFixture({walls=true,invalid=false,extraLeds=0,mode="preview"}={}){
+function createWallFeature3dFixture({walls=true,invalid=false,extraLeds=0,mode="preview",features=null}={}){
   const settings=wallFeature3dSettings();
   const base=normalizeLayout({
     ...deepCopy(DEFAULT_LAYOUT),
-    wallFeatures:GymWallFeatures.layout3Starter(),
+    wallFeatures:features||GymWallFeatures.layout3Starter(),
     spatial3d:{...DEFAULT_LAYOUT.spatial3d,walls,wallColor:"black"},
   },settings);
   for(let index=0;index<extraLeds;index++) base.wallFeatures.push(extraLedFeature(index));
@@ -104,12 +104,34 @@ GymTests.test("builds the exact seven seeded wall features with real material an
     GymTests.equal(mirrorFace.material.metalness,1);
     GymTests.closeTo(mirrorFace.material.roughness,.04,1e-9);
     GymTests.equal(mirrorFace.material.clearcoat,1);
+    GymTests.assert(mirrorFace.material.envMap,"Expected the studio environment map on the mirror face");
     GymTests.equal(meshes(mirror).length,6);
+    const backerMaterial=mirror.userData.selectionMaterials[0];
+    const frameMaterial=mirror.userData.selectionMaterials[1];
+    const backer=meshes(mirror).find(mesh=>mesh.material===backerMaterial);
+    const frameMeshes=meshes(mirror).filter(mesh=>mesh.material===frameMaterial);
+    GymTests.closeTo(backer.geometry.parameters.depth,1/12,1e-9);
+    GymTests.equal(frameMeshes.length,4);
+    GymTests.deepEqual(
+      frameMeshes.map(mesh=>({width:mesh.geometry.parameters.width,height:mesh.geometry.parameters.height,depth:mesh.geometry.parameters.depth})),
+      [
+        {width:5,height:.09,depth:.105},
+        {width:5,height:.09,depth:.105},
+        {width:.09,height:5.32,depth:.105},
+        {width:.09,height:5.32,depth:.105},
+      ]
+    );
 
     const slat=view.wallFeatureGroups.get("wf_l3_gazelle_slats");
+    const feltMaterial=slat.userData.selectionMaterials[0];
+    const felt=meshes(slat).find(mesh=>mesh.material===feltMaterial);
+    const woodSlats=meshes(slat).filter(mesh=>mesh.material!==feltMaterial).sort((a,b)=>a.position.x-b.position.x);
+    GymTests.equal(slat.userData.slatCount,32);
     GymTests.assert(slat.userData.slatCount>=3 && slat.userData.slatCount<=60);
-    GymTests.equal(meshes(slat).length,slat.userData.slatCount+1);
-    GymTests.assert(meshes(slat).some(mesh=>mesh.material?.roughness===.96),"Expected a felt backer");
+    GymTests.equal(woodSlats.length,32);
+    GymTests.closeTo(felt.geometry.parameters.depth,1/12,1e-9);
+    GymTests.closeTo((woodSlats[1].position.x-woodSlats[0].position.x)*12,2.5,.05);
+    GymTests.equal(felt.material.roughness,.96);
 
     const leds=[...view.wallFeatureGroups.values()].filter(group=>group.userData.wallFeature.kind==="led");
     GymTests.equal(leds.length,4);
@@ -119,6 +141,20 @@ GymTests.test("builds the exact seven seeded wall features with real material an
       GymTests.equal(pointLights(group)[0].castShadow,false);
       GymTests.assert(meshes(group).some(mesh=>mesh.material?.emissiveIntensity>0),"Expected an emissive diffuser");
     });
+    const mirrorWash=view.wallFeatureGroups.get("wf_l3_mirror_wash");
+    const channelMaterial=mirrorWash.userData.selectionMaterials[0];
+    const channel=meshes(mirrorWash).find(mesh=>mesh.material===channelMaterial);
+    const diffuser=meshes(mirrorWash).find(mesh=>mesh.material!==channelMaterial);
+    const light=pointLights(mirrorWash)[0];
+    GymTests.equal(channel.material.metalness,.9);
+    GymTests.closeTo(channel.geometry.parameters.depth,.075,1e-9);
+    GymTests.equal(diffuser.material.color.getHex(),0xffd7aa);
+    GymTests.equal(diffuser.material.emissive.getHex(),0xffd7aa);
+    GymTests.equal(diffuser.material.transparent,true);
+    GymTests.closeTo(diffuser.material.opacity,.82,1e-9);
+    GymTests.closeTo(diffuser.material.emissiveIntensity,1.415,1e-9);
+    GymTests.equal(light.color.getHex(),0xffd7aa);
+    GymTests.closeTo(light.intensity,.273,1e-9);
     GymTests.equal(view.doorCollisionSegments.length,0);
   }finally{ fixture.destroy(); }
 });
@@ -179,10 +215,26 @@ GymTests.test("selects and frames a seeded mirror through the real 3D paths",()=
     view.scene.updateMatrixWorld(true);
     GymTests.deepEqual(view.pickTarget(new THREE.Vector2(0,0)),{type:"wallFeature",id});
 
+    state.layout.selectedInstId="inst_competing";
+    state.layout.selectedAreaId="area_competing";
+    state.layout.selectedOutletId="outlet_competing";
+    state.layout.selectedWallExtId="wall_ext_competing";
+    state.layout.selectedCeilingZoneId="ceiling_competing";
+    state.layout.selectedFloorZoneId="floor_competing";
+    state.layout.selectedFlooringId="flooring_competing";
+    state.layout.selectedWallFeatureId="wall_feature_competing";
     const rect=view.renderer.domElement.getBoundingClientRect();
     view.selectAt({clientX:rect.left+rect.width/2,clientY:rect.top+rect.height/2});
     GymTests.equal(state.layout.selectedWallFeatureId,id);
-    GymTests.equal(state.layout.selectedInstId,null);
+    [
+      "selectedInstId",
+      "selectedAreaId",
+      "selectedOutletId",
+      "selectedWallExtId",
+      "selectedCeilingZoneId",
+      "selectedFloorZoneId",
+      "selectedFlooringId",
+    ].forEach(field=>GymTests.equal(state.layout[field],null,`Expected ${field} to be cleared`));
     view.updateSelection();
     GymTests.equal(group.userData.selected,true);
     view.frameSelected();
@@ -190,6 +242,38 @@ GymTests.test("selects and frames a seeded mirror through the real 3D paths",()=
     GymTests.closeTo(view.target.x,focus.x,1e-9);
     GymTests.closeTo(view.target.y,focus.y,1e-9);
     GymTests.closeTo(view.target.z,focus.z,1e-9);
+  }finally{ fixture.destroy(); }
+});
+
+GymTests.test("publishes literal focus and footprint metadata for all four wall transforms",()=>{
+  const features=["top","right","bottom","left"].map(wall=>({
+    id:`wf_transform_${wall}`,
+    kind:"mirror",
+    label:`${wall} transform`,
+    wall,
+    startFt:1,
+    bottomFt:2,
+    widthFt:2,
+    heightFt:3,
+    color:"#cbd5e1",
+    brightnessPct:0,
+  }));
+  const fixture=createWallFeature3dFixture({features});
+  try{
+    const expected={
+      top:{x:2,y:3.5,z:.08,rotationY:0},
+      right:{x:19.753333333333334,y:3.5,z:2,rotationY:-Math.PI/2},
+      bottom:{x:2,y:3.5,z:19.42,rotationY:Math.PI},
+      left:{x:.08,y:3.5,z:2,rotationY:Math.PI/2},
+    };
+    Object.entries(expected).forEach(([wall,want])=>{
+      const group=fixture.view.wallFeatureGroups.get(`wf_transform_${wall}`);
+      GymTests.closeTo(group.userData.focusPoint.x,want.x,1e-9);
+      GymTests.closeTo(group.userData.focusPoint.y,want.y,1e-9);
+      GymTests.closeTo(group.userData.focusPoint.z,want.z,1e-9);
+      GymTests.closeTo(group.userData.rotationY,want.rotationY,1e-9);
+      GymTests.deepEqual(group.userData.worldFootprint,{widthFt:2,depthFt:.28,heightFt:3});
+    });
   }finally{ fixture.destroy(); }
 });
 

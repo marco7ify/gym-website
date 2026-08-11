@@ -18,11 +18,11 @@ function loadClassicScript(src){
 
 try{
   for(const src of [
-    "./test-harness.js?v=task4-fix-green",
-    "../wall-features.js?v=task4-fix-green",
-    "../app.js?v=task4-fix-green",
-    "../view3d.js?v=task4-fix-green",
-    "./wall-features-3d.test.js?v=task4-fix-green",
+    "./test-harness.js?v=task4-fix2",
+    "../wall-features.js?v=task4-fix2",
+    "../app.js?v=task4-fix2",
+    "../view3d.js?v=task4-fix2",
+    "./wall-features-3d.test.js?v=task4-fix2",
   ]) await loadClassicScript(src);
   GymTests.finish();
 }catch(error){
