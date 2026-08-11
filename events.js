@@ -692,7 +692,7 @@ function exportPayloadFromState(){
     return {
       filename: `gym-planner-no-layouts-${exportDateTag()}.json`,
       payload: {
-        version: 11,
+        version: 12,
         exportType: "noLayouts",
         exportedAt: new Date().toISOString(),
         tab: state.tab,
@@ -708,7 +708,7 @@ function exportPayloadFromState(){
     return {
       filename: `gym-planner-layouts-${filePart}-${exportDateTag()}.json`,
       payload: {
-        version: 11,
+        version: 12,
         exportType: "layoutsOnly",
         exportedAt: new Date().toISOString(),
         settings: exportSettings,
@@ -725,7 +725,7 @@ function exportPayloadFromState(){
   return {
     filename: `gym-planner-export-${filePart}-${exportDateTag()}.json`,
     payload: {
-      version: 11,
+      version: 12,
       exportType: "full",
       exportedAt: new Date().toISOString(),
       tab: state.tab,
@@ -919,7 +919,7 @@ function wireTop(){
             state.layouts = data.layouts.map(x=>({
               id: x.id || uid("ly"),
               name: x.name || "Layout",
-              layout: normalizeLayout(x.layout || x.data || x, state.settings),
+              layout: normalizeNamedLayout(x.name, x.layout || x.data || x, state.settings),
             }));
             const importedActiveId = (data.activeLayoutId && state.layouts.some(x=>x.id===data.activeLayoutId)) ? data.activeLayoutId : state.layouts[0].id;
             // setActiveLayout normally saves the current layout before switching.
@@ -1126,6 +1126,12 @@ function wireMain(){
         ...DEFAULT_LAYOUT,
         wallExtensions: deepCopy(cur.wallExtensions||[]),
         areas: deepCopy(cur.areas||[]),
+        outlets: deepCopy(cur.outlets||[]),
+        ceilingZones: deepCopy(cur.ceilingZones||[]),
+        floorZones: deepCopy(cur.floorZones||[]),
+        flooringPieces: deepCopy(cur.flooringPieces||[]),
+        wallFeatures: deepCopy(cur.wallFeatures||[]),
+        spatial3d: deepCopy(cur.spatial3d||{}),
         instances: [],
       }, state.settings);
       const id = uid("ly");

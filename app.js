@@ -936,6 +936,7 @@ const DEFAULT_LAYOUT = {
   ceilingZones: [],
   floorZones: [],
   flooringPieces: [],
+  wallFeatures: [],
   // Staging / parking zone size preset. Controls how wide (and sometimes
   // taller) the off-room staging strip is so you can park more equipment
   // there while rearranging. One of "small" | "medium" | "large" | "xlarge".
@@ -955,6 +956,7 @@ const DEFAULT_LAYOUT = {
   selectedCeilingZoneId: null,
   selectedFloorZoneId: null,
   selectedFlooringId: null,
+  selectedWallFeatureId: null,
   // A single spatial state powers the plan, split, 3D, and walkthrough views.
   // Keeping these preferences with each saved layout makes switching layouts
   // feel predictable without changing the underlying placement data.
@@ -1100,6 +1102,21 @@ function wallExtToRect(ext, baseW, baseL){
   }
 }
 
+function wallFeatureRoomData(layout, settings){
+  const sourceSettings=settings && typeof settings==="object" ? settings : DEFAULT_SETTINGS;
+  const W=settingsRoomWidthTotalFt(sourceSettings);
+  const L=settingsRoomLengthTotalFt(sourceSettings);
+  return {
+    W,
+    L,
+    ceiling:settingsCeilingHeightTotalFt(sourceSettings),
+    rects:[
+      {x:0,y:0,w:W,h:L},
+      ...(Array.isArray(layout?.wallExtensions) ? layout.wallExtensions : []).map(ext=>wallExtToRect(ext,W,L)),
+    ],
+  };
+}
+
 /**
  * Normalize persisted layout data. Pass `settingsForRoomMigration` whenever `state` may not
  * exist yet (e.g. while building initial `state`) so old `roomBlocks` migration does not
@@ -1114,6 +1131,7 @@ function normalizeLayout(l, settingsForRoomMigration){
   base.ceilingZones = Array.isArray(base.ceilingZones) ? base.ceilingZones : [];
   base.floorZones = Array.isArray(base.floorZones) ? base.floorZones : [];
   base.flooringPieces = Array.isArray(base.flooringPieces) ? base.flooringPieces : [];
+  base.wallFeatures = Array.isArray(base.wallFeatures) ? base.wallFeatures : [];
   base.spatialViewMode = ["plan", "split", "3d"].includes(base.spatialViewMode) ? base.spatialViewMode : "plan";
   const sourceSpatial3d = base.spatial3d && typeof base.spatial3d === "object" ? base.spatial3d : {};
   base.spatial3d = {
@@ -1357,7 +1375,25 @@ function normalizeLayout(l, settingsForRoomMigration){
     price: safeNum(f.price),
   }));
 
+  const wallFeatureRoom=wallFeatureRoomData(base,settingsForRoomMigration || DEFAULT_SETTINGS);
+  base.wallFeatures=base.wallFeatures
+    .filter(feature=>feature && typeof feature==="object" && GymWallFeatures.KINDS.includes(feature.kind) && GymWallFeatures.SIDES.includes(feature.wall))
+    .map(feature=>GymWallFeatures.normalize(feature,wallFeatureRoom,()=>uid("wf"),base));
+  base.selectedWallFeatureId=base.wallFeatures.some(feature=>feature.id===base.selectedWallFeatureId)
+    ? base.selectedWallFeatureId
+    : null;
+
   return base;
+}
+
+function normalizeNamedLayout(name, rawLayout, settings){
+  const source=rawLayout && typeof rawLayout==="object" ? rawLayout : {};
+  const hadWallFeatures=Object.prototype.hasOwnProperty.call(source,"wallFeatures");
+  const normalized=normalizeLayout(source,settings);
+  if(!hadWallFeatures && String(name||"").trim().toLowerCase()==="layout 3"){
+    normalized.wallFeatures=GymWallFeatures.layout3Starter();
+  }
+  return normalized;
 }
 
 function loadInitialSettings(){
@@ -1447,7 +1483,7 @@ const state = {
     state.layouts = lib.map(x=>({
       id: x.id || uid("ly"),
       name: x.name || "Layout",
-      layout: normalizeLayout(x.layout || x.data || x, state.settings),
+      layout: normalizeNamedLayout(x.name, x.layout || x.data || x, state.settings),
     }));
   } else {
     state.layouts = [{
@@ -1477,6 +1513,7 @@ const state = {
     state.layout.selectedWallExtId = null;
     state.layout.selectedCeilingZoneId = null;
     state.layout.selectedFloorZoneId = null;
+    state.layout.selectedWallFeatureId = null;
     state._roomCache = null;
   }
 
@@ -2585,6 +2622,7 @@ function clearAllSelections(){
   state.layout.selectedCeilingZoneId = null;
   state.layout.selectedFloorZoneId = null;
   state.layout.selectedFlooringId = null;
+  state.layout.selectedWallFeatureId = null;
 }
 
 function getFlooringType(typeId){

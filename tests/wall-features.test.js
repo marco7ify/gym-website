@@ -159,3 +159,45 @@ GymTests.test("provides seven independent Layout 3 starter records", () => {
   starter[0].color="#000000";
   GymTests.equal(GymWallFeatures.layout3Starter()[0].color,"#cbd5e1");
 });
+
+GymTests.test("seeds starter wall features only for legacy named Layout 3 records", () => {
+  const old=normalizeNamedLayout("Layout 3",{instances:[],areas:[]},DEFAULT_SETTINGS);
+  const intentionallyEmpty=normalizeNamedLayout("Layout 3",{instances:[],areas:[],wallFeatures:[]},DEFAULT_SETTINGS);
+  const other=normalizeNamedLayout("Layout 2",{instances:[],areas:[]},DEFAULT_SETTINGS);
+
+  GymTests.equal(old.wallFeatures.length,7);
+  GymTests.equal(intentionallyEmpty.wallFeatures.length,0);
+  GymTests.equal(other.wallFeatures.length,0);
+});
+
+GymTests.test("normalizes wall features and keeps only a valid feature selection", () => {
+  const normalized=normalizeLayout({
+    instances:[],
+    areas:[],
+    wallFeatures:[
+      {id:"wf_keep",kind:"mirror",wall:"bottom",startFt:2,widthFt:5,heightFt:5,heightIn:6,bottomFt:1,bottomIn:6},
+      {id:"wf_drop",kind:"unknown",wall:"bottom"},
+    ],
+    selectedWallFeatureId:"wf_keep",
+  },DEFAULT_SETTINGS);
+  const stale=normalizeLayout({...normalized,selectedWallFeatureId:"wf_missing"},DEFAULT_SETTINGS);
+
+  GymTests.equal(normalized.wallFeatures.length,1);
+  GymTests.equal(normalized.selectedWallFeatureId,"wf_keep");
+  GymTests.equal(stale.selectedWallFeatureId,null);
+});
+
+GymTests.test("preserves normalized wall feature feet and inches through a reload", () => {
+  const normalized=normalizeLayout({
+    instances:[],
+    areas:[],
+    wallFeatures:[{id:"wf_exact",kind:"led",wall:"top",startFt:2,startIn:9,widthFt:5,widthIn:6,bottomFt:7,bottomIn:3,heightFt:0,heightIn:1}],
+  },DEFAULT_SETTINGS);
+  const reloaded=normalizeLayout(deepCopy(normalized),DEFAULT_SETTINGS);
+  const feature=reloaded.wallFeatures[0];
+
+  GymTests.closeTo(GymWallFeatures.start(feature),2.75,1e-9);
+  GymTests.closeTo(GymWallFeatures.width(feature),5.5,1e-9);
+  GymTests.closeTo(GymWallFeatures.bottom(feature),7.25,1e-9);
+  GymTests.closeTo(GymWallFeatures.height(feature),1/12,1e-9);
+});
