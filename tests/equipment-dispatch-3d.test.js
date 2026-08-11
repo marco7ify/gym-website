@@ -22,6 +22,40 @@
     {id:"gazelle",brand:"RitFit",name:"Gazelle Pro 3-in-1 Leg Press",category:"Leg Press",width:4,length:5,height:5},
   ];
 
+  const savedX16={id:"x16",width:38.1/12,length:69.9/12,height:73.3/12};
+  const savedStair={id:"stair",width:32/12,length:50/12,height:82/12};
+  const savedInstances=[
+    {id:"inst_x16",itemId:"x16",xFt:6,xIn:6,yFt:0,yIn:0,rotated:true,__invalid:false},
+    {id:"inst_stair",itemId:"stair",xFt:0,xIn:0,yFt:0,yIn:0,rotated:true,__invalid:false},
+  ];
+
+  const savedLayout3Items=[
+    {id:"maxwell",brand:"SalusHEAT",name:"Maxwell-903BH infrared sauna",category:"Sauna",width:43/12,length:63/12,height:75.8/12},
+    {id:"ice",brand:"Ice Barrel",name:"Ice Barrel 500",category:"Cold Plunge",width:30.7/12,length:57.6/12,height:42/12},
+    {...savedX16,brand:"NordicTrack",name:"X16 Treadmill",category:"Cardio & Conditioning"},
+    {...savedStair,brand:"syedee",name:"Stair Machine",category:"Cardio & Conditioning",requiredCeilingFt:8.7},
+    {id:"rx3",brand:"Get RX'd",name:"RX3 Tornado Compact Smith Machine",category:"Strength",width:32/12,length:48/12,height:86/12},
+    {id:"gator",brand:"RitFit",name:"RitFit GATOR 1600LB Adjustable Weight Bench",category:"Benches",width:26/12,length:58/12,height:53/12},
+    {id:"gazelle",brand:"RitFit",name:"Gazelle Pro 3-in-1 Leg Press",category:"Leg Press",width:49/12,length:87/12,height:57/12},
+    {id:"hs08",brand:"Shandong Brightway Fitness",name:"HS08 — Rowing Machine",category:"Selectorized Upper",width:2.82,length:4.2,height:6.28},
+    {id:"shizhuo",brand:"Dezhou Shizhuo Fitness Technology Co., Ltd.",name:"Seated/standing row",category:"Plate-Loaded Upper",width:3.67,length:5.21,height:4.18},
+    {id:"yindun",brand:"Dezhou Yindun Seiko Technology Co., Ltd.",name:"Three-Tier Dumbbell Rack",category:"Storage",width:2.22,length:5.58,height:3.24},
+    {id:"combo",brand:"Shandong Wanjia Fitness Equipment",name:"Combo Adductor & Abductor",category:"Selectorized Lower",width:2.38,length:4.99,height:4.61},
+  ];
+
+  const savedLayout3Instances=[
+    {id:"inst_maxwell",itemId:"maxwell",xFt:-1.75,xIn:0,yFt:14.25,yIn:0,rotated:false,__invalid:false},
+    {id:"inst_ice",itemId:"ice",xFt:0,xIn:0,yFt:9,yIn:0,rotated:false,__invalid:false},
+    ...savedInstances,
+    {id:"inst_rx3",itemId:"rx3",xFt:3,xIn:0,yFt:9,yIn:0,rotated:true,__invalid:false},
+    {id:"inst_gator",itemId:"gator",xFt:3,xIn:0,yFt:4,yIn:0,rotated:true,__invalid:false},
+    {id:"inst_gazelle",itemId:"gazelle",xFt:12.583333015441895,xIn:0,yFt:15.41666666666697,yIn:0,rotated:true,__invalid:false},
+    {id:"inst_hs08",itemId:"hs08",xFt:15,xIn:0,yFt:3.5,yIn:0,rotated:true,__invalid:false},
+    {id:"inst_shizhuo",itemId:"shizhuo",xFt:14,xIn:0,yFt:7,yIn:0,rotated:true,__invalid:false},
+    {id:"inst_yindun",itemId:"yindun",xFt:0,xIn:0,yFt:3,yIn:0,rotated:false,__invalid:false},
+    {id:"inst_combo",itemId:"combo",xFt:7.5,xIn:0,yFt:14.51,yIn:0,rotated:false,__invalid:false},
+  ];
+
   function fixtureSettings(){
     return {
       ...DEFAULT_SETTINGS,
@@ -34,13 +68,29 @@
     };
   }
 
-  function createEquipmentDispatchFixture({items=dedicatedItems,instances=null,settings=null,ceilingZones=null}={}){
+  function createEquipmentDispatchFixture({
+    items=dedicatedItems,
+    instances=null,
+    settings=null,
+    areas=null,
+    wallExtensions=null,
+    ceilingZones=null,
+    floorZones=null,
+    wallFeatures=null,
+    walls=false,
+    garageWallRevision=0,
+  }={}){
     state.settings=settings || fixtureSettings();
     state.items=items.map(item=>normalizeItemRecord({...item,unit:"ft"}));
     state.layout=normalizeLayout({
       ...deepCopy(DEFAULT_LAYOUT),
-      spatial3d:{...DEFAULT_LAYOUT.spatial3d,walls:false,labelMode:"off",clearances:false},
+      garageWallRevision,
+      spatial3d:{...DEFAULT_LAYOUT.spatial3d,walls,labelMode:"off",clearances:false},
+      areas:areas || deepCopy(DEFAULT_LAYOUT.areas),
+      wallExtensions:wallExtensions || deepCopy(DEFAULT_LAYOUT.wallExtensions),
       ceilingZones:ceilingZones || deepCopy(DEFAULT_LAYOUT.ceilingZones),
+      floorZones:floorZones || deepCopy(DEFAULT_LAYOUT.floorZones),
+      wallFeatures:wallFeatures || deepCopy(DEFAULT_LAYOUT.wallFeatures),
       instances:instances || state.items.map((item,index)=>({
         id:`inst_${item.id}`,
         itemId:item.id,
@@ -58,8 +108,32 @@
     host.dataset.gym3d="preview";
     host.innerHTML='<canvas data-gym3d-minimap width="200" height="120"></canvas><div data-gym3d-warnings></div>';
     document.body.appendChild(host);
+    const instancesBeforeRender=deepCopy(state.layout.instances);
     const view=new Gym3DView(host,"preview");
-    return {host,view,destroy(){ view.destroy(); host.remove(); }};
+    return {host,view,instancesBeforeRender,destroy(){ view.destroy(); host.remove(); }};
+  }
+
+  function createSavedLayout3Fixture(){
+    return createEquipmentDispatchFixture({
+      items:savedLayout3Items,
+      instances:savedLayout3Instances,
+      settings:{
+        ...fixtureSettings(),
+        roomWidthFt:19,
+        roomWidthIn:10,
+        roomLengthFt:19,
+        roomLengthIn:6,
+        ceilingHeightFt:9,
+        ceilingHeightIn:0,
+      },
+      areas:[GymGarageDoors.seededLayout3Area()],
+      wallExtensions:[{id:"left_extension",label:"Extension",wall:"left",startFt:14,startIn:3,lengthFt:5,lengthIn:8,depthFt:1,depthIn:9}],
+      ceilingZones:[{id:"existing_ceiling",label:"Low ceiling",xFt:0,xIn:0,yFt:0,yIn:6,widthFt:2,widthIn:6,heightFt:5,heightIn:0,ceilingHeightFt:5,ceilingHeightIn:0}],
+      floorZones:[{id:"existing_platform",label:"Raised floor",xFt:0,xIn:0,yFt:0,yIn:0,widthFt:19,widthIn:8,heightFt:3,heightIn:0,elevationIn:4}],
+      wallFeatures:GymWallFeatures.layout3Starter(),
+      walls:true,
+      garageWallRevision:1,
+    });
   }
 
   function groupMeshes(group){
@@ -77,6 +151,55 @@
     const size=new THREE.Vector3();
     mesh.geometry.boundingBox.getSize(size);
     return [mesh.geometry.type,mesh.geometry.attributes.position.count,...size.toArray().map(value=>value.toFixed(6))].join(":");
+  }
+
+  function dedicatedAssembly(group,prefix){
+    const tagged=groupMeshes(group).filter(mesh=>String(mesh.userData.partTag||"").startsWith(prefix));
+    GymTests.assert(tagged.length>0,`Expected a ${prefix} dedicated assembly`);
+    return tagged[0].parent;
+  }
+
+  function meshMaterials(mesh){
+    return (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).filter(Boolean);
+  }
+
+  function meshTriangleCount(mesh){
+    const geometry=mesh.geometry;
+    return (geometry.index?.count || geometry.attributes?.position?.count || 0)/3;
+  }
+
+  function captureDedicatedResources(view,instId,prefix){
+    const group=view.itemGroups.get(instId);
+    const root=dedicatedAssembly(group,prefix);
+    const meshes=groupMeshes(root).filter(mesh=>mesh.visible!==false);
+    const meshSet=new Set(meshes);
+    const geometries=[...new Set(meshes.map(mesh=>mesh.geometry))];
+    const materials=[...new Set(meshes.flatMap(meshMaterials))];
+    const clickTargets=view.clickTargets.filter(target=>meshSet.has(target));
+    const tracked=[
+      ...geometries.map(resource=>({resource,kind:"geometry"})),
+      ...materials.map(resource=>({resource,kind:"material"})),
+    ].map(({resource,kind})=>{
+      const original=resource.dispose.bind(resource);
+      const record={resource,kind,count:0};
+      resource.dispose=()=>{ record.count++; return original(); };
+      return record;
+    });
+    return {
+      meshes,
+      geometries,
+      materials,
+      clickTargets,
+      tracked,
+      summary:{
+        meshes:meshes.length,
+        geometries:geometries.length,
+        geometrySignatures:new Set(meshes.map(meshGeometrySignature)).size,
+        materials:materials.length,
+        clickTargets:clickTargets.length,
+        triangles:meshes.reduce((total,mesh)=>total+meshTriangleCount(mesh),0),
+      },
+    };
   }
 
   GymTests.test("keeps semantic metadata and interaction targets on every model primitive",()=>{
@@ -495,6 +618,107 @@
       });
       GymTests.deepEqual(state.layout.instances,before,"3D construction must not mutate saved placement state");
     }finally{ fixture.destroy(); }
+  });
+
+  GymTests.test("preserves the exact saved Layout 3 cardio placement, orientation, warning, and architecture",()=>{
+    const sourceBefore=JSON.stringify(savedLayout3Instances);
+    const fixture=createSavedLayout3Fixture();
+    try{
+      const {host,view}=fixture;
+      GymTests.equal(view.itemGroups.size,11,"Exact saved Layout 3 must retain all 11 equipment placements");
+      GymTests.equal(host.dataset.dedicatedModels,"11","Exact saved Layout 3 must retain 11 dedicated models");
+      GymTests.equal(host.dataset.builderFailures,"0","Exact saved Layout 3 must retain zero builder failures");
+      GymTests.equal(host.dataset.garageDoorModels,"1","Exact saved Layout 3 must retain its one garage-door model");
+      GymTests.equal(host.dataset.wallFeatures,"7","Exact saved Layout 3 must retain its seven wall features");
+      GymTests.equal(JSON.stringify(savedLayout3Instances),sourceBefore,"Rendering must leave every source instance byte-equal");
+      GymTests.equal(
+        JSON.stringify(state.layout.instances),
+        JSON.stringify(fixture.instancesBeforeRender),
+        "Rendering must leave every normalized saved instance byte-equal",
+      );
+
+      const x16=view.itemGroups.get("inst_x16");
+      GymTests.assert(x16,"Expected the exact saved X16 placement group");
+      assertNear(x16.userData.canonicalFootprint.widthFt,savedX16.width,"Saved X16 canonical width");
+      assertNear(x16.userData.canonicalFootprint.depthFt,savedX16.length,"Saved X16 canonical depth");
+      assertNear(x16.userData.canonicalFootprint.heightFt,savedX16.height,"Saved X16 canonical height");
+      assertNear(x16.userData.worldFootprint.widthFt,savedX16.length,"Rotated saved X16 world width");
+      assertNear(x16.userData.worldFootprint.depthFt,savedX16.width,"Rotated saved X16 world depth");
+      assertNear(x16.position.x,6+6/12+savedX16.length/2,"Saved X16 world center x");
+      assertNear(x16.position.z,savedX16.width/2,"Saved X16 world center z");
+      assertNear(x16.rotation.y,Math.PI/2,"Saved X16 placement rotation");
+      assertNear(x16.userData.rotationY,Math.PI/2,"Saved X16 published rotation");
+      assertNear(x16.userData.visualRotationY,0,"Saved X16 visual rotation");
+      x16.updateMatrixWorld(true);
+      const x16Front=new THREE.Vector3(0,0,-1).transformDirection(x16.matrixWorld);
+      assertNear(x16Front.x,-1,"Saved X16 local -Z world direction x");
+      assertNear(x16Front.z,0,"Saved X16 local -Z world direction z");
+
+      const stair=view.itemGroups.get("inst_stair");
+      GymTests.assert(stair,"Expected the exact saved Stair placement group");
+      assertNear(stair.userData.canonicalFootprint.widthFt,savedStair.width,"Saved Stair canonical width");
+      assertNear(stair.userData.canonicalFootprint.depthFt,savedStair.length,"Saved Stair canonical depth");
+      assertNear(stair.userData.canonicalFootprint.heightFt,savedStair.height,"Saved Stair canonical height");
+      assertNear(stair.userData.worldFootprint.widthFt,savedStair.length,"Rotated saved Stair world width");
+      assertNear(stair.userData.worldFootprint.depthFt,savedStair.width,"Rotated saved Stair world depth");
+      assertNear(stair.position.x,savedStair.length/2,"Saved Stair world center x");
+      assertNear(stair.position.z,savedStair.width/2,"Saved Stair world center z");
+      assertNear(stair.rotation.y,Math.PI/2,"Saved Stair placement rotation");
+      assertNear(stair.userData.rotationY,Math.PI/2,"Saved Stair published rotation");
+      assertNear(stair.userData.visualRotationY,0,"Saved Stair visual rotation");
+      stair.updateMatrixWorld(true);
+      const stairEntry=new THREE.Vector3(0,0,1).transformDirection(stair.matrixWorld);
+      assertNear(stairEntry.x,1,"Saved Stair entry must face the open room");
+      assertNear(stairEntry.z,0,"Saved Stair entry must not face along the boundary wall");
+
+      const warnings=host.querySelector("[data-gym3d-warnings]");
+      GymTests.equal(warnings.querySelector("strong").textContent,"1 warning","Saved Stair ceiling warning must occur exactly once");
+      GymTests.equal(warnings.querySelector("span").textContent,"Stair Machine: needs 8.7 ft ceiling");
+      GymTests.equal((warnings.textContent.match(/Stair Machine: needs 8\.7 ft ceiling/g)||[]).length,1,"Saved Stair warning text must occur once");
+
+    }finally{ fixture.destroy(); }
+  });
+
+  GymTests.test("disposes exact saved Layout 3 cardio resources once across repeat lifecycles",()=>{
+    function captureCycle(){
+      const fixture=createSavedLayout3Fixture();
+      let destroyed=false;
+      try{
+        const {host,view}=fixture;
+        const x16=captureDedicatedResources(view,"inst_x16","x16-");
+        const stair=captureDedicatedResources(view,"inst_stair","stair-");
+
+        GymTests.equal(host.dataset.dedicatedModels,"11");
+        GymTests.equal(host.dataset.builderFailures,"0");
+        GymTests.equal(host.dataset.garageDoorModels,"1");
+        GymTests.equal(host.dataset.wallFeatures,"7");
+        GymTests.assert(x16.meshes.length<=32,`Saved X16 must stay within 32 meshes; received ${x16.meshes.length}`);
+        GymTests.assert(x16.geometries.length<=32,`Saved X16 must stay within 32 geometry resources; received ${x16.geometries.length}`);
+        GymTests.assert(x16.materials.length<=6,`Saved X16 must stay within six materials; received ${x16.materials.length}`);
+        GymTests.assert(x16.summary.triangles<=1200,`Saved X16 must stay near its 1,200-triangle budget; received ${x16.summary.triangles}`);
+        GymTests.assert(stair.meshes.length<=56,`Saved Stair must stay within 56 meshes; received ${stair.meshes.length}`);
+        GymTests.assert(stair.materials.length<=8,`Saved Stair must stay within eight materials; received ${stair.materials.length}`);
+        GymTests.assert(stair.summary.geometrySignatures<=24,`Saved Stair must stay within 24 geometry signatures; received ${stair.summary.geometrySignatures}`);
+        [x16,stair].forEach(capture=>{
+          GymTests.assert(capture.meshes.every(mesh=>typeof mesh.userData.partTag==="string"&&mesh.userData.partTag),"Every visible dedicated cardio mesh must remain semantically tagged");
+          GymTests.equal(new Set(capture.clickTargets).size,capture.clickTargets.length,"Dedicated cardio click targets must remain unique");
+          GymTests.equal(capture.clickTargets.length,capture.meshes.length,"Every visible dedicated cardio mesh must remain a click target");
+        });
+
+        fixture.destroy();
+        destroyed=true;
+        [x16,stair].forEach(capture=>capture.tracked.forEach(record=>{
+          GymTests.equal(record.count,1,`Saved cardio ${record.kind} must be disposed exactly once; received ${record.count}`);
+        }));
+        return {x16:x16.summary,stair:stair.summary};
+      }finally{
+        if(!destroyed) fixture.destroy();
+      }
+    }
+
+    const first=captureCycle();
+    const second=captureCycle();
+    GymTests.deepEqual(second,first,"Repeated saved Layout 3 create/destroy cycles must retain stable cardio resource counts");
   });
 
   GymTests.test("falls back only the throwing X16 and restores the registry after the assertion",()=>{

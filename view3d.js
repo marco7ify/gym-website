@@ -3132,10 +3132,14 @@ class Gym3DView {
     document.removeEventListener("pointerlockchange",this.onLockChange);
     window.removeEventListener("blur",this.onBlur);
     document.removeEventListener("visibilitychange",this.onVisibility);
-    this.scene.traverse(obj=>{
-      if(obj.geometry) obj.geometry.dispose?.();
-    });
-    this.disposables.forEach(item=>item?.dispose?.());
+    const disposed=new Set();
+    const disposeOnce=item=>{
+      if(!item || disposed.has(item)) return;
+      disposed.add(item);
+      item.dispose?.();
+    };
+    this.scene.traverse(obj=>disposeOnce(obj.geometry));
+    this.disposables.forEach(disposeOnce);
     this.scene.environment=null;
     this.environmentTarget?.dispose?.();
     this.environmentTarget=null;
