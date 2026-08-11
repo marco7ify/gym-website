@@ -56,6 +56,20 @@
     {id:"inst_combo",itemId:"combo",xFt:7.5,xIn:0,yFt:14.51,yIn:0,rotated:false,__invalid:false},
   ];
 
+  const savedLayout3Placements=[
+    {id:"inst_maxwell",widthFt:43/12,depthFt:63/12,centerX:1/24,centerZ:16.875,rotationY:0,visualRotationY:-Math.PI/2},
+    {id:"inst_ice",widthFt:30.7/12,depthFt:57.6/12,centerX:30.7/24,centerZ:11.4,rotationY:0,visualRotationY:0},
+    {id:"inst_x16",widthFt:69.9/12,depthFt:38.1/12,centerX:9.4125,centerZ:1.5875,rotationY:Math.PI/2,visualRotationY:0},
+    {id:"inst_stair",widthFt:50/12,depthFt:32/12,centerX:25/12,centerZ:4/3,rotationY:Math.PI/2,visualRotationY:0},
+    {id:"inst_rx3",widthFt:4,depthFt:32/12,centerX:5,centerZ:31/3,rotationY:Math.PI/2,visualRotationY:Math.PI/2},
+    {id:"inst_gator",widthFt:58/12,depthFt:26/12,centerX:65/12,centerZ:61/12,rotationY:Math.PI/2,visualRotationY:0},
+    {id:"inst_gazelle",widthFt:87/12,depthFt:49/12,centerX:16.208333015441895,centerZ:17.458333333333638,rotationY:Math.PI/2,visualRotationY:0},
+    {id:"inst_hs08",widthFt:4.2,depthFt:2.82,centerX:17.1,centerZ:4.91,rotationY:Math.PI/2,visualRotationY:0},
+    {id:"inst_shizhuo",widthFt:5.21,depthFt:3.67,centerX:16.605,centerZ:8.835,rotationY:Math.PI/2,visualRotationY:0},
+    {id:"inst_yindun",widthFt:2.22,depthFt:5.58,centerX:1.11,centerZ:5.79,rotationY:0,visualRotationY:Math.PI/2},
+    {id:"inst_combo",widthFt:2.38,depthFt:4.99,centerX:8.69,centerZ:17.005,rotationY:0,visualRotationY:0},
+  ];
+
   function fixtureSettings(){
     return {
       ...DEFAULT_SETTINGS,
@@ -154,9 +168,20 @@
   }
 
   function dedicatedAssembly(group,prefix){
-    const tagged=groupMeshes(group).filter(mesh=>String(mesh.userData.partTag||"").startsWith(prefix));
+    const visualGroup=group.children.find(child=>child.isGroup);
+    const root=visualGroup?.children.find(child=>child.isGroup);
+    GymTests.assert(root,`Expected a ${prefix} dedicated assembly root`);
+    const tagged=groupMeshes(root).filter(mesh=>String(mesh.userData.partTag||"").startsWith(prefix));
     GymTests.assert(tagged.length>0,`Expected a ${prefix} dedicated assembly`);
-    return tagged[0].parent;
+    return root;
+  }
+
+  function visibleWithin(object,root){
+    for(let current=object;current;current=current.parent){
+      if(current.visible===false) return false;
+      if(current===root) return true;
+    }
+    return false;
   }
 
   function meshMaterials(mesh){
@@ -171,7 +196,8 @@
   function captureDedicatedResources(view,instId,prefix){
     const group=view.itemGroups.get(instId);
     const root=dedicatedAssembly(group,prefix);
-    const meshes=groupMeshes(root).filter(mesh=>mesh.visible!==false);
+    const meshes=groupMeshes(root);
+    const visibleMeshes=meshes.filter(mesh=>visibleWithin(mesh,root));
     const meshSet=new Set(meshes);
     const geometries=[...new Set(meshes.map(mesh=>mesh.geometry))];
     const materials=[...new Set(meshes.flatMap(meshMaterials))];
@@ -187,17 +213,19 @@
     });
     return {
       meshes,
+      visibleMeshes,
       geometries,
       materials,
       clickTargets,
       tracked,
       summary:{
-        meshes:meshes.length,
+        meshes:visibleMeshes.length,
+        structuralMeshes:meshes.length,
         geometries:geometries.length,
         geometrySignatures:new Set(meshes.map(meshGeometrySignature)).size,
         materials:materials.length,
         clickTargets:clickTargets.length,
-        triangles:meshes.reduce((total,mesh)=>total+meshTriangleCount(mesh),0),
+        triangles:visibleMeshes.reduce((total,mesh)=>total+meshTriangleCount(mesh),0),
       },
     };
   }
@@ -636,6 +664,23 @@
         JSON.stringify(fixture.instancesBeforeRender),
         "Rendering must leave every normalized saved instance byte-equal",
       );
+      const sourceById=new Map(savedLayout3Instances.map(inst=>[inst.id,inst]));
+      const normalizedById=new Map(state.layout.instances.map(inst=>[inst.id,inst]));
+      const renderedById=new Map(view.roomInstances.map(inst=>[inst.id,inst]));
+      savedLayout3Placements.forEach(expected=>{
+        const group=view.itemGroups.get(expected.id);
+        GymTests.assert(group,`Expected rendered saved placement ${expected.id}`);
+        assertNear(group.userData.worldFootprint.widthFt,expected.widthFt,`${expected.id} exact world width`);
+        assertNear(group.userData.worldFootprint.depthFt,expected.depthFt,`${expected.id} exact world depth`);
+        assertNear(group.position.x,expected.centerX,`${expected.id} exact world center x`);
+        assertNear(group.position.z,expected.centerZ,`${expected.id} exact world center z`);
+        assertNear(group.rotation.y,expected.rotationY,`${expected.id} exact placement rotation`);
+        assertNear(group.userData.rotationY,expected.rotationY,`${expected.id} published placement rotation`);
+        assertNear(group.userData.visualRotationY,expected.visualRotationY,`${expected.id} exact visual rotation`);
+        GymTests.equal(sourceById.get(expected.id)?.__invalid,false,`${expected.id} source validity must remain unchanged`);
+        GymTests.equal(normalizedById.get(expected.id)?.__invalid,false,`${expected.id} normalized validity must remain unchanged`);
+        GymTests.equal(renderedById.get(expected.id)?.__invalid,false,`${expected.id} rendered collision validity must remain unchanged`);
+      });
 
       const x16=view.itemGroups.get("inst_x16");
       GymTests.assert(x16,"Expected the exact saved X16 placement group");
@@ -692,17 +737,18 @@
         GymTests.equal(host.dataset.builderFailures,"0");
         GymTests.equal(host.dataset.garageDoorModels,"1");
         GymTests.equal(host.dataset.wallFeatures,"7");
-        GymTests.assert(x16.meshes.length<=32,`Saved X16 must stay within 32 meshes; received ${x16.meshes.length}`);
+        GymTests.assert(x16.visibleMeshes.length<=32,`Saved X16 must stay within 32 visible meshes; received ${x16.visibleMeshes.length}`);
         GymTests.assert(x16.geometries.length<=32,`Saved X16 must stay within 32 geometry resources; received ${x16.geometries.length}`);
         GymTests.assert(x16.materials.length<=6,`Saved X16 must stay within six materials; received ${x16.materials.length}`);
         GymTests.assert(x16.summary.triangles<=1200,`Saved X16 must stay near its 1,200-triangle budget; received ${x16.summary.triangles}`);
-        GymTests.assert(stair.meshes.length<=56,`Saved Stair must stay within 56 meshes; received ${stair.meshes.length}`);
+        GymTests.assert(stair.visibleMeshes.length<=56,`Saved Stair must stay within 56 visible meshes; received ${stair.visibleMeshes.length}`);
+        GymTests.assert(stair.geometries.length<=24,`Saved Stair must stay within 24 geometry resources; received ${stair.geometries.length}`);
         GymTests.assert(stair.materials.length<=8,`Saved Stair must stay within eight materials; received ${stair.materials.length}`);
         GymTests.assert(stair.summary.geometrySignatures<=24,`Saved Stair must stay within 24 geometry signatures; received ${stair.summary.geometrySignatures}`);
         [x16,stair].forEach(capture=>{
-          GymTests.assert(capture.meshes.every(mesh=>typeof mesh.userData.partTag==="string"&&mesh.userData.partTag),"Every visible dedicated cardio mesh must remain semantically tagged");
+          GymTests.assert(capture.meshes.every(mesh=>typeof mesh.userData.partTag==="string"&&mesh.userData.partTag),"Every dedicated cardio mesh must remain semantically tagged");
           GymTests.equal(new Set(capture.clickTargets).size,capture.clickTargets.length,"Dedicated cardio click targets must remain unique");
-          GymTests.equal(capture.clickTargets.length,capture.meshes.length,"Every visible dedicated cardio mesh must remain a click target");
+          GymTests.equal(capture.clickTargets.length,capture.meshes.length,"Every dedicated cardio mesh must remain a click target");
         });
 
         fixture.destroy();
@@ -719,6 +765,29 @@
     const first=captureCycle();
     const second=captureCycle();
     GymTests.deepEqual(second,first,"Repeated saved Layout 3 create/destroy cycles must retain stable cardio resource counts");
+  });
+
+  GymTests.test("captures invisible sibling meshes from the complete dedicated assembly",()=>{
+    const fixture=createSavedLayout3Fixture();
+    try{
+      const x16=fixture.view.itemGroups.get("inst_x16");
+      const tagged=groupMeshes(x16).find(mesh=>String(mesh.userData.partTag||"").startsWith("x16-"));
+      const siblingParent=tagged.parent.parent;
+      const probeMaterial=fixture.view.material({color:0xffffff});
+      const probe=fixture.view.box(
+        siblingParent,
+        {x:.1,y:.1,z:.1},
+        {x:0,y:.1,z:0},
+        probeMaterial,
+        {instId:"inst_x16",partTag:"x16-invisible-sibling-probe"},
+      );
+      probe.visible=false;
+      const capture=captureDedicatedResources(fixture.view,"inst_x16","x16-");
+      GymTests.assert(capture.meshes.includes(probe),"Dedicated capture must include an invisible sibling mesh");
+      GymTests.assert(capture.geometries.includes(probe.geometry),"Dedicated capture must include invisible sibling geometry");
+      GymTests.assert(capture.materials.includes(probe.material),"Dedicated capture must include invisible sibling material");
+      GymTests.assert(capture.clickTargets.includes(probe),"Dedicated capture must include invisible sibling click targets");
+    }finally{ fixture.destroy(); }
   });
 
   GymTests.test("falls back only the throwing X16 and restores the registry after the assertion",()=>{

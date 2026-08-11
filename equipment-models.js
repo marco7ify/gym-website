@@ -6,12 +6,32 @@
   function createModelKit(view,group,inst,base,height){
     const w=Math.max(.4,base.w),d=Math.max(.4,base.h),h=Math.max(.45,height);
     const material=spec=>view.material(spec);
-    const addBox=(size,pos,mat,options={})=>view.box(group,size,pos,mat,{...options,instId:inst.id});
-    const addCylinder=(radius,length,pos,mat,options={})=>view.cylinder(group,radius,length,pos,mat,{...options,instId:inst.id});
-    const addBeam=(start,end,width,mat,depth=width,options={})=>view.beam(group,start,end,width,depth,mat,{...options,instId:inst.id});
-    const addTube=(start,end,radius,mat,segments=14,options={})=>view.tube(group,start,end,radius,mat,{...options,instId:inst.id,segments});
+    const sharedGeometries=new Map();
+    const shareGeometry=(mesh,key)=>{
+      if(!key || !mesh?.geometry) return mesh;
+      const shared=sharedGeometries.get(key);
+      if(!shared){ sharedGeometries.set(key,mesh.geometry); return mesh; }
+      const redundant=mesh.geometry;
+      mesh.geometry=shared;
+      const index=view.disposables?.lastIndexOf?.(redundant) ?? -1;
+      if(index>=0) view.disposables.splice(index,1);
+      redundant.dispose?.();
+      return mesh;
+    };
+    const addBox=(size,pos,mat,options={})=>shareGeometry(
+      view.box(group,size,pos,mat,{...options,instId:inst.id}),options.geometryKey
+    );
+    const addCylinder=(radius,length,pos,mat,options={})=>shareGeometry(
+      view.cylinder(group,radius,length,pos,mat,{...options,instId:inst.id}),options.geometryKey
+    );
+    const addBeam=(start,end,width,mat,depth=width,options={})=>shareGeometry(
+      view.beam(group,start,end,width,depth,mat,{...options,instId:inst.id}),options.geometryKey
+    );
+    const addTube=(start,end,radius,mat,segments=14,options={})=>shareGeometry(
+      view.tube(group,start,end,radius,mat,{...options,instId:inst.id,segments}),options.geometryKey
+    );
     const addExtrudedPanel=(points,depth,pos,mat,options={})=>
-      view.extrudedPanel(group,points,depth,pos,mat,{...options,instId:inst.id});
+      shareGeometry(view.extrudedPanel(group,points,depth,pos,mat,{...options,instId:inst.id}),options.geometryKey);
     return {w,d,h,material,addBox,addCylinder,addBeam,addTube,addExtrudedPanel};
   }
 
@@ -71,14 +91,14 @@
       {x:sign*w*.37,y:baseRailHalf,z:-d*.43},
       {x:sign*w*.37,y:baseRailHalf,z:d*.43},
       w*.055,powder,w*.055,
-      {partTag:"stair-base-rail",side:sign<0?"left":"right"}
+      {partTag:"stair-base-rail",side:sign<0?"left":"right",geometryKey:"stair-base-rail"}
     ));
     const crossFootHalf=w*.05/2;
     [-1,1].forEach((sign,index)=>addBeam(
       {x:-w*.40,y:crossFootHalf,z:sign*d*.405},
       {x:w*.40,y:crossFootHalf,z:sign*d*.405},
       w*.05,powder,w*.05,
-      {partTag:"stair-cross-foot",partIndex:index}
+      {partTag:"stair-cross-foot",partIndex:index,geometryKey:"stair-cross-foot"}
     ));
     addBox(
       {x:w*.66,y:h*.13,z:d*.17},
@@ -91,9 +111,9 @@
       const y=h*(.11+index*.062);
       const z=d*(.34-index*.085);
       addBox({x:w*.60,y:h*.018,z:d*.145},{x:0,y,z},tread,
-        {partTag:"stair-tread",partIndex:index,castShadow:false});
+        {partTag:"stair-tread",partIndex:index,castShadow:false,geometryKey:"stair-tread"});
       if(index<7) addBox({x:w*.60,y:h*.062,z:d*.018},{x:0,y:y+h*.031,z:z-d*.0715},tread,
-        {partTag:"stair-riser",partIndex:index,castShadow:false});
+        {partTag:"stair-riser",partIndex:index,castShadow:false,geometryKey:"stair-riser"});
     }
 
     const shellPoints=[
@@ -107,9 +127,9 @@
     [-1,1].forEach(sign=>{
       const side=sign<0?"left":"right";
       addExtrudedPanel(shellPoints,w*.08,{x:sign*w*.44,y:0,z:0},shroud,
-        {rotationY:-Math.PI/2,partTag:"stair-side-shroud",side});
+        {rotationY:-Math.PI/2,partTag:"stair-side-shroud",side,geometryKey:"stair-side-shroud"});
       addExtrudedPanel(insetPoints,w*.09,{x:sign*w*.44,y:0,z:0},inset,
-        {rotationY:-Math.PI/2,partTag:"stair-shroud-inset",side});
+        {rotationY:-Math.PI/2,partTag:"stair-shroud-inset",side,geometryKey:"stair-shroud-inset"});
 
       const lightX=sign*w*.488;
       const edgeSegments=[
@@ -119,13 +139,13 @@
       ];
       edgeSegments.forEach(([start,end],partIndex)=>addBeam(
         start,end,w*.012,white,w*.012,
-        {partTag:"stair-white-edge-light",side,partIndex,castShadow:false,receiveShadow:false}
+        {partTag:"stair-white-edge-light",side,partIndex,castShadow:false,receiveShadow:false,geometryKey:`stair-white-edge-light-${partIndex}`}
       ));
       addBeam(
         {x:lightX,y:h*.475,z:-d*.10},
         {x:lightX,y:h*.595,z:-d*.25},
         w*.01,orange,w*.01,
-        {partTag:"stair-orange-accent",side,partIndex:0,castShadow:false,receiveShadow:false}
+        {partTag:"stair-orange-accent",side,partIndex:0,castShadow:false,receiveShadow:false,geometryKey:"stair-orange-accent"}
       );
     });
 
@@ -148,10 +168,10 @@
       const points=railPath.map(point=>({...point,x:sign*point.x}));
       for(let partIndex=0;partIndex<3;partIndex++) addTube(
         points[partIndex],points[partIndex+1],w*.022,rail,12,
-        {partTag:"stair-handrail",side,partIndex}
+        {partTag:"stair-handrail",side,partIndex,geometryKey:`stair-handrail-${partIndex}`}
       );
       addTube(points[3],{x:sign*w*.22,y:h*.79,z:-d*.43},w*.022,rail,12,
-        {partTag:"stair-handrail",side,partIndex:3});
+        {partTag:"stair-handrail",side,partIndex:3,geometryKey:"stair-handrail-3"});
     });
     return "photo-matched syedee Stair Machine";
   }
