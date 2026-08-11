@@ -1479,6 +1479,7 @@ const state = {
   layoutExpandedTab: "general",
   layoutToolsPanelOpen: false,
   layoutFocusMode: false,
+  layoutActionStatus: null,
   wishlistCategoriesOpen: false,
   exportDialogOpen: false,
   exportMode: "full",
@@ -2480,11 +2481,13 @@ function isInvalidPlacement(instId, baseRect, effRect){
 // another item's body (or a hard-blocked area). This is the ONLY condition that
 // causes a drag to snap back. Halo/clearance overlap alone is a soft warning so
 // users can still stick items to walls even when clearance zones touch.
-function isHardInvalidPlacement(instId, baseRect){
+function hardPlacementConflict(instId, baseRect){
   const r = room();
-  if(!rectInsideRoom(baseRect)) return true;
+  if(!rectInsideRoom(baseRect)){
+    return {kind:"outside-room", message:"Can’t rotate here — the equipment would extend outside the room."};
+  }
   // Free-placement zone: anything inside staging is always hard-valid.
-  if(rectInsideRect(baseRect, r.staging || layoutStagingRect(r))) return false;
+  if(rectInsideRect(baseRect, r.staging || layoutStagingRect(r))) return null;
 
   const blockedKinds = new Set(
     Array.isArray(state.settings.reservedAreaKindsBlockPlacement)
@@ -2494,23 +2497,35 @@ function isHardInvalidPlacement(instId, baseRect){
 
   for(const a of state.layout.areas||[]){
     if(!blockedKinds.has(a.kind)) continue;
-    if(rectsOverlap(baseRect, areaRect(a))) return true;
+    const areaName=String(a.label||"").trim() || kindMeta(a.kind).label;
+    if(rectsOverlap(baseRect, areaRect(a))){
+      return {kind:"reserved-area", areaId:a.id, message:`Can’t rotate here — it would overlap ${areaName}.`};
+    }
     const dc = doorClearanceRect(a);
-    if(dc && rectsOverlap(baseRect, dc)) return true;
+    if(dc && rectsOverlap(baseRect, dc)){
+      return {kind:"door-clearance", areaId:a.id, message:`Can’t rotate here — it would block the clearance for ${areaName}.`};
+    }
   }
   for(const other of state.layout.instances||[]){
     if(other.id===instId) continue;
     const it = getItemById(other.itemId);
     if(!it) continue;
-    const otherBase = {
-      x: instXTotalFt(other),
-      y: instYTotalFt(other),
-      w: instanceDims(other, it).w,
-      h: instanceDims(other, it).h,
-    };
-    if(rectsOverlap(baseRect, otherBase)) return true;
+    const otherBase=effectiveRectForInst(other, it).base;
+    if(rectsOverlap(baseRect, otherBase)){
+      const itemName=String(it.name||"").trim() || "another item";
+      return {
+        kind:"equipment-overlap",
+        instanceId:other.id,
+        itemId:other.itemId,
+        message:`Can’t rotate here — it would overlap ${itemName}.`,
+      };
+    }
   }
-  return false;
+  return null;
+}
+
+function isHardInvalidPlacement(instId, baseRect){
+  return !!hardPlacementConflict(instId, baseRect);
 }
 
 function snap(v){
