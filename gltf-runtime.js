@@ -20,6 +20,7 @@ window.dispatchEvent(new CustomEvent("gym-gltf-ready"));
 
 const classicScripts=[
   "./model-assets.js?v=4",
+  "./wall-features.js?v=1",
   "./app.js?v=76",
   "./view3d.js?v=32",
   "./panels.js?v=72",

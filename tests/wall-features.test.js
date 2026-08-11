@@ -1,0 +1,140 @@
+GymTests.test("normalizes a mirror", () => {
+  const f = GymWallFeatures.normalize(
+    {kind:"mirror", wall:"bottom", startFt:2, widthFt:5, heightFt:5, heightIn:6, bottomFt:1, bottomIn:6, color:"#CBD5E1"},
+    {W:19+10/12, L:19.5, ceiling:9, rects:[{x:0,y:0,w:19+10/12,h:19.5}]},
+    () => "wf_test"
+  );
+  GymTests.equal(f.id, "wf_test");
+  GymTests.equal(f.color, "#cbd5e1");
+  GymTests.closeTo(GymWallFeatures.height(f), 5.5, 1e-9);
+});
+
+GymTests.test("maps bottom-wall plan coordinates", () => {
+  const rect = GymWallFeatures.planRect({wall:"bottom",startFt:2,widthFt:5}, {W:20,L:19.5});
+  GymTests.deepEqual(rect, {x:2,y:19.28,w:5,h:.22});
+});
+
+GymTests.test("maps top-wall plan coordinates", () => {
+  GymTests.deepEqual(
+    GymWallFeatures.planRect({wall:"top",startFt:1,widthFt:4},{W:20,L:19.5}),
+    {x:1,y:0,w:4,h:.22}
+  );
+});
+
+GymTests.test("maps left-wall plan coordinates", () => {
+  GymTests.deepEqual(
+    GymWallFeatures.planRect({wall:"left",startFt:3,widthFt:5},{W:20,L:19.5}),
+    {x:0,y:3,w:.22,h:5}
+  );
+});
+
+GymTests.test("maps right-wall plan coordinates", () => {
+  GymTests.deepEqual(
+    GymWallFeatures.planRect({wall:"right",startFt:3,widthFt:5},{W:20,L:19.5}),
+    {x:19.78,y:3,w:.22,h:5}
+  );
+});
+
+const layout3Room={
+  W:19+10/12,
+  L:19.5,
+  ceiling:9,
+  rects:[
+    {x:0,y:0,w:19+10/12,h:19.5},
+    {x:-3,y:14.25,w:3,h:5.25},
+  ],
+};
+
+const layout3Shell={
+  areas:[
+    {kind:"door",xFt:12,xIn:6,yFt:0,yIn:0,widthFt:3,widthIn:1,heightFt:1,heightIn:0},
+  ],
+  floorZones:[
+    {xFt:0,xIn:0,yFt:0,yIn:0,widthFt:19,widthIn:10,heightFt:19,heightIn:6,elevationIn:4},
+  ],
+};
+
+GymTests.test("reports a top-wall door overlap", () => {
+  const result=GymWallFeatures.validate(
+    {kind:"led",wall:"top",startFt:12,startIn:6,widthFt:3,widthIn:1,bottomFt:7,heightFt:0,heightIn:1},
+    layout3Shell,
+    layout3Room
+  );
+  GymTests.deepEqual(result.reasons.map(reason=>reason.code), ["door-overlap"]);
+});
+
+GymTests.test("reports a missing left base-wall run", () => {
+  const result=GymWallFeatures.validate(
+    {kind:"mirror",wall:"left",startFt:14,startIn:3,widthFt:5,widthIn:3,bottomFt:1,heightFt:5},
+    layout3Shell,
+    layout3Room
+  );
+  GymTests.deepEqual(result.reasons.map(reason=>reason.code), ["missing-wall"]);
+});
+
+GymTests.test("reports a feature above the raised-floor ceiling", () => {
+  const result=GymWallFeatures.validate(
+    {kind:"led",wall:"top",startFt:2,widthFt:5,bottomFt:8,bottomIn:8,heightFt:0,heightIn:1},
+    layout3Shell,
+    layout3Room
+  );
+  GymTests.deepEqual(result.reasons.map(reason=>reason.code), ["above-ceiling"]);
+});
+
+GymTests.test("accepts the approved bottom and right mirrors", () => {
+  const bottomMirror={kind:"mirror",wall:"bottom",startFt:2,bottomFt:1,bottomIn:6,widthFt:5,heightFt:5,heightIn:6};
+  const rightMirror={kind:"mirror",wall:"right",startFt:11,bottomFt:1,bottomIn:6,widthFt:4,heightFt:5,heightIn:6};
+  GymTests.deepEqual(GymWallFeatures.validate(bottomMirror,layout3Shell,layout3Room), {valid:true,reasons:[]});
+  GymTests.deepEqual(GymWallFeatures.validate(rightMirror,layout3Shell,layout3Room), {valid:true,reasons:[]});
+});
+
+GymTests.test("uses the greatest raised-floor elevation at a point", () => {
+  const elevation=GymWallFeatures.floorElevationAt({floorZones:[
+    {xFt:0,yFt:0,widthFt:4,heightFt:4,elevationIn:4},
+    {xFt:2,yFt:2,widthFt:4,heightFt:4,elevationIn:8},
+  ]},3,3);
+  GymTests.closeTo(elevation,8/12,1e-9);
+});
+
+GymTests.test("normalizes feature bounds, color, brightness, and ceiling clearance", () => {
+  const feature=GymWallFeatures.normalize(
+    {kind:"led",wall:"top",startFt:30,widthFt:2,heightFt:2,bottomFt:8,bottomIn:8,color:"blue",brightnessPct:120},
+    {W:20,L:19.5,ceiling:9,rects:[{x:0,y:0,w:20,h:19.5}]},
+    () => "wf_bounded",
+    {floorZones:[{xFt:0,yFt:0,widthFt:20,heightFt:1,elevationIn:4}]}
+  );
+  GymTests.equal(feature.id,"wf_bounded");
+  GymTests.equal(feature.color,"#ffb36b");
+  GymTests.equal(feature.brightnessPct,100);
+  GymTests.closeTo(GymWallFeatures.start(feature),18,1e-9);
+  GymTests.closeTo(GymWallFeatures.width(feature),2,1e-9);
+  GymTests.closeTo(GymWallFeatures.bottom(feature)+GymWallFeatures.height(feature),26/3,1e-9);
+});
+
+GymTests.test("maps a wall feature into its interior 3D transform", () => {
+  const transform=GymWallFeatures.worldTransform(
+    {wall:"bottom",startFt:2,widthFt:5,bottomFt:1,bottomIn:6,heightFt:5,heightIn:6},
+    {W:20,L:19.5,ceiling:9},
+    {}
+  );
+  GymTests.deepEqual(transform,{x:4.5,y:4.25,z:19.42,rotationY:Math.PI,width:5,height:5.5,depth:.08});
+});
+
+GymTests.test("provides seven independent Layout 3 starter records", () => {
+  const starter=GymWallFeatures.layout3Starter();
+  GymTests.deepEqual(starter.map(feature=>({
+    id:feature.id,kind:feature.kind,wall:feature.wall,startFt:feature.startFt,startIn:feature.startIn,
+    bottomFt:feature.bottomFt,bottomIn:feature.bottomIn,widthFt:feature.widthFt,widthIn:feature.widthIn,
+    heightFt:feature.heightFt,heightIn:feature.heightIn,color:feature.color,brightnessPct:feature.brightnessPct,
+  })),[
+    {id:"wf_l3_primary_mirror",kind:"mirror",wall:"bottom",startFt:2,startIn:0,bottomFt:1,bottomIn:6,widthFt:5,widthIn:0,heightFt:5,heightIn:6,color:"#cbd5e1",brightnessPct:0},
+    {id:"wf_l3_aisle_mirror",kind:"mirror",wall:"right",startFt:11,startIn:0,bottomFt:1,bottomIn:6,widthFt:4,widthIn:0,heightFt:5,heightIn:6,color:"#cbd5e1",brightnessPct:0},
+    {id:"wf_l3_gazelle_slats",kind:"slat",wall:"bottom",startFt:12,startIn:9,bottomFt:0,bottomIn:0,widthFt:6,widthIn:9,heightFt:8,heightIn:6,color:"#8f5f3a",brightnessPct:0},
+    {id:"wf_l3_slat_led_left",kind:"led",wall:"bottom",startFt:12,startIn:7,bottomFt:0,bottomIn:4,widthFt:0,widthIn:1,heightFt:8,heightIn:0,color:"#ffb36b",brightnessPct:80},
+    {id:"wf_l3_slat_led_right",kind:"led",wall:"bottom",startFt:19,startIn:7,bottomFt:0,bottomIn:4,widthFt:0,widthIn:1,heightFt:8,heightIn:0,color:"#ffb36b",brightnessPct:80},
+    {id:"wf_l3_mirror_wash",kind:"led",wall:"bottom",startFt:2,startIn:0,bottomFt:7,bottomIn:3,widthFt:5,widthIn:0,heightFt:0,heightIn:1,color:"#ffd7aa",brightnessPct:65},
+    {id:"wf_l3_cardio_strip",kind:"led",wall:"top",startFt:2,startIn:9,bottomFt:8,bottomIn:4,widthFt:9,widthIn:6,heightFt:0,heightIn:1,color:"#ffd7aa",brightnessPct:70},
+  ]);
+  starter[0].color="#000000";
+  GymTests.equal(GymWallFeatures.layout3Starter()[0].color,"#cbd5e1");
+});
