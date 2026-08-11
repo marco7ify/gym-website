@@ -22,39 +22,11 @@
     {id:"gazelle",brand:"RitFit",name:"Gazelle Pro 3-in-1 Leg Press",category:"Leg Press",width:4,length:5,height:5},
   ];
 
-  const savedX16={id:"x16",width:38.1/12,length:69.9/12,height:73.3/12};
-  const savedStair={id:"stair",width:32/12,length:50/12,height:82/12};
-  const savedInstances=[
-    {id:"inst_x16",itemId:"x16",xFt:6,xIn:6,yFt:0,yIn:0,rotated:true,__invalid:false},
-    {id:"inst_stair",itemId:"stair",xFt:0,xIn:0,yFt:0,yIn:0,rotated:true,__invalid:false},
-  ];
-
-  const savedLayout3Items=[
-    {id:"maxwell",brand:"SalusHEAT",name:"Maxwell-903BH infrared sauna",category:"Sauna",width:43/12,length:63/12,height:75.8/12},
-    {id:"ice",brand:"Ice Barrel",name:"Ice Barrel 500",category:"Cold Plunge",width:30.7/12,length:57.6/12,height:42/12},
-    {...savedX16,brand:"NordicTrack",name:"X16 Treadmill",category:"Cardio & Conditioning"},
-    {...savedStair,brand:"syedee",name:"Stair Machine",category:"Cardio & Conditioning",requiredCeilingFt:8.7},
-    {id:"rx3",brand:"Get RX'd",name:"RX3 Tornado Compact Smith Machine",category:"Strength",width:32/12,length:48/12,height:86/12},
-    {id:"gator",brand:"RitFit",name:"RitFit GATOR 1600LB Adjustable Weight Bench",category:"Benches",width:26/12,length:58/12,height:53/12},
-    {id:"gazelle",brand:"RitFit",name:"Gazelle Pro 3-in-1 Leg Press",category:"Leg Press",width:49/12,length:87/12,height:57/12},
-    {id:"hs08",brand:"Shandong Brightway Fitness",name:"HS08 — Rowing Machine",category:"Selectorized Upper",width:2.82,length:4.2,height:6.28},
-    {id:"shizhuo",brand:"Dezhou Shizhuo Fitness Technology Co., Ltd.",name:"Seated/standing row",category:"Plate-Loaded Upper",width:3.67,length:5.21,height:4.18},
-    {id:"yindun",brand:"Dezhou Yindun Seiko Technology Co., Ltd.",name:"Three-Tier Dumbbell Rack",category:"Storage",width:2.22,length:5.58,height:3.24},
-    {id:"combo",brand:"Shandong Wanjia Fitness Equipment",name:"Combo Adductor & Abductor",category:"Selectorized Lower",width:2.38,length:4.99,height:4.61},
-  ];
-
-  const savedLayout3Instances=[
-    {id:"inst_maxwell",itemId:"maxwell",xFt:-1.75,xIn:0,yFt:14.25,yIn:0,rotated:false,__invalid:false},
-    {id:"inst_ice",itemId:"ice",xFt:0,xIn:0,yFt:9,yIn:0,rotated:false,__invalid:false},
-    ...savedInstances,
-    {id:"inst_rx3",itemId:"rx3",xFt:3,xIn:0,yFt:9,yIn:0,rotated:true,__invalid:false},
-    {id:"inst_gator",itemId:"gator",xFt:3,xIn:0,yFt:4,yIn:0,rotated:true,__invalid:false},
-    {id:"inst_gazelle",itemId:"gazelle",xFt:12.583333015441895,xIn:0,yFt:15.41666666666697,yIn:0,rotated:true,__invalid:false},
-    {id:"inst_hs08",itemId:"hs08",xFt:15,xIn:0,yFt:3.5,yIn:0,rotated:true,__invalid:false},
-    {id:"inst_shizhuo",itemId:"shizhuo",xFt:14,xIn:0,yFt:7,yIn:0,rotated:true,__invalid:false},
-    {id:"inst_yindun",itemId:"yindun",xFt:0,xIn:0,yFt:3,yIn:0,rotated:false,__invalid:false},
-    {id:"inst_combo",itemId:"combo",xFt:7.5,xIn:0,yFt:14.51,yIn:0,rotated:false,__invalid:false},
-  ];
+  const savedLayout3Source=exactGarageLayout3Fixture();
+  const savedLayout3Items=savedLayout3Source.items;
+  const savedLayout3Instances=savedLayout3Source.layout.instances;
+  const savedX16=savedLayout3Items.find(item=>item.id==="x16");
+  const savedStair=savedLayout3Items.find(item=>item.id==="stair");
 
   const savedLayout3Placements=[
     {id:"inst_maxwell",widthFt:43/12,depthFt:63/12,centerX:1/24,centerZ:16.875,rotationY:0,visualRotationY:-Math.PI/2},
@@ -87,10 +59,13 @@
     instances=null,
     settings=null,
     areas=null,
+    outlets=null,
     wallExtensions=null,
     ceilingZones=null,
     floorZones=null,
+    flooringPieces=null,
     wallFeatures=null,
+    spatial3d=null,
     walls=false,
     garageWallRevision=0,
   }={}){
@@ -99,11 +74,13 @@
     state.layout=normalizeLayout({
       ...deepCopy(DEFAULT_LAYOUT),
       garageWallRevision,
-      spatial3d:{...DEFAULT_LAYOUT.spatial3d,walls,labelMode:"off",clearances:false},
+      spatial3d:spatial3d ? deepCopy(spatial3d) : {...DEFAULT_LAYOUT.spatial3d,walls,labelMode:"off",clearances:false},
       areas:areas || deepCopy(DEFAULT_LAYOUT.areas),
+      outlets:outlets || deepCopy(DEFAULT_LAYOUT.outlets),
       wallExtensions:wallExtensions || deepCopy(DEFAULT_LAYOUT.wallExtensions),
       ceilingZones:ceilingZones || deepCopy(DEFAULT_LAYOUT.ceilingZones),
       floorZones:floorZones || deepCopy(DEFAULT_LAYOUT.floorZones),
+      flooringPieces:flooringPieces || deepCopy(DEFAULT_LAYOUT.flooringPieces),
       wallFeatures:wallFeatures || deepCopy(DEFAULT_LAYOUT.wallFeatures),
       instances:instances || state.items.map((item,index)=>({
         id:`inst_${item.id}`,
@@ -128,25 +105,20 @@
   }
 
   function createSavedLayout3Fixture(){
+    const saved=exactGarageLayout3Fixture();
     return createEquipmentDispatchFixture({
-      items:savedLayout3Items,
-      instances:savedLayout3Instances,
-      settings:{
-        ...fixtureSettings(),
-        roomWidthFt:19,
-        roomWidthIn:10,
-        roomLengthFt:19,
-        roomLengthIn:6,
-        ceilingHeightFt:9,
-        ceilingHeightIn:0,
-      },
-      areas:[GymGarageDoors.seededLayout3Area()],
-      wallExtensions:[{id:"left_extension",label:"Extension",wall:"left",startFt:14,startIn:3,lengthFt:5,lengthIn:8,depthFt:1,depthIn:9}],
-      ceilingZones:[{id:"existing_ceiling",label:"Low ceiling",xFt:0,xIn:0,yFt:0,yIn:6,widthFt:2,widthIn:6,heightFt:5,heightIn:0,ceilingHeightFt:5,ceilingHeightIn:0}],
-      floorZones:[{id:"existing_platform",label:"Raised floor",xFt:0,xIn:0,yFt:0,yIn:0,widthFt:19,widthIn:8,heightFt:3,heightIn:0,elevationIn:4}],
-      wallFeatures:GymWallFeatures.layout3Starter(),
-      walls:true,
-      garageWallRevision:1,
+      items:saved.items,
+      instances:saved.layout.instances,
+      settings:saved.settings,
+      areas:saved.layout.areas,
+      outlets:saved.layout.outlets,
+      wallExtensions:saved.layout.wallExtensions,
+      ceilingZones:saved.layout.ceilingZones,
+      floorZones:saved.layout.floorZones,
+      flooringPieces:saved.layout.flooringPieces,
+      wallFeatures:saved.layout.wallFeatures,
+      spatial3d:saved.layout.spatial3d,
+      garageWallRevision:saved.layout.garageWallRevision,
     });
   }
 
@@ -552,7 +524,52 @@
       GymTests.assert(tagged.every(mesh=>mesh.userData.instId==="inst_x16"),"Every tagged X16 mesh must preserve its interaction target");
       GymTests.equal(tagged.filter(mesh=>mesh.userData.partTag==="x16-belt").length,1);
       GymTests.equal(tagged.filter(mesh=>mesh.userData.partTag==="x16-handrail").length,6);
+      const footRails=tagged.filter(mesh=>mesh.userData.partTag==="x16-foot-rail");
+      GymTests.equal(footRails.length,2);
+      footRails.forEach(rail=>{
+        const position=rail.geometry.attributes.position;
+        const topByZ=new Map();
+        for(let index=0;index<position.count;index++){
+          const z=position.getZ(index).toFixed(6);
+          topByZ.set(z,Math.max(topByZ.get(z)??-Infinity,position.getY(index)));
+        }
+        const topHeights=[...new Set([...topByZ.values()].map(value=>value.toFixed(6)))];
+        GymTests.assert(topByZ.size>=17,"Each X16 foot rail needs enough longitudinal stations for eight integrated ribs");
+        GymTests.assert(topHeights.length>=2,"Each X16 foot rail top surface must visibly alternate between ribs and grooves");
+      });
       GymTests.assert(new Set(tagged.map(mesh=>mesh.material)).size<=6,"Real X16 meshes must reuse at most six material objects");
+    }finally{ fixture.destroy(); }
+  });
+
+  GymTests.test("keeps the Stair cyan screen front-hit visible inside its tilted dark console shell",()=>{
+    const fixture=createEquipmentDispatchFixture({items:[dedicatedItems[1]]});
+    try{
+      const group=fixture.view.itemGroups.get("inst_stair");
+      const tagged=groupMeshes(group).filter(mesh=>String(mesh.userData.partTag||"").startsWith("stair-"));
+      const housing=tagged.find(mesh=>mesh.userData.partTag==="stair-console-housing");
+      const consoleScreen=tagged.find(mesh=>mesh.userData.partTag==="stair-console-screen");
+      housing.updateMatrixWorld(true);
+      consoleScreen.updateMatrixWorld(true);
+      const screenCenter=new THREE.Vector3().setFromMatrixPosition(consoleScreen.matrixWorld);
+      const screenFront=new THREE.Vector3(0,0,-1).transformDirection(consoleScreen.matrixWorld);
+      const frontRay=new THREE.Raycaster(
+        screenCenter.clone().addScaledVector(screenFront,1),
+        screenFront.clone().negate(),
+      );
+      const consoleHits=frontRay.intersectObjects([housing,consoleScreen],false);
+      GymTests.equal(consoleHits[0]?.object,consoleScreen,"A front sightline must hit the cyan Stair screen before the opaque housing");
+      GymTests.assert(Math.abs(housing.rotation.x)>1e-6,"Real Stair console housing needs a slight viewing tilt");
+      assertNear(consoleScreen.rotation.x,housing.rotation.x,"Real Stair housing and screen must tilt together");
+      housing.geometry.computeBoundingBox();
+      consoleScreen.geometry.computeBoundingBox();
+      const housingSize=new THREE.Vector3();
+      const screenSize=new THREE.Vector3();
+      housing.geometry.boundingBox.getSize(housingSize);
+      consoleScreen.geometry.boundingBox.getSize(screenSize);
+      GymTests.assert(
+        housingSize.x>screenSize.x && housingSize.y>screenSize.y,
+        "Real Stair screen must retain a visible dark border on X and Y",
+      );
     }finally{ fixture.destroy(); }
   });
 
@@ -647,6 +664,64 @@
       GymTests.equal(host.dataset.builderFailures,"0","Exact saved Layout 3 must retain zero builder failures");
       GymTests.equal(host.dataset.garageDoorModels,"1","Exact saved Layout 3 must retain its one garage-door model");
       GymTests.equal(host.dataset.wallFeatures,"7","Exact saved Layout 3 must retain its seven wall features");
+      GymTests.deepEqual(
+        state.layout.areas.map(area=>[area.id,area.kind]),
+        [
+          ["existing_entry","door"],
+          ["existing_nogo","nogospace"],
+          ["area_l3_bottom_garage_v1","garagedoor"],
+        ],
+        "Exact saved Layout 3 must retain its standard door, no-go, and architectural garage",
+      );
+      GymTests.deepEqual(
+        {
+          openings:host.dataset.doorOpenings,
+          standardOpenings:host.dataset.standardDoorOpenings,
+          garageOpenings:host.dataset.garageDoorOpenings,
+          standardModels:host.dataset.standardDoorModels,
+          garageModels:host.dataset.garageDoorModels,
+          totalModels:host.dataset.doorModels,
+          colliders:host.dataset.doorColliders,
+        },
+        {
+          openings:"2",standardOpenings:"1",garageOpenings:"1",
+          standardModels:"1",garageModels:"1",totalModels:"2",colliders:"1",
+        },
+        "Exact saved Layout 3 must publish its standard and garage door diagnostics together",
+      );
+      GymTests.deepEqual(
+        state.layout.outlets.map(outlet=>[outlet.id,outlet.voltage]),
+        [["existing_outlet","120V"]],
+        "Exact saved Layout 3 must retain its outlet record",
+      );
+      GymTests.deepEqual(
+        state.layout.floorZones.map(zone=>[zone.id,zone.elevationIn]),
+        [["existing_platform",4]],
+        "Exact saved Layout 3 must retain its raised-floor record",
+      );
+      GymTests.deepEqual(
+        state.layout.flooringPieces.map(piece=>[piece.id,piece.typeId,piece.rotated,piece.price]),
+        [["existing_flooring","stall_mat_4x6",true,55]],
+        "Exact saved Layout 3 must retain its saved flooring record",
+      );
+      GymTests.deepEqual(
+        {
+          walls:state.layout.spatial3d.walls,
+          ceiling:state.layout.spatial3d.ceiling,
+          clearances:state.layout.spatial3d.clearances,
+          collisions:state.layout.spatial3d.collisions,
+          labelMode:state.layout.spatial3d.labelMode,
+          eyeHeightFt:state.layout.spatial3d.eyeHeightFt,
+          wallColor:state.layout.spatial3d.wallColor,
+          floorType:state.layout.spatial3d.floorType,
+          fovDeg:state.layout.spatial3d.fovDeg,
+        },
+        {
+          walls:true,ceiling:true,clearances:true,collisions:true,labelMode:"selected",
+          eyeHeightFt:5.67,wallColor:"black",floorType:"rolled-rubber",fovDeg:90,
+        },
+        "Exact saved Layout 3 must retain its associated spatial settings",
+      );
       GymTests.equal(JSON.stringify(savedLayout3Instances),sourceBefore,"Rendering must leave every source instance byte-equal");
       GymTests.equal(
         JSON.stringify(state.layout.instances),

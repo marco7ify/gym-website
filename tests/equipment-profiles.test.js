@@ -291,7 +291,11 @@
     GymTests.deepEqual(partsByTag(parts,"x16-belt")[0].size,{x:22/12,y:.018,z:60/12});
     GymTests.deepEqual(partsByTag(parts,"x16-deck-shell")[0].size,{x:31.5/12,y:.12,z:64.5/12});
     GymTests.equal(partsByTag(parts,"x16-foot-rail").length,2);
-    partsByTag(parts,"x16-foot-rail").forEach(rail=>GymTests.deepEqual(rail.size,{x:3.4/12,y:.055,z:61.5/12}));
+    partsByTag(parts,"x16-foot-rail").forEach(rail=>{
+      GymTests.deepEqual(rail.size,{x:3.4/12,y:.055,z:61.5/12});
+      GymTests.equal(rail.options.ribCount,8,"Each X16 foot rail must publish eight integrated transverse ribs");
+      GymTests.assert(rail.options.ribDepth>0,"Each X16 foot rail must publish a visible rib depth");
+    });
     GymTests.equal(partsByTag(parts,"x16-base-rail").length,2);
     GymTests.equal(partsByTag(parts,"x16-incline-upright").length,2);
     GymTests.equal(partsByTag(parts,"x16-front-roller").length,1);
@@ -427,18 +431,22 @@
     const screen=partsByTag(parts,"stair-console-screen")[0];
     GymTests.equal(partsByTag(parts,"stair-console-housing").length,1,"Stair needs one console housing");
     GymTests.equal(partsByTag(parts,"stair-console-screen").length,1,"Stair needs one console screen");
-    GymTests.deepEqual(housing.size,{x:w*.70,y:h*.20,z:d*.055});
+    GymTests.deepEqual(housing.size,{x:w*.70,y:h*.20,z:d*.04});
     GymTests.closeTo(housing.pos.y,h*.86,1e-9);
-    GymTests.closeTo(housing.pos.z,-d*.415,1e-9);
+    GymTests.closeTo(housing.pos.z,-d*.41,1e-9);
     GymTests.deepEqual(screen.size,{x:w*.60,y:h*.135,z:d*.012});
     GymTests.assert(screen.size.x>screen.size.y,"Stair console screen must be landscape");
+    GymTests.closeTo(housing.options.rotationX,-Math.PI/30,1e-9,"Stair console housing needs the approved slight viewing tilt");
+    GymTests.closeTo(screen.options.rotationX,housing.options.rotationX,1e-9,"Stair housing and screen must tilt together");
     GymTests.assert(screen.pos.x-screen.size.x/2>=housing.pos.x-housing.size.x/2
       && screen.pos.x+screen.size.x/2<=housing.pos.x+housing.size.x/2
       && screen.pos.y-screen.size.y/2>=housing.pos.y-housing.size.y/2
-      && screen.pos.y+screen.size.y/2<=housing.pos.y+housing.size.y/2
-      && screen.pos.z-screen.size.z/2>=housing.pos.z-housing.size.z/2
-      && screen.pos.z+screen.size.z/2<=housing.pos.z+housing.size.z/2,
-    "Stair screen must remain fully bounded by its housing");
+      && screen.pos.y+screen.size.y/2<=housing.pos.y+housing.size.y/2,
+    "Stair screen must retain a dark housing border on X and Y");
+    GymTests.assert(
+      screen.pos.z+screen.size.z/2<housing.pos.z-housing.size.z/2,
+      "Stair screen must sit visibly in front of the opaque console back shell",
+    );
     GymTests.assert(screen.material.emissive && screen.options.castShadow===false && screen.options.receiveShadow===false,"Stair screen must be emissive and shadowless");
 
     const rails=partsByTag(parts,"stair-handrail");

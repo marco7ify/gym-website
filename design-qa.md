@@ -118,3 +118,14 @@ final garage-door wall refresh result: passed
 - Fresh `?faithful-cardio-review-fix-green=1` runtime-cache, planner-logic, equipment-dispatch real-Three, wall-features real-Three, and garage-door real-Three URLs on `127.0.0.1:4186` each reported `data-complete=true`, `data-failures=0`, `All tests passed.`, and empty runner warning/error logs.
 
 final faithful X16 and Stair Machine result: passed
+
+### Final review fix — visible Stair console, ribbed X16 rails, exact fixture, and cache gate
+
+- Captured browser-observed RED before implementation: planner logic failed the missing X16 rib and old Stair shell contracts; the real-Three runner failed the X16 rib geometry, Stair console front-hit, and incomplete exact Layout 3 architecture contracts; the runtime-cache runner failed the runtime/model/outer-runner keys and the newly enforced inner equipment-test key.
+- The Stair console now uses a dark back shell and a cyan screen that sits fully forward inside a retained X/Y bezel. Housing and screen share a slight 6° viewing tilt, the screen remains emissive and shadowless, and a real `THREE.Raycaster` regression proves a front sightline hits the screen before the opaque shell.
+- The X16's two existing foot-rail meshes now carry eight integrated transverse ribs each. The treatment adds no meshes or materials; the real-Three lifecycle gate still reports 32 meshes, 6 materials, and no triangle-budget breach.
+- The centralized exact Layout 3 fixture now includes the saved standard door, no-go area, outlet, wall extension, low-ceiling zone, raised floor, flooring piece, garage, seven wall features, and the saved black-wall/rolled-rubber spatial state with walls, ceiling, clearances, and collisions on at 5.67 ft / 90°. Combined diagnostics remain 11 dedicated equipment models, 2 door models (1 standard + 1 garage), 1 door collider, 7 wall features, and 0 builder failures.
+- Fresh final runtime-cache, planner-logic, equipment-dispatch real-Three, wall-features real-Three, and garage-door real-Three browser gates each reported `data-complete=true`, `data-failures=0`, and `All tests passed.` The cache gate now reads the equipment runner source and asserts its current inner `equipment-dispatch-3d.test.js` key.
+- Updated console evidence: `.superpowers/sdd/2026-08-11-x16-stair-faithful-models/task-5-evidence/stair-front-console-final-fix.png`. The disposable one-machine copy and temporarily hidden walls supplied only the unobstructed close-up; the copy was deleted afterward. Original Layout 3 was restored with exactly three layouts, 11/11 dedicated models, one garage, seven wall features, all four spatial toggles on, and no production warning/error logs.
+
+final faithful X16 and Stair review-fix result: passed

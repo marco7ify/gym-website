@@ -3,6 +3,35 @@
 
   const BUILDERS=Object.create(null);
 
+  function addIntegratedFootRailRibs(view,mesh,size,ribCount,ribDepth){
+    if(mesh?.userData){
+      mesh.userData.ribCount=ribCount;
+      mesh.userData.ribDepth=ribDepth;
+    }
+    const THREE=globalThis.THREE;
+    if(!mesh?.geometry || !THREE?.BoxGeometry || typeof view.geometry!=="function") return mesh;
+    const depthSegments=ribCount*2;
+    const geometry=view.geometry(new THREE.BoxGeometry(size.x,size.y,size.z,1,1,depthSegments));
+    const position=geometry.attributes.position;
+    const top=size.y/2;
+    for(let index=0;index<position.count;index++){
+      if(Math.abs(position.getY(index)-top)>1e-9) continue;
+      const progress=(position.getZ(index)+size.z/2)/size.z;
+      const station=Math.round(progress*depthSegments);
+      if(station%2===1) position.setY(index,top-ribDepth);
+    }
+    position.needsUpdate=true;
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    const smooth=mesh.geometry;
+    mesh.geometry=geometry;
+    const index=view.disposables?.lastIndexOf?.(smooth) ?? -1;
+    if(index>=0) view.disposables.splice(index,1);
+    smooth.dispose?.();
+    return mesh;
+  }
+
   function createModelKit(view,group,inst,base,height){
     const w=Math.max(.4,base.w),d=Math.max(.4,base.h),h=Math.max(.45,height);
     const material=spec=>view.material(spec);
@@ -149,13 +178,15 @@
       );
     });
 
-    // A narrow center mast supports a broad landscape console at local front -Z.
+    // A narrow center mast supports a tilted dark back shell with the cyan face
+    // fully forward, so the housing keeps an X/Y bezel without occluding it.
+    const consoleTilt=-Math.PI/30;
     addBox({x:w*.13,y:h*.59,z:d*.065},{x:0,y:h*.465,z:-d*.29},powder,
       {partTag:"stair-console-mast"});
-    addBox({x:w*.70,y:h*.20,z:d*.055},{x:0,y:h*.86,z:-d*.415},shroud,
-      {partTag:"stair-console-housing"});
+    addBox({x:w*.70,y:h*.20,z:d*.04},{x:0,y:h*.86,z:-d*.41},shroud,
+      {rotationX:consoleTilt,partTag:"stair-console-housing"});
     addBox({x:w*.60,y:h*.135,z:d*.012},{x:0,y:h*.86,z:-d*.4364},screen,
-      {partTag:"stair-console-screen",castShadow:false,receiveShadow:false});
+      {rotationX:consoleTilt,partTag:"stair-console-screen",castShadow:false,receiveShadow:false});
 
     const railPath=[
       {x:.30*w,y:.22*h,z:.34*d},
@@ -205,11 +236,18 @@
     );
     const footRailLength=61.5/12,footRailWidth=3.4/12,footRailThickness=.055;
     const footRailCenterY=rearTop+.045+Math.sin(incline)*footRailLength/2-footRailThickness/2;
-    [-1,1].forEach(sign=>addBox(
-      {x:footRailWidth,y:footRailThickness,z:footRailLength},
-      {x:sign*(beltWidth+footRailWidth)/2,y:footRailCenterY,z:.03},graphite,
-      {rotationX:incline,partTag:"x16-foot-rail",side:sign<0?"left":"right",castShadow:false}
-    ));
+    const footRailSize={x:footRailWidth,y:footRailThickness,z:footRailLength};
+    [-1,1].forEach(sign=>{
+      const rail=addBox(
+        footRailSize,
+        {x:sign*(beltWidth+footRailWidth)/2,y:footRailCenterY,z:.03},graphite,
+        {
+          rotationX:incline,partTag:"x16-foot-rail",side:sign<0?"left":"right",castShadow:false,
+          ribCount:8,ribDepth:.012,
+        }
+      );
+      addIntegratedFootRailRibs(view,rail,footRailSize,8,.012);
+    });
 
     const rollerRadius=2.75/24,rollerLength=22.5/12;
     const beltTopAt=z=>beltCenterY-Math.sin(incline)*(z-.03)+Math.cos(incline)*beltThickness/2;

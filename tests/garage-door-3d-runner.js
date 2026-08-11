@@ -24,7 +24,7 @@ try{
     "../app.js?v=85",
     "../garage-door-3d.js?v=1",
     "../view3d.js?v=39",
-    "./garage-door-fixtures.js?v=1",
+    "./garage-door-fixtures.js?v=2",
     "./garage-door-3d.test.js?v=5",
   ]) await loadClassicScript(src);
   GymTests.finish();
