@@ -135,7 +135,7 @@ function layoutRotationShortcutAllowed(event,target=document.activeElement){
   if(state.tab!=="layout" || !state.layout?.selectedInstId) return false;
   if(state.layout?.spatialViewMode==="3d" || state.layout?.walkthroughOpen) return false;
   if(state.drag?.active || document.pointerLockElement) return false;
-  if(document.querySelector("dialog[open]")) return false;
+  if(document.querySelector('dialog[open], .lightbox.open, .modalOverlay[role="dialog"][aria-modal="true"]')) return false;
 
   const tag=String(target?.tagName||"").toLowerCase();
   if(["input","textarea","select"].includes(tag) || target?.isContentEditable || target?.closest?.("[contenteditable='true']")) return false;

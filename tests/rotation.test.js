@@ -565,3 +565,56 @@ GymTests.test("rotation shortcut listener is wired only once",()=>{
     window.__layoutRotationShortcutWired=previousWired;
   }
 });
+
+function withOpenAppDialog(kind, run){
+  const modal=document.createElement("div");
+  if(kind==="import-batch"){
+    modal.className="modalOverlay";
+    modal.setAttribute("role","dialog");
+    modal.setAttribute("aria-modal","true");
+  }else{
+    modal.className="lightbox open";
+    modal.setAttribute("aria-hidden","false");
+    modal.innerHTML='<div class="lightbox-inner" role="dialog" aria-modal="true"></div>';
+  }
+  document.body.appendChild(modal);
+  try{
+    return run();
+  }finally{
+    modal.remove();
+  }
+}
+
+GymTests.test("layout rotation shortcut recognizes the app's open dialog surfaces",()=>{
+  withRotationShortcutState({},()=>{
+    ["image-lightbox","export-modal","import-batch"].forEach(kind=>{
+      withOpenAppDialog(kind,()=>{
+        GymTests.equal(layoutRotationShortcutAllowed(rotationShortcutEvent(),document.body),false,kind);
+      });
+    });
+
+    const closed=document.createElement("div");
+    closed.className="lightbox";
+    closed.setAttribute("aria-hidden","true");
+    closed.innerHTML='<div class="lightbox-inner" role="dialog" aria-modal="true"></div>';
+    document.body.appendChild(closed);
+    try{
+      GymTests.equal(layoutRotationShortcutAllowed(rotationShortcutEvent(),document.body),true);
+    }finally{
+      closed.remove();
+    }
+  });
+});
+
+GymTests.test("rotation listener leaves R unhandled while an app lightbox is open",()=>{
+  const fixture=rotationUiFixture();
+  withRotationUiFixture(fixture,()=>withRotationRender(()=>{
+    const before=deepCopy(state.layout.instances[0]);
+    withOpenAppDialog("image-lightbox",()=>{
+      const event=new KeyboardEvent("keydown",{code:"KeyR",bubbles:true,cancelable:true});
+      window.dispatchEvent(event);
+      GymTests.deepEqual(state.layout.instances[0],before);
+      GymTests.equal(event.defaultPrevented,false);
+    });
+  }));
+});
