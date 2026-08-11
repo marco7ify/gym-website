@@ -152,6 +152,67 @@ GymTests.test("normalizes half-inch vertical runs within an integer-inch ceiling
   GymTests.deepEqual(GymWallFeatures.validate(feature,{},room),{valid:true,reasons:[]});
 });
 
+GymTests.test("never expands a fractional-inch physical wall limit", () => {
+  const physicalInches=240.75;
+  const room={W:physicalInches/12,L:19.5,ceiling:9,rects:[{x:0,y:0,w:physicalInches/12,h:19.5}]};
+  const feature=GymWallFeatures.normalize(
+    {kind:"mirror",wall:"top",startFt:14,startIn:6,widthFt:5,widthIn:7,bottomFt:1,heightFt:5},
+    room,
+    ()=>"wf_fractional_wall"
+  );
+  const runInches=(GymWallFeatures.start(feature)+GymWallFeatures.width(feature))*12;
+
+  GymTests.assert(runInches<=physicalInches,`Expected normalized run to stay within ${physicalInches} physical inches, received ${runInches}`);
+  GymTests.equal(runInches,240);
+  GymTests.deepEqual(GymWallFeatures.validate(feature,{},room),{valid:true,reasons:[]});
+});
+
+GymTests.test("never expands a fractional-inch physical ceiling limit", () => {
+  const physicalInches=108.75;
+  const room={W:20,L:19.5,ceiling:physicalInches/12,rects:[{x:0,y:0,w:20,h:19.5}]};
+  const feature=GymWallFeatures.normalize(
+    {kind:"mirror",wall:"top",startFt:2,widthFt:5,bottomFt:3,bottomIn:6,heightFt:5,heightIn:7},
+    room,
+    ()=>"wf_fractional_ceiling"
+  );
+  const verticalInches=(GymWallFeatures.bottom(feature)+GymWallFeatures.height(feature))*12;
+
+  GymTests.assert(verticalInches<=physicalInches,`Expected normalized height to stay within ${physicalInches} physical inches, received ${verticalInches}`);
+  GymTests.equal(verticalInches,108);
+  GymTests.deepEqual(GymWallFeatures.validate(feature,{},room),{valid:true,reasons:[]});
+});
+
+GymTests.test("never expands fractional-inch clearance above a raised floor", () => {
+  const physicalInches=104.75;
+  const room={W:20,L:19.5,ceiling:9,rects:[{x:0,y:0,w:20,h:19.5}]};
+  const layout={floorZones:[{xFt:0,yFt:0,widthFt:20,heightFt:1,elevationIn:3.25}]};
+  const feature=GymWallFeatures.normalize(
+    {kind:"mirror",wall:"top",startFt:2,widthFt:5,bottomFt:3,bottomIn:2,heightFt:5,heightIn:7},
+    room,
+    ()=>"wf_fractional_raised_floor",
+    layout
+  );
+  const verticalInches=(GymWallFeatures.bottom(feature)+GymWallFeatures.height(feature))*12;
+
+  GymTests.assert(verticalInches<=physicalInches,`Expected raised-floor height to stay within ${physicalInches} physical inches, received ${verticalInches}`);
+  GymTests.equal(verticalInches,104);
+  GymTests.deepEqual(GymWallFeatures.validate(feature,layout,room),{valid:true,reasons:[]});
+});
+
+GymTests.test("keeps minimum sizes inside a physical envelope smaller than the minimum", () => {
+  const physicalInches=5.75;
+  const room={W:physicalInches/12,L:1,ceiling:physicalInches/12,rects:[{x:0,y:0,w:physicalInches/12,h:1}]};
+  const feature=GymWallFeatures.normalize(
+    {kind:"mirror",wall:"top",startFt:0,widthFt:0,widthIn:1,bottomFt:0,heightFt:0,heightIn:1},
+    room,
+    ()=>"wf_tiny_envelope"
+  );
+
+  GymTests.equal(GymWallFeatures.width(feature)*12,5);
+  GymTests.equal(GymWallFeatures.height(feature)*12,5);
+  GymTests.deepEqual(GymWallFeatures.validate(feature,{},room),{valid:true,reasons:[]});
+});
+
 GymTests.test("maps a wall feature into its interior 3D transform", () => {
   const transform=GymWallFeatures.worldTransform(
     {wall:"bottom",startFt:2,widthFt:5,bottomFt:1,bottomIn:6,heightFt:5,heightIn:6},

@@ -31,6 +31,10 @@
     return Math.round(Math.max(0,number(value))*12);
   }
 
+  function physicalInches(value){
+    return Math.max(0,Math.floor(Math.max(0,number(value))*12+EPSILON));
+  }
+
   function start(feature){ return totalFt(feature,"start"); }
   function bottom(feature){ return totalFt(feature,"bottom"); }
   function width(feature){ return totalFt(feature,"width"); }
@@ -92,7 +96,7 @@
     normalized.brightnessPct=Math.min(100,Math.max(0,number(source.brightnessPct,defaults.brightnessPct)));
 
     const minSizeInches=kind==="led" ? 1 : 6;
-    const roomLengthInches=integerInches(wallLength(normalized,room));
+    const roomLengthInches=physicalInches(wallLength(normalized,room));
     const requestedWidthInches=integerInches(valueOrDefault(source,"width",defaults.width));
     const featureWidthInches=Math.min(roomLengthInches,Math.max(minSizeInches,requestedWidthInches));
     const requestedStartInches=integerInches(valueOrDefault(source,"start",defaults.start));
@@ -101,7 +105,7 @@
     setMeasurementInches(normalized,"start",featureStartInches);
 
     const center=featureCenter(normalized,room);
-    const availableInches=integerInches(number(room && room.ceiling)-floorElevationAt(layout,center.x,center.y));
+    const availableInches=physicalInches(number(room && room.ceiling)-floorElevationAt(layout,center.x,center.y));
     const requestedHeightInches=integerInches(valueOrDefault(source,"height",defaults.height));
     const featureHeightInches=Math.min(availableInches,Math.max(minSizeInches,requestedHeightInches));
     const requestedBottomInches=integerInches(valueOrDefault(source,"bottom",defaults.bottom));

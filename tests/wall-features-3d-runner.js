@@ -19,7 +19,7 @@ function loadClassicScript(src){
 try{
   for(const src of [
     "./test-harness.js?v=task4-fix2",
-    "../wall-features.js?v=wall-final-fix-green-2",
+    "../wall-features.js?v=wall-final-fix-2-green-1",
     "../app.js?v=wall-final-fix-green-1",
     "../view3d.js?v=wall-final-fix-green-1",
     "./wall-features-3d.test.js?v=task4-fix2",
