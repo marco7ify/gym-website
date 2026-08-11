@@ -274,16 +274,30 @@ function pointInRoom(x, y, rects){
 }
 
 function rectInsideRoom(rect){
-  const x0 = rect.x, y0 = rect.y, x1 = rect.x + rect.w, y1 = rect.y + rect.h;
-  const pts = [
-    [x0,y0],[x1,y0],[x0,y1],[x1,y1],
-    [(x0+x1)/2,y0],[(x0+x1)/2,y1],[x0,(y0+y1)/2],[x1,(y0+y1)/2],
-    [(x0+x1)/2,(y0+y1)/2],
-  ];
   const r = room();
   const rs = r.validRects || r.rects;
-  for(const [x,y] of pts){
-    if(!pointInRoom(x, y, rs)) return false;
+  const x0=rect.x, y0=rect.y, x1=rect.x+rect.w, y1=rect.y+rect.h;
+  const yBreaks=[y0,y1];
+  for(const zone of rs){
+    const top=zone.y, bottom=zone.y+zone.h;
+    if(top>y0 && top<y1) yBreaks.push(top);
+    if(bottom>y0 && bottom<y1) yBreaks.push(bottom);
+  }
+  yBreaks.sort((a,b)=>a-b);
+  for(let i=0;i<yBreaks.length-1;i++){
+    const mid=(yBreaks[i]+yBreaks[i+1])/2;
+    const spans=rs
+      .filter(zone=>zone.y<=mid && zone.y+zone.h>=mid)
+      .map(zone=>({start:Math.max(x0,zone.x),end:Math.min(x1,zone.x+zone.w)}))
+      .filter(span=>span.end>=span.start)
+      .sort((a,b)=>a.start-b.start);
+    let covered=x0;
+    for(const span of spans){
+      if(span.start>covered+1e-9) return false;
+      covered=Math.max(covered,span.end);
+      if(covered>=x1-1e-9) break;
+    }
+    if(covered<x1-1e-9) return false;
   }
   return true;
 }

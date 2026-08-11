@@ -317,6 +317,39 @@ GymTests.test("rotation command byte-preserves every hard conflict class",()=>{
   },"outside-room");
 });
 
+GymTests.test("rotation command commits a staging-only rotation and preserves its center",()=>{
+  const item={...placementFixtureItem("item_staging","Staging Trainer"),length:4,width:2};
+  const inst=placementFixtureInstance("target",item.id,14,4);
+  withPlacementFixture({items:[item],instances:[inst]},()=>withRotationRender(()=>{
+    const before=deepCopy(state.layout.instances[0]);
+    const beforeDims=instanceDims(before,item);
+    const result=rotateLayoutInstance90(inst.id);
+    const afterDims=instanceDims(result.instance,item);
+    const staging=room().staging;
+    GymTests.deepEqual(result,{ok:true,reason:"rotated",instance:state.layout.instances[0]});
+    GymTests.equal(rectInsideRect(effectiveRectForInst(result.instance,item).base,staging),true);
+    GymTests.closeTo(instXTotalFt(before)+beforeDims.w/2,instXTotalFt(result.instance)+afterDims.w/2,1/1200);
+    GymTests.closeTo(instYTotalFt(before)+beforeDims.h/2,instYTotalFt(result.instance)+afterDims.h/2,1/1200);
+    GymTests.equal(window.__rotationRenderCount,1);
+  }));
+});
+
+GymTests.test("rotation command rejects a staging-boundary candidate outside the allowed union",()=>{
+  const item={...placementFixtureItem("item_staging_edge","Staging Trainer"),length:4,width:2};
+  const inst=placementFixtureInstance("target",item.id,12.75,4);
+  const conflict={kind:"outside-room",message:"Can’t rotate here — the equipment would extend outside the room."};
+  withPlacementFixture({items:[item],instances:[inst]},()=>withRotationRender(()=>{
+    const before=deepCopy(state.layout.instances[0]);
+    const candidate=rotatedInstanceCandidate(before,item);
+    GymTests.equal(rectInsideRect(effectiveRectForInst(before,item).base,room().staging),true);
+    GymTests.equal(rectInsideRoom(effectiveRectForInst(candidate,item).base),false);
+    GymTests.deepEqual(rotateLayoutInstance90(inst.id),{ok:false,reason:"hard-invalid",conflict});
+    GymTests.deepEqual(state.layout.instances[0],before);
+    GymTests.deepEqual(state.layoutActionStatus,{instId:inst.id,tone:"error",message:conflict.message});
+    GymTests.equal(window.__rotationRenderCount,1);
+  }));
+});
+
 GymTests.test("rotation command keeps a soft conflict as an invalid rotated instance",()=>{
   const target={...placementFixtureItem("item_target","Cable Machine"),length:4,width:2};
   const blocker=placementFixtureItem("item_blocker","Bench");
