@@ -766,6 +766,7 @@ const MODEL3D_PROFILES = [
   {value:"shizhuo-seated-standing-row", label:"Shizhuo seated / standing row"},
   {value:"wanjia-combo-adductor", label:"Wanjia combo adductor / abductor"},
   {value:"yindun-three-tier-rack", label:"Yindun three-tier dumbbell rack"},
+  {value:"rogue-echo-rower", label:"Rogue Echo Rower"},
 ];
 
 const MODEL3D_PROFILE_FAMILY = {
@@ -791,6 +792,7 @@ const MODEL3D_PROFILE_FAMILY = {
   "shizhuo-seated-standing-row":"rowing-machine",
   "wanjia-combo-adductor":"adductor",
   "yindun-three-tier-rack":"storage-rack",
+  "rogue-echo-rower":"rowing-machine",
 };
 
 const DEDICATED_MODEL_PROFILES = new Set([
@@ -805,6 +807,7 @@ const DEDICATED_MODEL_PROFILES = new Set([
   "gazelle-pro",
   "maxwell-903bh",
   "rx3-compact-smith",
+  "rogue-echo-rower",
 ]);
 
 function inferEquipmentModelFamily(item){
@@ -869,6 +872,7 @@ function inferEquipmentModelProfile(item){
   if(exact("dezhou shizhuo fitness technology co ltd","seated standing row")) return "shizhuo-seated-standing-row";
   if(exact("shandong wanjia fitness equipment","combo adductor and abductor") && wanjiaDimensions()) return "wanjia-combo-adductor";
   if(exact("dezhou yindun seiko technology co ltd","three tier dumbbell rack")) return "yindun-three-tier-rack";
+  if(exact("rogue fitness","rogue echo rower")) return "rogue-echo-rower";
 
   if(/rx3 tornado compact smith/.test(text)) return "rx3-compact-smith";
   if(/stair machine|stairmill|stair climber/.test(text)) return "commercial-stair";
@@ -897,6 +901,12 @@ function equipmentModelProfile(item){
 
 function equipmentModelProfileLabel(value){
   return MODEL3D_PROFILES.find(x=>x.value===value)?.label || "Standard family model";
+}
+
+function equipmentModelVisualHeight(profile,fp,ceilingFt){
+  const measured=Math.max(0,safeNum(fp?.H));
+  const requested=profile==="rogue-echo-rower" ? Math.max(measured,3.25) : measured;
+  return clamp(requested || 3.2,.45,Math.max(.6,safeNum(ceilingFt)+1.5));
 }
 
 function equipmentModelPresentation(profile,hasCustomAsset,fp){

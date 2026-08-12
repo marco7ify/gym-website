@@ -514,6 +514,21 @@
     }finally{ fixture.destroy(); }
   });
 
+  GymTests.test("publishes Echo's canonical seat height separately from its visual model height",()=>{
+    const echo={
+      id:"echo",brand:"Rogue Fitness",name:"Rogue Echo Rower",category:"Cardio & Conditioning",
+      unit:"ft",width:26/12,length:99/12,height:16/12,
+    };
+    const fixture=createEquipmentDispatchFixture({items:[echo]});
+    try{
+      const group=fixture.view.itemGroups.get("inst_echo");
+      GymTests.equal(group.userData.modelProfile,"rogue-echo-rower");
+      assertNear(group.userData.canonicalFootprint.heightFt,16/12,"Echo canonical height must remain its saved 16 in seat height");
+      GymTests.assert(group.userData.worldFootprint.heightFt>16/12,"Echo world/model height must exceed its saved seat height");
+      GymTests.assert(group.userData.visualHeightFt>16/12,"Echo visual height must exceed its saved seat height");
+    }finally{ fixture.destroy(); }
+  });
+
   GymTests.test("publishes the complete X16 semantic mesh contract through real Three primitives",()=>{
     const fixture=createEquipmentDispatchFixture({items:[dedicatedItems[2]]});
     try{

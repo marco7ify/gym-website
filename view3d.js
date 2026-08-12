@@ -1323,7 +1323,10 @@ class Gym3DView {
       const profile=equipmentModelProfile(item);
       const hasCustomAsset=itemHasLocal3dModel(item);
       const fallbackHeight = ["smith-cable","pulley-tower","strength-rack","sauna","stair-climber"].includes(family) ? 7.5 : 3.2;
-      const height = clamp(fp.H || fallbackHeight, 0.45, Math.max(0.6,this.ceiling+1.5));
+      const defaultHeight=fp.H || fallbackHeight;
+      const height=profile==="rogue-echo-rower"
+        ? equipmentModelVisualHeight(profile,{...fp,H:defaultHeight},this.ceiling)
+        : clamp(defaultHeight,.45,Math.max(.6,this.ceiling+1.5));
       const group = new THREE.Group();
       const visualGroup = new THREE.Group();
       const fallbackGroup = new THREE.Group();
@@ -1360,7 +1363,8 @@ class Gym3DView {
       const hitMaterial=this.material({color:0xffffff,transparent:true,opacity:0,depthWrite:false});
       this.box(group,{x:Math.max(.4,fp.W),y:height,z:Math.max(.4,fp.L)},{x:0,y:height/2,z:0},hitMaterial,{castShadow:false,receiveShadow:false,instId:inst.id});
       group.userData.worldFootprint={widthFt:base.w,depthFt:base.h,heightFt:height};
-      group.userData.canonicalFootprint={widthFt:fp.W,depthFt:fp.L,heightFt:height};
+      group.userData.canonicalFootprint={widthFt:fp.W,depthFt:fp.L,heightFt:fp.H};
+      group.userData.visualHeightFt=height;
       group.userData.measuredFootprint=group.userData.worldFootprint;
 
       if(this.settings.clearances && rects.eff && (rects.eff.w > base.w+0.01 || rects.eff.h > base.h+0.01)){

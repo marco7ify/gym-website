@@ -602,6 +602,25 @@
     cases.forEach(([item,expected])=>GymTests.equal(equipmentModelProfile(item),expected));
   });
 
+  GymTests.test("matches only the exact Rogue Echo Rower profile",()=>{
+    GymTests.equal(inferEquipmentModelProfile({brand:"Rogue Fitness",name:"Rogue Echo Rower",category:"Cardio & Conditioning"}),"rogue-echo-rower");
+    GymTests.equal(equipmentModelProfile({brand:"Rogue Fitness",name:"Rogue Echo Rower",category:"Cardio & Conditioning",model3dFamily:"auto",model3dProfile:"auto"}),"rogue-echo-rower");
+    [
+      {brand:"Rogue",name:"Echo Rower"},
+      {brand:"Rogue Fitness",name:"Rogue Echo Rower Replacement Strap"},
+      {brand:"Concept2",name:"RowErg"},
+    ].forEach(item=>GymTests.equal(inferEquipmentModelProfile({...item,category:"Cardio & Conditioning"}),"standard"));
+  });
+
+  GymTests.test("treats Echo saved height as seat height without mutating its footprint",()=>{
+    const item={brand:"Rogue Fitness",name:"Rogue Echo Rower",category:"Cardio & Conditioning",unit:"in",width:26,length:99,height:16};
+    const before=deepCopy(item);
+    const fp=footprint(item);
+    GymTests.closeTo(equipmentModelVisualHeight("rogue-echo-rower",fp,9),3.25,1e-9);
+    GymTests.deepEqual(footprint(item),{W:26/12,L:99/12,H:16/12,area:(26/12)*(99/12)});
+    GymTests.deepEqual(item,before);
+  });
+
   GymTests.test("keeps broad lookalikes on legacy or standard profiles",()=>{
     const cases=[
       [{brand:"Another Brand",name:"Adjustable Weight Bench",category:"Benches"},"incline-bench"],
