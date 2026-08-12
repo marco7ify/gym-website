@@ -96,6 +96,7 @@
     spatial3d=null,
     walls=false,
     garageWallRevision=0,
+    mode="preview",
   }={}){
     state.settings=settings || fixtureSettings();
     state.items=items.map(item=>normalizeItemRecord({...item,unit:item.unit||"ft"}));
@@ -124,13 +125,217 @@
     state._roomCache=null;
     const host=document.createElement("div");
     host.className="gym3dFixture";
-    host.dataset.gym3d="preview";
+    host.dataset.gym3d=mode;
     host.innerHTML='<canvas data-gym3d-minimap width="200" height="120"></canvas><div data-gym3d-warnings></div>';
     document.body.appendChild(host);
     const instancesBeforeRender=deepCopy(state.layout.instances);
-    const view=new Gym3DView(host,"preview");
+    const view=new Gym3DView(host,mode);
     return {host,view,instancesBeforeRender,destroy(){ view.destroy(); host.remove(); }};
   }
+
+  function withWalkthroughEditingDouble(initial,callback){
+    const original=window.GymWalkthroughEditing;
+    let editor={mode:"walk",moveStep:"coarse",wallTool:null,status:null,undo:null,...initial};
+    const calls=[];
+    window.GymWalkthroughEditing={
+      state:()=>editor,
+      setMode(mode){
+        editor={...editor,mode:mode==="edit"?"edit":"walk"};
+        if(editor.mode==="walk") editor.wallTool=null;
+        return editor;
+      },
+      setWallTool(kind){ editor={...editor,wallTool:kind||null}; return editor; },
+      addFeatureFromWallHit(kind,hit){
+        calls.push({kind,hit});
+        if(hit) editor={...editor,wallTool:null};
+        return {ok:!!hit};
+      },
+    };
+    try{return callback({calls,state:()=>editor,setWallTool:kind=>window.GymWalkthroughEditing.setWallTool(kind)});}
+    finally{
+      if(original) window.GymWalkthroughEditing=original;
+      else delete window.GymWalkthroughEditing;
+    }
+  }
+
+  function aimAtEquipment(view,instId){
+    const group=view.itemGroups.get(instId);
+    const focus=group.userData.focusPoint||{
+      x:group.position.x,
+      y:Math.min(group.userData.worldFootprint.heightFt*.43,view.ceiling*.38),
+      z:group.position.z,
+    };
+    view.camera.position.set(focus.x,focus.y,focus.z-8);
+    view.camera.lookAt(focus.x,focus.y,focus.z);
+    view.camera.updateMatrixWorld(true);
+    view.scene.updateMatrixWorld(true);
+    return group;
+  }
+
+  GymTests.test("keeps walkthrough edit clicks out of walk controls and renders the selected equipment panel",()=>{
+    withWalkthroughEditingDouble({mode:"edit"},()=>{
+      const originalRender=window.render;
+      let renders=0;
+      window.render=()=>{renders++;};
+      const fixture=createEquipmentDispatchFixture({
+        mode:"walkthrough",
+        walls:true,
+        items:[{id:"edit_target_item",brand:"Test",name:"Edit target",category:"Benches",width:2,length:4,height:3}],
+        instances:[{id:"edit_target",itemId:"edit_target_item",xFt:7,xIn:0,yFt:7,yIn:0,rotated:false}],
+      });
+      try{
+        const {host,view}=fixture;
+        aimAtEquipment(view,"edit_target");
+        const canvas=view.renderer.domElement;
+        canvas.setPointerCapture=()=>{};
+        const rect=canvas.getBoundingClientRect();
+        const x=rect.left+rect.width/2,y=rect.top+rect.height/2;
+        const before={
+          yaw:view.yaw,
+          pitch:view.pitch,
+          position:view.camera.position.toArray(),
+          rotation:view.camera.rotation.toArray(),
+        };
+
+        canvas.dispatchEvent(new PointerEvent("pointerdown",{clientX:x,clientY:y,pointerId:1,bubbles:true}));
+        window.dispatchEvent(new PointerEvent("pointermove",{clientX:x+24,clientY:y+12,pointerId:1}));
+        window.dispatchEvent(new PointerEvent("pointerup",{clientX:x,clientY:y,pointerId:1}));
+
+        GymTests.equal(state.layout.selectedInstId,"edit_target");
+        GymTests.equal(renders,1,"Edit selection must render the side panel once");
+        GymTests.equal(view.walkActive,false);
+        GymTests.equal(view.lookDrag,null);
+        GymTests.deepEqual({
+          yaw:view.yaw,
+          pitch:view.pitch,
+          position:view.camera.position.toArray(),
+          rotation:view.camera.rotation.toArray(),
+        },before,"Edit pointer input must preserve camera pose");
+        GymTests.equal(host.dataset.walkthroughMode,"edit");
+
+        const input=document.createElement("input");
+        host.appendChild(input);
+        const key=new KeyboardEvent("keydown",{code:"KeyW",key:"w",bubbles:true,cancelable:true});
+        input.dispatchEvent(key);
+        GymTests.equal(key.defaultPrevented,false,"Edit movement keys must remain available to text fields");
+        GymTests.equal(view.keys.size,0);
+        GymTests.equal(view.walkActive,false);
+      }finally{
+        fixture.destroy();
+        window.render=originalRender;
+      }
+    });
+  });
+
+  GymTests.test("retains walkthrough pointer look and movement input in Walk mode",()=>{
+    withWalkthroughEditingDouble({mode:"walk"},()=>{
+      const fixture=createEquipmentDispatchFixture({
+        mode:"walkthrough",
+        items:[{id:"walk_target_item",brand:"Test",name:"Walk target",category:"Benches",width:2,length:4,height:3}],
+        instances:[{id:"walk_target",itemId:"walk_target_item",xFt:7,xIn:0,yFt:7,yIn:0,rotated:false}],
+      });
+      try{
+        const {view}=fixture;
+        const canvas=view.renderer.domElement;
+        canvas.setPointerCapture=()=>{};
+        const rect=canvas.getBoundingClientRect();
+        const x=rect.left+rect.width/2,y=rect.top+rect.height/2;
+        view.walkActive=false;
+        const yaw=view.yaw;
+        const position=view.camera.position.toArray();
+
+        canvas.dispatchEvent(new PointerEvent("pointerdown",{clientX:x,clientY:y,pointerId:2,bubbles:true}));
+        window.dispatchEvent(new PointerEvent("pointermove",{clientX:x+24,clientY:y,pointerId:2}));
+        GymTests.equal(view.walkActive,true);
+        GymTests.assert(view.yaw!==yaw,"Walk pointer movement must continue adjusting yaw");
+
+        const key=new KeyboardEvent("keydown",{code:"KeyW",key:"w",bubbles:true,cancelable:true});
+        document.dispatchEvent(key);
+        GymTests.equal(key.defaultPrevented,true);
+        GymTests.assert(view.keys.has("KeyW"));
+        GymTests.assert(view.camera.position.toArray().some((value,index)=>value!==position[index]),"Walk movement key must move the camera");
+        document.dispatchEvent(new KeyboardEvent("keyup",{code:"KeyW",key:"w",bubbles:true}));
+      }finally{ fixture.destroy(); }
+    });
+  });
+
+  GymTests.test("switches an active Walk view to Edit without changing its camera pose",()=>{
+    withWalkthroughEditingDouble({mode:"walk"},editor=>{
+      const fixture=createEquipmentDispatchFixture({mode:"walkthrough",items:[],instances:[]});
+      try{
+        const {host,view}=fixture;
+        view.camera.position.set(4,5.67,6);
+        view.yaw=.42;
+        view.pitch=-.18;
+        view.applyFirstPersonRotation();
+        const before={position:view.camera.position.toArray(),yaw:view.yaw,pitch:view.pitch};
+        view.keys.add("KeyW");
+        view.lookDrag={x:1,y:1,startX:1,startY:1,moved:false};
+
+        view.setWalkthroughEditMode("edit");
+
+        GymTests.equal(editor.state().mode,"edit");
+        GymTests.equal(host.dataset.walkthroughMode,"edit");
+        GymTests.equal(view.walkActive,false);
+        GymTests.equal(view.keys.size,0);
+        GymTests.equal(view.lookDrag,null);
+        GymTests.deepEqual({position:view.camera.position.toArray(),yaw:view.yaw,pitch:view.pitch},before);
+      }finally{ fixture.destroy(); }
+    });
+  });
+
+  GymTests.test("adds a wall feature from the actual Edit pointer hit and then clears its preview",()=>{
+    withWalkthroughEditingDouble({mode:"edit",wallTool:"mirror"},editor=>{
+      const fixture=createEquipmentDispatchFixture({mode:"walkthrough",walls:true,items:[],instances:[]});
+      try{
+        const {host,view}=fixture;
+        view.camera.position.set(6,4,5);
+        view.camera.lookAt(6,4,0);
+        view.camera.updateMatrixWorld(true);
+        view.scene.updateMatrixWorld(true);
+        const canvas=view.renderer.domElement;
+        const rect=canvas.getBoundingClientRect();
+        const x=rect.left+rect.width/2,y=rect.top+rect.height/2;
+        canvas.dispatchEvent(new PointerEvent("pointerdown",{clientX:x,clientY:y,pointerId:3,bubbles:true}));
+        window.dispatchEvent(new PointerEvent("pointermove",{clientX:x,clientY:y,pointerId:3}));
+        GymTests.equal(view.wallEditPreview.visible,true);
+
+        window.dispatchEvent(new PointerEvent("pointerup",{clientX:x,clientY:y,pointerId:3}));
+
+        GymTests.deepEqual(editor.calls,[{kind:"mirror",hit:{wall:"top",alongFt:6,mountFt:4}}]);
+        GymTests.equal(view.wallEditPreview.visible,false);
+        GymTests.equal(host.dataset.wallTool,"");
+        GymTests.equal(host.dataset.wallHitValid,"false");
+      }finally{ fixture.destroy(); }
+    });
+  });
+
+  GymTests.test("cancels only the active wall tool on Escape in Edit mode",()=>{
+    withWalkthroughEditingDouble({mode:"edit",wallTool:"mirror"},editor=>{
+      const fixture=createEquipmentDispatchFixture({mode:"walkthrough",walls:true,items:[],instances:[]});
+      try{
+        const {host,view}=fixture;
+        view.camera.position.set(6,4,5);
+        view.camera.lookAt(6,4,0);
+        view.camera.updateMatrixWorld(true);
+        view.scene.updateMatrixWorld(true);
+        const canvas=view.renderer.domElement;
+        const rect=canvas.getBoundingClientRect();
+        window.dispatchEvent(new PointerEvent("pointermove",{clientX:rect.left+rect.width/2,clientY:rect.top+rect.height/2}));
+        GymTests.equal(view.wallEditPreview.visible,true);
+        GymTests.equal(host.dataset.wallTool,"mirror");
+        GymTests.equal(host.dataset.wallHitValid,"true");
+
+        const escape=new KeyboardEvent("keydown",{code:"Escape",key:"Escape",bubbles:true,cancelable:true});
+        document.dispatchEvent(escape);
+        GymTests.equal(escape.defaultPrevented,true);
+        GymTests.equal(editor.state().wallTool,null);
+        GymTests.equal(view.wallEditPreview.visible,false);
+        GymTests.equal(host.dataset.wallTool,"");
+        GymTests.equal(host.dataset.wallHitValid,"false");
+      }finally{ fixture.destroy(); }
+    });
+  });
 
   function createSavedLayout3Fixture(){
     const saved=exactGarageLayout3Fixture();

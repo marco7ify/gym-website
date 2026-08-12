@@ -29,10 +29,20 @@ function extraLedFeature(index){
   };
 }
 
-function createWallFeature3dFixture({walls=true,invalid=false,extraLeds=0,mode="preview",features=null}={}){
+function createWallFeature3dFixture({walls=true,invalid=false,extraLeds=0,mode="preview",features=null,architecture=false}={}){
   const settings=wallFeature3dSettings();
+  const areas=architecture ? [
+    {id:"wall_hit_entry",kind:"door",label:"Entry",xFt:12,xIn:6,yFt:0,yIn:0,widthFt:3,widthIn:1,heightFt:1,heightIn:0},
+    GymGarageDoors.seededLayout3Area(),
+  ] : deepCopy(DEFAULT_LAYOUT.areas);
+  const wallExtensions=architecture ? [
+    {id:"wall_hit_left_extension",label:"Left extension",wall:"left",startFt:14,startIn:3,lengthFt:5,lengthIn:8,depthFt:1,depthIn:9},
+  ] : deepCopy(DEFAULT_LAYOUT.wallExtensions);
   const base=normalizeLayout({
     ...deepCopy(DEFAULT_LAYOUT),
+    garageWallRevision:architecture?1:0,
+    areas,
+    wallExtensions,
     wallFeatures:features||GymWallFeatures.layout3Starter(),
     spatial3d:{...DEFAULT_LAYOUT.spatial3d,walls,wallColor:"black"},
   },settings);
@@ -66,6 +76,7 @@ function createWallFeature3dFixture({walls=true,invalid=false,extraLeds=0,mode="
   return {
     host,
     view,
+    room:view.roomData,
     destroy(){
       view.destroy();
       host.remove();
@@ -84,6 +95,112 @@ function pointLights(group){
   group.traverse(object=>{if(object.isPointLight) result.push(object);});
   return result;
 }
+
+function wallEditListenerAudit(){
+  const originalAdd=EventTarget.prototype.addEventListener;
+  const originalRemove=EventTarget.prototype.removeEventListener;
+  const active=[];
+  const capture=options=>typeof options==="boolean"?options:!!options?.capture;
+  EventTarget.prototype.addEventListener=function(type,listener,options){
+    originalAdd.call(this,type,listener,options);
+    active.push({target:this,type,listener,capture:capture(options)});
+  };
+  EventTarget.prototype.removeEventListener=function(type,listener,options){
+    originalRemove.call(this,type,listener,options);
+    const wantedCapture=capture(options);
+    const index=active.findIndex(entry=>entry.target===this&&entry.type===type&&entry.listener===listener&&entry.capture===wantedCapture);
+    if(index>=0) active.splice(index,1);
+  };
+  return {
+    activeCount:()=>active.length,
+    restore(){
+      EventTarget.prototype.addEventListener=originalAdd;
+      EventTarget.prototype.removeEventListener=originalRemove;
+    },
+  };
+}
+
+GymTests.test("resolves editable wall hits from actual rendered wall segments",()=>{
+  const fixture=createWallFeature3dFixture({mode:"walkthrough",architecture:true});
+  try{
+    GymTests.assert(fixture.view.wallEditSurfaces.length>0);
+    const hit=(wall,point)=>{
+      const object=fixture.view.wallEditSurfaces.find(surface=>surface.userData.wallEdit.wall===wall);
+      GymTests.assert(object,`Expected ${wall} edit surface`);
+      return fixture.view.resolveWallEditIntersection({object,point:new THREE.Vector3(point.x,point.y,point.z)});
+    };
+    const top=hit("top",{x:6,y:4,z:.08});
+    GymTests.deepEqual(top,{wall:"top",alongFt:6,mountFt:4});
+    GymTests.equal(hit("right",{x:fixture.room.W-.08,y:4,z:6}).wall,"right");
+    GymTests.equal(hit("bottom",{x:6,y:4,z:fixture.room.L-.08}).wall,"bottom");
+    GymTests.equal(hit("left",{x:.08,y:4,z:6}).wall,"left");
+
+    fixture.view.camera.position.set(6,4,5);
+    fixture.view.camera.lookAt(6,4,0);
+    fixture.view.camera.updateMatrixWorld(true);
+    fixture.view.scene.updateMatrixWorld(true);
+    GymTests.deepEqual(fixture.view.wallHitAt(new THREE.Vector2(0,0)),{wall:"top",alongFt:6,mountFt:4});
+  }finally{ fixture.destroy(); }
+});
+
+GymTests.test("keeps wall edit surfaces out of door, garage, and missing base-wall gaps",()=>{
+  const fixture=createWallFeature3dFixture({mode:"walkthrough",architecture:true});
+  try{
+    const spans=(wall,fixed,start,end)=>fixture.view.wallEditSurfaces.some(surface=>{
+      const meta=surface.userData.wallEdit;
+      return meta.wall===wall&&Math.abs(meta.fixed-fixed)<.03&&meta.start<end&&meta.end>start;
+    });
+    GymTests.equal(spans("top",0,12.5,15+7/12),false,"Standard-door range must have no edit surface");
+    GymTests.equal(spans("bottom",fixture.room.L,1+11/12,17+11/12),false,"Garage range must have no edit surface");
+    GymTests.equal(spans("left",0,14.25,fixture.room.L),false,"Missing base-left range must have no edit surface");
+    GymTests.assert(fixture.view.wallEditSurfaces.every(surface=>!fixture.view.clickTargets.includes(surface)),"Wall edit surfaces must stay out of equipment and feature click targets");
+
+    const rayAt=(from,to)=>{
+      fixture.view.camera.position.set(from.x,from.y,from.z);
+      fixture.view.camera.lookAt(to.x,to.y,to.z);
+      fixture.view.camera.updateMatrixWorld(true);
+      fixture.view.scene.updateMatrixWorld(true);
+      return fixture.view.wallIntersectionAt(new THREE.Vector2(0,0));
+    };
+    GymTests.equal(rayAt({x:14,y:4,z:5},{x:14,y:4,z:0}),null,"Standard-door click must not resolve a wall target");
+    GymTests.equal(rayAt({x:10,y:4,z:14},{x:10,y:4,z:fixture.room.L}),null,"Garage click must not resolve a wall target");
+    const extensionHit=rayAt({x:5,y:4,z:16},{x:0,y:4,z:16});
+    GymTests.assert(extensionHit,"Expected the ray to continue through the missing base-left seam to the extension exterior");
+    GymTests.closeTo(extensionHit.point.x,-1.67,.001,"Missing base-left seam itself must remain target-free");
+  }finally{ fixture.destroy(); }
+});
+
+GymTests.test("balances one walkthrough listener set and releases wall preview meshes across two lifecycles",()=>{
+  const audit=wallEditListenerAudit();
+  const summaries=[];
+  try{
+    for(let pass=0;pass<2;pass++){
+      const fixture=createWallFeature3dFixture({mode:"walkthrough",architecture:true});
+      const {view}=fixture;
+      const preview=view.wallEditPreview;
+      const plane=view.wallEditPreviewPlane;
+      const summary={
+        listeners:audit.activeCount(),
+        wallSurfaces:view.wallEditSurfaces.length,
+        clickTargets:view.clickTargets.length,
+        disposables:view.disposables.length,
+      };
+      GymTests.equal(preview.children.length,1,"Wall preview must contain one plane");
+      GymTests.assert(!view.clickTargets.includes(plane),"Wall preview must not be a click target");
+      GymTests.equal(summary.listeners,13,`Walkthrough view plus its WebGL canvas must register one 13-listener set; received ${summary.listeners}`);
+      fixture.destroy();
+      GymTests.equal(audit.activeCount(),0,"Every walkthrough listener must be removed on destroy");
+      GymTests.equal(fixture.host.querySelectorAll("canvas.gym3dCanvas").length,0,"Destroyed walkthrough canvas must not remain retained by its host");
+      GymTests.equal(plane.parent,null,"Destroyed preview plane must not remain retained by its group");
+      GymTests.equal(preview.parent,null,"Destroyed preview group must not remain retained by the scene");
+      GymTests.equal(view.wallEditSurfaces.length,0,"Destroyed views must release wall edit targets");
+      summaries.push(summary);
+    }
+    GymTests.deepEqual(summaries[1],summaries[0],"Repeated walkthrough lifecycles must keep wall resources and targets stable");
+    globalThis.WALL_EDIT_LIFECYCLE_SUMMARY=summaries;
+    document.querySelector("#test-results").dataset.wallEditLifecycle=JSON.stringify(summaries);
+  }finally{ audit.restore(); }
+});
 
 GymTests.test("builds the exact seven seeded wall features with real material and geometry contracts",()=>{
   const fixture=createWallFeature3dFixture();

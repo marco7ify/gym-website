@@ -174,6 +174,9 @@ class Gym3DView {
 
     this.disposables = [];
     this.clickTargets = [];
+    this.wallEditSurfaces = [];
+    this.wallEditPreview = null;
+    this.wallEditPreviewPlane = null;
     this.itemGroups = new Map();
     this.areaGroups = new Map();
     this.wallFeatureGroups = new Map();
@@ -196,6 +199,7 @@ class Gym3DView {
     this.keys = new Set();
     this.drag = null;
     this.lookDrag = null;
+    this.editPointerDown = null;
     this.walkActive = false;
     this.reconstructedModelCount = 0;
     this.host.dataset.reconstructedModels = "0";
@@ -224,6 +228,7 @@ class Gym3DView {
     this.addEnvironment();
     this.addLights();
     this.buildRoom();
+    this.buildWallEditPreview();
     this.buildDoors();
     this.buildGarageDoors();
     this.publishDoorDiagnostics();
@@ -237,7 +242,7 @@ class Gym3DView {
 
     const loading = this.host.querySelector(".gym3dLoading");
     if(loading) loading.remove();
-    if(this.mode === "walkthrough") this.activateWalkthrough();
+    if(this.mode === "walkthrough") this.setWalkthroughEditMode(this.walkthroughEditingState().mode);
     this.updateWarnings();
     this.host.dataset.renderQuality = "studio-pbr";
     this.animate();
@@ -580,13 +585,24 @@ class Gym3DView {
       this.roomTrimMaterial=trimMat;
       this.roomWallHeight=wallHeight;
       this.roomBoundarySegments().forEach(seg=>{
+        let wall;
         if(seg.axis === "x"){
-          this.box(this.scene, {x:seg.length, y:wallHeight, z:0.16}, {x:seg.mid, y:wallHeight/2, z:seg.fixed}, wallMat);
+          wall=this.box(this.scene, {x:seg.length, y:wallHeight, z:0.16}, {x:seg.mid, y:wallHeight/2, z:seg.fixed}, wallMat);
           this.box(this.scene, {x:seg.length, y:0.18, z:0.21}, {x:seg.mid, y:0.09, z:seg.fixed}, trimMat, {castShadow:false});
         }else{
-          this.box(this.scene, {x:0.16, y:wallHeight, z:seg.length}, {x:seg.fixed, y:wallHeight/2, z:seg.mid}, wallMat);
+          wall=this.box(this.scene, {x:0.16, y:wallHeight, z:seg.length}, {x:seg.fixed, y:wallHeight/2, z:seg.mid}, wallMat);
           this.box(this.scene, {x:0.21, y:0.18, z:seg.length}, {x:seg.fixed, y:0.09, z:seg.mid}, trimMat, {castShadow:false});
         }
+        wall.userData.wallEdit={
+          wall:seg.wall,
+          axis:seg.axis,
+          fixed:seg.fixed,
+          start:seg.start,
+          end:seg.end,
+          inwardX:seg.inwardX,
+          inwardZ:seg.inwardZ,
+        };
+        this.wallEditSurfaces.push(wall);
       });
     }
 
@@ -608,6 +624,33 @@ class Gym3DView {
     }else{
       this.host.dataset.ceilingFixtures="0";
     }
+  }
+
+  buildWallEditPreview(){
+    this.host.dataset.walkthroughMode=this.mode==="walkthrough"?this.walkthroughEditingState().mode:"";
+    this.host.dataset.wallTool="";
+    this.host.dataset.wallHitValid="false";
+    if(this.mode!=="walkthrough") return;
+    const group=new THREE.Group();
+    const geometry=this.geometry(new THREE.PlaneGeometry(1,1));
+    const material=new THREE.MeshBasicMaterial({
+      color:0x38bdf8,
+      transparent:true,
+      opacity:.34,
+      depthWrite:false,
+      side:THREE.DoubleSide,
+    });
+    this.disposables.push(material);
+    const plane=new THREE.Mesh(geometry,material);
+    plane.castShadow=false;
+    plane.receiveShadow=false;
+    plane.renderOrder=20;
+    plane.userData.wallEditPreview=true;
+    group.add(plane);
+    group.visible=false;
+    this.scene.add(group);
+    this.wallEditPreview=group;
+    this.wallEditPreviewPlane=plane;
   }
 
   addCeilingFixtures(){
@@ -2702,6 +2745,108 @@ class Gym3DView {
     this.camera.rotation.x=this.pitch;
   }
 
+  walkthroughEditingState(){
+    const editor=globalThis.GymWalkthroughEditing;
+    const current=editor?.state?.();
+    return current&&typeof current==="object"
+      ? current
+      : {mode:"walk",moveStep:"coarse",wallTool:null,status:null,undo:null};
+  }
+
+  pointerForEvent(event){
+    const rect=this.renderer.domElement.getBoundingClientRect();
+    if(!rect.width||!rect.height) return null;
+    if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom) return null;
+    return new THREE.Vector2(
+      ((event.clientX-rect.left)/rect.width)*2-1,
+      -((event.clientY-rect.top)/rect.height)*2+1
+    );
+  }
+
+  wallIntersectionAt(pointer){
+    if(!pointer||!this.wallEditSurfaces.length) return null;
+    const raycaster=new THREE.Raycaster();
+    raycaster.setFromCamera(pointer,this.camera);
+    return raycaster.intersectObjects(this.wallEditSurfaces,false)[0]||null;
+  }
+
+  resolveWallEditIntersection(hit){
+    const meta=hit?.object?.userData?.wallEdit;
+    if(!meta) return null;
+    const point=hit.point;
+    const alongFt=meta.axis==="x"?point.x:point.z;
+    const floor=this.floorElevationAt(
+      point.x+meta.inwardX*.2,
+      point.z+meta.inwardZ*.2,
+    );
+    return {wall:meta.wall,alongFt,mountFt:Math.max(0,point.y-floor)};
+  }
+
+  wallHitAt(pointer){
+    return this.resolveWallEditIntersection(this.wallIntersectionAt(pointer));
+  }
+
+  hideWallEditPreview(){
+    if(this.wallEditPreview) this.wallEditPreview.visible=false;
+    this.host.dataset.wallHitValid="false";
+  }
+
+  updateWallEditPreview(pointer){
+    const editor=this.walkthroughEditingState();
+    const active=this.mode==="walkthrough"&&editor.mode==="edit"&&editor.wallTool;
+    this.host.dataset.walkthroughMode=editor.mode==="edit"?"edit":"walk";
+    this.host.dataset.wallTool=active?editor.wallTool:"";
+    if(!active){
+      this.hideWallEditPreview();
+      return null;
+    }
+    const intersection=this.wallIntersectionAt(pointer);
+    const hit=this.resolveWallEditIntersection(intersection);
+    if(!hit){
+      this.hideWallEditPreview();
+      return null;
+    }
+    const meta=intersection.object.userData.wallEdit;
+    const defaults=globalThis.GymWallFeatures?.DEFAULTS?.[editor.wallTool];
+    const width=Math.max(.1,safeNum(defaults?.width)||2);
+    const height=Math.max(.08,safeNum(defaults?.height)||2);
+    this.wallEditPreview.position.set(
+      intersection.point.x+meta.inwardX*.025,
+      intersection.point.y,
+      intersection.point.z+meta.inwardZ*.025,
+    );
+    this.wallEditPreview.rotation.set(0,{top:0,right:-Math.PI/2,bottom:Math.PI,left:Math.PI/2}[meta.wall]||0,0);
+    this.wallEditPreviewPlane.scale.set(width,height,1);
+    this.wallEditPreview.visible=true;
+    this.host.dataset.wallHitValid="true";
+    return hit;
+  }
+
+  setWalkthroughEditMode(mode){
+    if(this.mode!=="walkthrough") return;
+    const next=mode==="edit"?"edit":"walk";
+    this.rememberCamera();
+    const editor=globalThis.GymWalkthroughEditing;
+    if(editor?.state?.()?.mode!==next) editor?.setMode?.(next);
+    this.host.dataset.walkthroughMode=next;
+    this.host.dataset.wallTool=next==="edit"?(this.walkthroughEditingState().wallTool||""):"";
+    this.editPointerDown=null;
+    this.keys.clear();
+    this.lookDrag=null;
+    this.hideWallEditPreview();
+    if(next==="edit"){
+      this.walkActive=false;
+      this.host.classList.remove("isActive","isLocked");
+      if(document.pointerLockElement===this.renderer.domElement) document.exitPointerLock?.();
+      const start=this.host.querySelector(".walkthroughStart");
+      if(start) start.hidden=true;
+      const status=this.host.querySelector("[data-walkthrough-status]");
+      if(status) status.textContent="Editing mode active";
+      return;
+    }
+    this.activateWalkthrough();
+  }
+
   bindEvents(){
     this.onResize=()=>this.resize();
     this.resizeObserver=new ResizeObserver(this.onResize);
@@ -2709,6 +2854,10 @@ class Gym3DView {
 
     this.onPointerDown=e=>{
       if(this.mode === "walkthrough"){
+        if(this.walkthroughEditingState().mode==="edit"){
+          this.editPointerDown={x:e.clientX,y:e.clientY};
+          return;
+        }
         this.activateWalkthrough();
         this.lookDrag={x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,moved:false};
         this.renderer.domElement.setPointerCapture?.(e.pointerId);
@@ -2719,6 +2868,10 @@ class Gym3DView {
     };
     this.onPointerMove=e=>{
       if(this.mode === "walkthrough"){
+        if(this.walkthroughEditingState().mode==="edit"){
+          this.updateWallEditPreview(this.pointerForEvent(e));
+          return;
+        }
         if(!this.walkActive) return;
         let dx=0,dy=0;
         if(document.pointerLockElement === this.renderer.domElement){
@@ -2746,6 +2899,23 @@ class Gym3DView {
     };
     this.onPointerUp=e=>{
       if(this.mode === "walkthrough"){
+        const editor=this.walkthroughEditingState();
+        if(editor.mode==="edit"){
+          const started=this.editPointerDown;
+          this.editPointerDown=null;
+          if(!started) return;
+          const pointer=this.pointerForEvent(e);
+          if(editor.wallTool){
+            const hit=this.wallHitAt(pointer);
+            this.hideWallEditPreview();
+            globalThis.GymWalkthroughEditing?.addFeatureFromWallHit?.(editor.wallTool,hit);
+            if(!this.destroyed) this.host.dataset.wallTool=this.walkthroughEditingState().wallTool||"";
+            return;
+          }
+          this.hideWallEditPreview();
+          this.selectAt(e,true);
+          return;
+        }
         const wasDrag=this.lookDrag?.moved;
         this.lookDrag=null;
         if(!wasDrag) this.selectAt(e);
@@ -2763,6 +2933,17 @@ class Gym3DView {
     };
     this.onKeyDown=e=>{
       if(this.mode !== "walkthrough") return;
+      const editor=this.walkthroughEditingState();
+      if(editor.mode==="edit"){
+        if(e.code==="Escape"&&editor.wallTool){
+          globalThis.GymWalkthroughEditing?.setWallTool?.(null);
+          this.host.dataset.wallTool="";
+          this.hideWallEditPreview();
+          e.preventDefault();
+          e.stopImmediatePropagation?.();
+        }
+        return;
+      }
       if(["KeyW","KeyA","KeyS","KeyD","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)){
         if(!this.walkActive) this.activateWalkthrough();
         const wasDown=this.keys.has(e.code);
@@ -2772,15 +2953,24 @@ class Gym3DView {
       }
     };
     this.onKeyUp=e=>this.keys.delete(e.code);
-    this.onBlur=()=>{this.keys.clear();this.lookDrag=null;};
+    this.onBlur=()=>{this.keys.clear();this.lookDrag=null;this.editPointerDown=null;this.hideWallEditPreview();};
     this.onVisibility=()=>{if(document.hidden)this.onBlur();};
     this.onLockChange=()=>{
       if(this.mode !== "walkthrough") return;
       const locked=document.pointerLockElement===this.renderer.domElement;
+      if(this.walkthroughEditingState().mode==="edit"){
+        this.host.classList.remove("isLocked");
+        if(locked) document.exitPointerLock?.();
+        return;
+      }
       this.host.classList.toggle("isLocked",locked);
       if(locked) this.activateWalkthrough();
     };
     this.onPointerLeave=()=>{
+      if(this.mode==="walkthrough"&&this.walkthroughEditingState().mode==="edit"){
+        this.hideWallEditPreview();
+        return;
+      }
       if(this.mode !== "walkthrough") this.setHoveredInst(null);
     };
     this.startButton=this.mode === "walkthrough" ? this.host.querySelector(".walkthroughStart") : null;
@@ -2803,19 +2993,16 @@ class Gym3DView {
     document.addEventListener("visibilitychange",this.onVisibility);
   }
 
-  selectAt(event){
-    const rect=this.renderer.domElement.getBoundingClientRect();
-    const pointer=new THREE.Vector2(
-      ((event.clientX-rect.left)/rect.width)*2-1,
-      -((event.clientY-rect.top)/rect.height)*2+1
-    );
+  selectAt(event,renderWalkthroughEdit=false){
+    const pointer=this.pointerForEvent(event);
+    if(!pointer) return;
     const picked=this.pickTarget(pointer);
     if(!picked) return;
     if(typeof clearAllSelections === "function") clearAllSelections();
     if(picked.type==="wallFeature") state.layout.selectedWallFeatureId=picked.id;
     else state.layout.selectedInstId=picked.id;
     this.rememberCamera();
-    if(this.mode === "walkthrough"){
+    if(this.mode === "walkthrough"&&!renderWalkthroughEdit){
       gym3DControllers.forEach(controller=>controller.updateSelection());
       this.drawMinimap(performance.now()+100);
       return;
@@ -2927,7 +3114,7 @@ class Gym3DView {
   }
 
   lock(){
-    if(this.mode !== "walkthrough") return;
+    if(this.mode !== "walkthrough"||this.walkthroughEditingState().mode==="edit") return;
     // Pointer lock is unavailable in some embedded/local browser contexts.
     // Activate a fully functional drag-to-look mode first so walking never
     // depends on that permission. WASD works immediately after this call.
@@ -2935,7 +3122,7 @@ class Gym3DView {
   }
 
   activateWalkthrough(){
-    if(this.mode!=="walkthrough") return;
+    if(this.mode!=="walkthrough"||this.walkthroughEditingState().mode==="edit") return;
     this.walkActive=true;
     this.host.classList.add("isActive");
     const start=this.host.querySelector(".walkthroughStart");
@@ -2963,7 +3150,7 @@ class Gym3DView {
   }
 
   moveWalkthrough(dt){
-    if(this.mode!=="walkthrough" || !this.walkActive) return;
+    if(this.mode!=="walkthrough"||this.walkthroughEditingState().mode==="edit"||!this.walkActive) return;
     let forward=0,side=0;
     if(this.keys.has("KeyW")||this.keys.has("ArrowUp")) forward+=1;
     if(this.keys.has("KeyS")||this.keys.has("ArrowDown")) forward-=1;
@@ -3147,6 +3334,11 @@ class Gym3DView {
     this.scene.environment=null;
     this.environmentTarget?.dispose?.();
     this.environmentTarget=null;
+    this.wallEditPreview?.removeFromParent();
+    this.wallEditPreview?.clear();
+    this.wallEditPreview=null;
+    this.wallEditPreviewPlane=null;
+    this.wallEditSurfaces.length=0;
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
