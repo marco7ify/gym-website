@@ -5,6 +5,13 @@
 ```
 index.html
     │
+    ├─→ layout-editor-core.js (Pure layout-editor helpers)
+    │   ├─ Search and filter rules
+    │   ├─ Selection routing
+    │   ├─ Placement cloning and centering
+    │   ├─ Draft comparison
+    │   └─ Responsive drawer state
+    │
     ├─→ app.js (Core)
     │   ├─ Utilities ($, $$, uid, safeNum, etc.)
     │   ├─ Constants (CATEGORIES, STATUSES, etc.)
@@ -128,7 +135,9 @@ User Sees Change
 
 ### layout.js
 **Purpose**: Layout Panel and SVG
-- Layout panel rendering
+- Canvas-first three-region workspace rendering
+- Independently scrolling equipment library and contextual inspector
+- In-layout equipment-details sheet using the shared `itemForm()`
 - SVG grid generation
 - Equipment visualization
 - Area rendering
@@ -147,6 +156,7 @@ User Sees Change
 **Imports**: 
 - app.js (utilities, state, geometry)
 - panels.js (field, tipsPanel)
+- layout-editor-core.js (pure workspace behavior)
 
 ---
 
@@ -203,6 +213,18 @@ state = {
   tab: "wishlist" | "ready" | "layout" | "ingest" | "settings",
   editingId: string | null,
   draft: ItemObject,
+  layoutWorkspace: {
+    // Transient UI state only; never persisted or exported.
+    search: string,
+    libraryDrawerOpen: boolean,
+    inspectorDrawerOpen: boolean,
+    detailsEditorOpen: boolean,
+    detailsEditorItemId: string | null,
+    detailsEditorBaseline: ItemObject | null,
+    discardEditorConfirmOpen: boolean,
+    openPageTool: string,
+    status: {kind, message} | null,
+  },
   
   // Data
   settings: SettingsObject,

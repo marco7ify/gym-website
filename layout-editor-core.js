@@ -36,10 +36,18 @@
     }, {id});
   }
 
+  function splitFeet(value){
+    let ft=Math.floor(value);
+    let inch=Math.round((value-ft)*12);
+    if(inch===12){ ft+=1; inch=0; }
+    return {ft,inch};
+  }
+
   function centerPlacement(roomRect, footprint){
     const x = roomRect.x + Math.max(0, (roomRect.w-footprint.w)/2);
     const y = roomRect.y + Math.max(0, (roomRect.h-footprint.h)/2);
-    return {xFt:Math.floor(x), xIn:Math.round((x-Math.floor(x))*12), yFt:Math.floor(y), yIn:Math.round((y-Math.floor(y))*12)};
+    const sx=splitFeet(x), sy=splitFeet(y);
+    return {xFt:sx.ft, xIn:sx.inch, yFt:sy.ft, yIn:sy.inch};
   }
 
   function draftChanged(a,b){ return JSON.stringify(a||{}) !== JSON.stringify(b||{}); }
@@ -55,5 +63,12 @@
     };
   }
 
-  return {filterEquipment, selectionType, clonePlacement, centerPlacement, draftChanged, workspaceDefaults};
+  function toggleDrawer(state,which){
+    const next={libraryDrawerOpen:false,inspectorDrawerOpen:false};
+    if(which==="library") next.libraryDrawerOpen=!state.libraryDrawerOpen;
+    if(which==="inspector") next.inspectorDrawerOpen=!state.inspectorDrawerOpen;
+    return {...state,...next};
+  }
+
+  return {filterEquipment, selectionType, clonePlacement, centerPlacement, splitFeet, draftChanged, workspaceDefaults, toggleDrawer};
 });

@@ -21,6 +21,16 @@ test("selectionType returns the one active layout selection", () => {
   assert.equal(core.selectionType({}), "none");
 });
 
+test("selectionType routes every existing selection", () => {
+  const cases = [
+    ["selectedInstId","equipment"], ["selectedAreaId","area"],
+    ["selectedOutletId","outlet"], ["selectedWallExtId","wall-extension"],
+    ["selectedCeilingZoneId","ceiling-zone"], ["selectedFloorZoneId","floor-zone"],
+    ["selectedFlooringId","flooring"],
+  ];
+  for(const [key,type] of cases) assert.equal(core.selectionType({[key]:"id"}),type);
+});
+
 test("clonePlacement creates a new selected-ready instance without transient flags", () => {
   const source = {id:"i1", itemId:"a", xFt:3, xIn:0, yFt:4, yIn:0, rotated:true, __invalid:true};
   assert.deepEqual(core.clonePlacement(source, "i2"), {
@@ -28,11 +38,22 @@ test("clonePlacement creates a new selected-ready instance without transient fla
   });
 });
 
+test("clonePlacement deep-copies clearance sides", () => {
+  const source={id:"i1",itemId:"a",xFt:1,yFt:2,deadspaceSides:["front"]};
+  const copy=core.clonePlacement(source,"i2");
+  copy.deadspaceSides.push("left");
+  assert.deepEqual(source.deadspaceSides,["front"]);
+});
+
 test("centerPlacement centers the measured footprint in a room rectangle", () => {
   assert.deepEqual(
     core.centerPlacement({x:0,y:0,w:20,h:16}, {w:4,h:6}),
     {xFt:8, xIn:0, yFt:5, yIn:0}
   );
+});
+
+test("centerPlacement normalizes twelve inches into the next foot", () => {
+  assert.deepEqual(core.centerPlacement({x:0,y:0,w:9.99,h:9.99},{w:2,h:2}), {xFt:4,xIn:0,yFt:4,yIn:0});
 });
 
 test("draftChanged compares normalized serializable values", () => {
@@ -49,6 +70,16 @@ test("workspaceDefaults contains only transient UI state", () => {
     returnFocusSelector:"", status:null,
     openPageTool:"layout", openAdvancedSection:"",
   });
+});
+
+test("toggleDrawer keeps compact drawers mutually exclusive", () => {
+  let state={libraryDrawerOpen:false,inspectorDrawerOpen:false};
+  state=core.toggleDrawer(state,"library");
+  assert.deepEqual(state,{libraryDrawerOpen:true,inspectorDrawerOpen:false});
+  state=core.toggleDrawer(state,"inspector");
+  assert.deepEqual(state,{libraryDrawerOpen:false,inspectorDrawerOpen:true});
+  state=core.toggleDrawer(state,"inspector");
+  assert.deepEqual(state,{libraryDrawerOpen:false,inspectorDrawerOpen:false});
 });
 
 test("filterEquipment supports no-brand and rack metadata filters", () => {
