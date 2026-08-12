@@ -22,14 +22,10 @@ try{
     "../wall-features.js?v=3",
     "../garage-doors.js?v=2",
     "../app.js?v=87",
-    "../walkthrough-editing.js?v=2",
-    "./garage-door-fixtures.js?v=2",
-    "../equipment-models.js?v=6",
     "../garage-door-3d.js?v=1",
     "../view3d.js?v=43",
-    "../layout.js?v=88",
-    "../events.js?v=84",
-    "./equipment-dispatch-3d.test.js?v=final-fix-v2",
+    "./garage-door-fixtures.js?v=2",
+    "./garage-door-3d.test.js?v=5",
   ]) await loadClassicScript(src);
   GymTests.finish();
 }catch(error){

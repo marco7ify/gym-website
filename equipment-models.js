@@ -3,14 +3,65 @@
 
   const BUILDERS=Object.create(null);
 
+  function addIntegratedFootRailRibs(view,mesh,size,ribCount,ribDepth){
+    if(mesh?.userData){
+      mesh.userData.ribCount=ribCount;
+      mesh.userData.ribDepth=ribDepth;
+    }
+    const THREE=globalThis.THREE;
+    if(!mesh?.geometry || !THREE?.BoxGeometry || typeof view.geometry!=="function") return mesh;
+    const depthSegments=ribCount*2;
+    const geometry=view.geometry(new THREE.BoxGeometry(size.x,size.y,size.z,1,1,depthSegments));
+    const position=geometry.attributes.position;
+    const top=size.y/2;
+    for(let index=0;index<position.count;index++){
+      if(Math.abs(position.getY(index)-top)>1e-9) continue;
+      const progress=(position.getZ(index)+size.z/2)/size.z;
+      const station=Math.round(progress*depthSegments);
+      if(station%2===1) position.setY(index,top-ribDepth);
+    }
+    position.needsUpdate=true;
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    const smooth=mesh.geometry;
+    mesh.geometry=geometry;
+    const index=view.disposables?.lastIndexOf?.(smooth) ?? -1;
+    if(index>=0) view.disposables.splice(index,1);
+    smooth.dispose?.();
+    return mesh;
+  }
+
   function createModelKit(view,group,inst,base,height){
     const w=Math.max(.4,base.w),d=Math.max(.4,base.h),h=Math.max(.45,height);
     const material=spec=>view.material(spec);
-    const addBox=(size,pos,mat,options={})=>view.box(group,size,pos,mat,{...options,instId:inst.id});
-    const addCylinder=(radius,length,pos,mat,options={})=>view.cylinder(group,radius,length,pos,mat,{...options,instId:inst.id});
-    const addBeam=(start,end,width,mat,depth=width,options={})=>view.beam(group,start,end,width,depth,mat,{...options,instId:inst.id});
-    const addTube=(start,end,radius,mat,segments=14,options={})=>view.tube(group,start,end,radius,mat,{...options,instId:inst.id,segments});
-    return {w,d,h,material,addBox,addCylinder,addBeam,addTube};
+    const sharedGeometries=new Map();
+    const shareGeometry=(mesh,key)=>{
+      if(!key || !mesh?.geometry) return mesh;
+      const shared=sharedGeometries.get(key);
+      if(!shared){ sharedGeometries.set(key,mesh.geometry); return mesh; }
+      const redundant=mesh.geometry;
+      mesh.geometry=shared;
+      const index=view.disposables?.lastIndexOf?.(redundant) ?? -1;
+      if(index>=0) view.disposables.splice(index,1);
+      redundant.dispose?.();
+      return mesh;
+    };
+    const addBox=(size,pos,mat,options={})=>shareGeometry(
+      view.box(group,size,pos,mat,{...options,instId:inst.id}),options.geometryKey
+    );
+    const addCylinder=(radius,length,pos,mat,options={})=>shareGeometry(
+      view.cylinder(group,radius,length,pos,mat,{...options,instId:inst.id}),options.geometryKey
+    );
+    const addBeam=(start,end,width,mat,depth=width,options={})=>shareGeometry(
+      view.beam(group,start,end,width,depth,mat,{...options,instId:inst.id}),options.geometryKey
+    );
+    const addTube=(start,end,radius,mat,segments=14,options={})=>shareGeometry(
+      view.tube(group,start,end,radius,mat,{...options,instId:inst.id,segments}),options.geometryKey
+    );
+    const addExtrudedPanel=(points,depth,pos,mat,options={})=>
+      shareGeometry(view.extrudedPanel(group,points,depth,pos,mat,{...options,instId:inst.id}),options.geometryKey);
+    return {w,d,h,material,addBox,addCylinder,addBeam,addTube,addExtrudedPanel};
   }
 
   function build(profile,view,group,inst,base,height){
@@ -53,105 +104,343 @@
   }
 
   function buildSyedeeStairMachineModel(view,group,inst,base,height){
-    const {w,d,h,material,addBox,addBeam,addTube}=createModelKit(view,group,inst,base,height);
+    const {w,d,h,material,addBox,addBeam,addTube,addExtrudedPanel}=createModelKit(view,group,inst,base,height);
     const powder=material({color:0x111417,roughness:.54,metalness:.42,envMapIntensity:.68});
     const shroud=material({color:0x20252a,roughness:.68,metalness:.24,envMapIntensity:.42});
+    const inset=material({color:0x090c0f,roughness:.82,metalness:.12,envMapIntensity:.2});
     const tread=material({color:0x090b0d,roughness:.88,metalness:.06,envMapIntensity:.18});
     const rail=material({color:0x080a0c,roughness:.48,metalness:.36,envMapIntensity:.52});
-    const warm=material({color:0xffe1aa,emissive:0xffc56b,emissiveIntensity:.8,roughness:.35,metalness:.04});
-    const amber=material({color:0xd96b24,emissive:0xa44513,emissiveIntensity:.48,roughness:.38,metalness:.18});
-    for(let i=0;i<8;i++){
-      addBox({x:w*.62,y:h*.035,z:d*.16},{x:0,y:h*(.12+i*.065),z:d*(.31-i*.075)},tread);
+    const screen=material({color:0x0b5367,emissive:0x16b7d4,emissiveIntensity:.72,roughness:.2,metalness:.1,depthWrite:false});
+    const white=material({color:0xf3fbff,emissive:0xdffaff,emissiveIntensity:1.4,roughness:.24,metalness:.02});
+    const orange=material({color:0xff6b22,emissive:0xff4b0c,emissiveIntensity:1.05,roughness:.32,metalness:.12});
+
+    // Open floor frame and low rear entry keep the staircase visibly suspended.
+    const baseRailHalf=w*.055/2;
+    [-1,1].forEach(sign=>addBeam(
+      {x:sign*w*.37,y:baseRailHalf,z:-d*.43},
+      {x:sign*w*.37,y:baseRailHalf,z:d*.43},
+      w*.055,powder,w*.055,
+      {partTag:"stair-base-rail",side:sign<0?"left":"right",geometryKey:"stair-base-rail"}
+    ));
+    const crossFootHalf=w*.05/2;
+    [-1,1].forEach((sign,index)=>addBeam(
+      {x:-w*.40,y:crossFootHalf,z:sign*d*.405},
+      {x:w*.40,y:crossFootHalf,z:sign*d*.405},
+      w*.05,powder,w*.05,
+      {partTag:"stair-cross-foot",partIndex:index,geometryKey:"stair-cross-foot"}
+    ));
+    addBox(
+      {x:w*.66,y:h*.13,z:d*.17},
+      {x:0,y:h*.065,z:d*.39},tread,
+      {partTag:"stair-entry-step",castShadow:false}
+    );
+
+    // One continuous rear-to-front cascade reads as moving stairs, not a plinth.
+    for(let index=0;index<8;index++){
+      const y=h*(.11+index*.062);
+      const z=d*(.34-index*.085);
+      addBox({x:w*.60,y:h*.018,z:d*.145},{x:0,y,z},tread,
+        {partTag:"stair-tread",partIndex:index,castShadow:false,geometryKey:"stair-tread"});
+      if(index<7) addBox({x:w*.60,y:h*.062,z:d*.018},{x:0,y:y+h*.031,z:z-d*.0715},tread,
+        {partTag:"stair-riser",partIndex:index,castShadow:false,geometryKey:"stair-riser"});
     }
+
+    const shellPoints=[
+      {x:d*.46,y:h*.035},{x:d*.46,y:h*.16},{x:d*.27,y:h*.18},
+      {x:-d*.27,y:h*.61},{x:-d*.43,y:h*.61},{x:-d*.43,y:h*.035},
+    ];
+    const insetPoints=[
+      {x:d*.405,y:h*.075},{x:d*.405,y:h*.14},{x:d*.235,y:h*.195},
+      {x:-d*.235,y:h*.555},{x:-d*.365,y:h*.555},{x:-d*.365,y:h*.075},
+    ];
     [-1,1].forEach(sign=>{
-      addBox({x:w*.13,y:h*.55,z:d*.42},{x:sign*w*.34,y:h*.37,z:d*.12},shroud,{rotationX:-.2});
-      addBeam({x:sign*w*.34,y:h*.09,z:d*.4},{x:sign*w*.34,y:h*.62,z:-d*.12},w*.075,shroud,d*.12);
-      addBeam({x:sign*w*.34,y:h*.62,z:-d*.12},{x:sign*w*.31,y:h*.8,z:-d*.2},w*.065,shroud,d*.1);
-      addBox({x:w*.14,y:h*.05,z:d*.22},{x:sign*w*.31,y:h*.04,z:d*.39},powder);
-      // Kinked mostly-black rails rather than chrome curves.
-      addTube({x:sign*w*.31,y:h*.23,z:d*.28},{x:sign*w*.37,y:h*.55,z:d*.04},w*.017,rail,12);
-      addTube({x:sign*w*.37,y:h*.55,z:d*.04},{x:sign*w*.33,y:h*.77,z:-d*.16},w*.018,rail,12);
-      addTube({x:sign*w*.33,y:h*.77,z:-d*.16},{x:sign*w*.25,y:h*.82,z:-d*.19},w*.018,rail,12);
+      const side=sign<0?"left":"right";
+      addExtrudedPanel(shellPoints,w*.08,{x:sign*w*.44,y:0,z:0},shroud,
+        {rotationY:-Math.PI/2,partTag:"stair-side-shroud",side,geometryKey:"stair-side-shroud"});
+      addExtrudedPanel(insetPoints,w*.09,{x:sign*w*.44,y:0,z:0},inset,
+        {rotationY:-Math.PI/2,partTag:"stair-shroud-inset",side,geometryKey:"stair-shroud-inset"});
+
+      const lightX=sign*w*.488;
+      const edgeSegments=[
+        [{x:lightX,y:h*.045,z:-d*.43},{x:lightX,y:h*.045,z:d*.41}],
+        [{x:lightX,y:h*.045,z:-d*.41},{x:lightX,y:h*.59,z:-d*.41}],
+        [{x:lightX,y:h*.19,z:d*.265},{x:lightX,y:h*.59,z:-d*.265}],
+      ];
+      edgeSegments.forEach(([start,end],partIndex)=>addBeam(
+        start,end,w*.012,white,w*.012,
+        {partTag:"stair-white-edge-light",side,partIndex,castShadow:false,receiveShadow:false,geometryKey:`stair-white-edge-light-${partIndex}`}
+      ));
+      addBeam(
+        {x:lightX,y:h*.475,z:-d*.10},
+        {x:lightX,y:h*.595,z:-d*.25},
+        w*.01,orange,w*.01,
+        {partTag:"stair-orange-accent",side,partIndex:0,castShadow:false,receiveShadow:false,geometryKey:"stair-orange-accent"}
+      );
     });
-    addBox({x:w*.16,y:h*.64,z:d*.13},{x:0,y:h*.48,z:-d*.16},powder);
-    addBox({x:w*.68,y:h*.09,z:d*.1},{x:0,y:h*.83,z:-d*.19},shroud);
-    addBox({x:w*.66,y:h*.18,z:d*.035},{x:0,y:h*.84,z:-d*.245},tread,{castShadow:false});
-    addBox({x:w*.05,y:h*.34,z:d*.04},{x:0,y:h*.69,z:-d*.15},powder);
-    addBox({x:w*.04,y:h*.39,z:d*.025},{x:-w*.31,y:h*.5,z:d*.075},warm,{castShadow:false,receiveShadow:false});
-    addBox({x:w*.04,y:h*.35,z:d*.025},{x:w*.31,y:h*.47,z:d*.03},warm,{castShadow:false,receiveShadow:false});
-    addBox({x:w*.56,y:h*.02,z:d*.025},{x:0,y:h*.17,z:d*.35},warm,{castShadow:false,receiveShadow:false});
-    addBox({x:w*.035,y:h*.31,z:d*.028},{x:-w*.36,y:h*.41,z:d*.05},amber,{castShadow:false,receiveShadow:false});
-    addBeam({x:-w*.3,y:h*.12,z:d*.38},{x:w*.3,y:h*.12,z:d*.38},w*.05,powder,d*.05);
-    addBox({x:w*.52,y:h*.12,z:d*.2},{x:0,y:h*.15,z:d*.27},shroud);
+
+    // A narrow center mast supports a tilted dark back shell with the cyan face
+    // fully forward, so the housing keeps an X/Y bezel without occluding it.
+    const consoleTilt=-Math.PI/30;
+    addBox({x:w*.13,y:h*.59,z:d*.065},{x:0,y:h*.465,z:-d*.29},powder,
+      {partTag:"stair-console-mast"});
+    addBox({x:w*.70,y:h*.20,z:d*.04},{x:0,y:h*.86,z:-d*.41},shroud,
+      {rotationX:consoleTilt,partTag:"stair-console-housing"});
+    addBox({x:w*.60,y:h*.135,z:d*.012},{x:0,y:h*.86,z:-d*.4364},screen,
+      {rotationX:consoleTilt,partTag:"stair-console-screen",castShadow:false,receiveShadow:false});
+
+    const railPath=[
+      {x:.30*w,y:.22*h,z:.34*d},
+      {x:.39*w,y:.55*h,z:.05*d},
+      {x:.36*w,y:.76*h,z:-.22*d},
+      {x:.27*w,y:.79*h,z:-.35*d},
+    ];
+    [-1,1].forEach(sign=>{
+      const side=sign<0?"left":"right";
+      const points=railPath.map(point=>({...point,x:sign*point.x}));
+      for(let partIndex=0;partIndex<3;partIndex++) addTube(
+        points[partIndex],points[partIndex+1],w*.022,rail,12,
+        {partTag:"stair-handrail",side,partIndex,geometryKey:`stair-handrail-${partIndex}`}
+      );
+      addTube(points[3],{x:sign*w*.22,y:h*.79,z:-d*.43},w*.022,rail,12,
+        {partTag:"stair-handrail",side,partIndex:3,geometryKey:"stair-handrail-3"});
+    });
     return "photo-matched syedee Stair Machine";
   }
 
   function buildNordicTrackX16Model(view,group,inst,base,height){
     const {w,d,h,material,addBox,addCylinder,addBeam,addTube}=createModelKit(view,group,inst,base,height);
-    const frame=material({color:0x12161a,roughness:.48,metalness:.42,envMapIntensity:.72});
-    const belt=material({color:0x050708,roughness:.92,metalness:.02,envMapIntensity:.12});
-    const cushion=material({color:0x252b30,roughness:.62,metalness:.2,envMapIntensity:.4});
-    const chrome=material({color:0xaebbc3,roughness:.2,metalness:.9,envMapIntensity:1.1});
-    const screen=material({color:0x0b5367,emissive:0x0b8da7,emissiveIntensity:.32,roughness:.24,metalness:.16,depthWrite:false});
-    const deckRotation=-.13;
-    // Distinct deck layers sit on the same modest incline, so the belt reads as separate.
-    addBox({x:w*.72,y:h*.06,z:d*.68},{x:0,y:h*.2,z:d*.04},frame,{rotationX:deckRotation});
-    addBox({x:w*.61,y:h*.025,z:d*.64},{x:0,y:h*.245,z:d*.02},belt,{rotationX:deckRotation});
-    [-1,1].forEach(sign=>addBox({x:w*.06,y:h*.04,z:d*.67},{x:sign*w*.335,y:h*.25,z:d*.02},cushion,{rotationX:deckRotation}));
-    addBox({x:w*.76,y:h*.2,z:d*.18},{x:0,y:h*.31,z:-d*.3},frame,{rotationX:deckRotation});
-    addBox({x:w*.67,y:h*.09,z:d*.1},{x:0,y:h*.39,z:-d*.34},cushion,{rotationX:deckRotation});
-    addCylinder(w*.034,w*.61,{x:0,y:h*.17,z:d*.34},chrome,{rotationZ:Math.PI/2,segments:16,signature:"x16-rear-roller"});
-    addBeam({x:-w*.34,y:h*.12,z:d*.34},{x:w*.34,y:h*.12,z:d*.34},w*.045,frame,d*.04);
+    const frame=material({color:0x0c0f12,roughness:.58,metalness:.34,envMapIntensity:.55});
+    const graphite=material({color:0x242a2f,roughness:.7,metalness:.18,envMapIntensity:.34});
+    const rubber=material({color:0x050708,roughness:.94,metalness:.01,envMapIntensity:.08});
+    const screen=material({color:0x0b5367,emissive:0x0b8da7,emissiveIntensity:.34,roughness:.24,metalness:.12,depthWrite:false});
+    const red=material({color:0xb91c1c,roughness:.44,metalness:.2,envMapIntensity:.4});
+    const hardware=material({color:0x5d666c,roughness:.46,metalness:.5,envMapIntensity:.62});
+    const incline=globalThis.THREE?.MathUtils?.degToRad?.(6) ?? Math.PI/30;
+    const beltWidth=22/12,beltLength=60/12,rearTop=13.66/12;
+    const beltThickness=.018;
+    const deltaY=Math.sin(incline)*beltLength;
+    const beltCenterY=rearTop+deltaY/2-beltThickness/2;
+
+    // The measured walking surface rises toward the local -Z console end.
+    addBox(
+      {x:beltWidth,y:beltThickness,z:beltLength},
+      {x:0,y:beltCenterY,z:.03},rubber,
+      {rotationX:incline,partTag:"x16-belt",castShadow:false}
+    );
+    const deckLength=64.5/12,deckThickness=.12;
+    const deckCenterY=rearTop-.055+Math.sin(incline)*deckLength/2-deckThickness/2;
+    addBox(
+      {x:31.5/12,y:deckThickness,z:deckLength},
+      {x:0,y:deckCenterY,z:0},graphite,
+      {rotationX:incline,partTag:"x16-deck-shell"}
+    );
+    const footRailLength=61.5/12,footRailWidth=3.4/12,footRailThickness=.055;
+    const footRailCenterY=rearTop+.045+Math.sin(incline)*footRailLength/2-footRailThickness/2;
+    const footRailSize={x:footRailWidth,y:footRailThickness,z:footRailLength};
     [-1,1].forEach(sign=>{
-      addBeam({x:sign*w*.31,y:h*.13,z:d*.24},{x:sign*w*.31,y:h*.58,z:-d*.12},w*.035,frame,d*.03);
-      addTube({x:sign*w*.3,y:h*.34,z:d*.16},{x:sign*w*.38,y:h*.62,z:-d*.08},w*.016,chrome,14);
-      addTube({x:sign*w*.38,y:h*.62,z:-d*.08},{x:sign*w*.32,y:h*.77,z:-d*.19},w*.016,chrome,14);
-      addTube({x:sign*w*.32,y:h*.77,z:-d*.19},{x:sign*w*.2,y:h*.79,z:-d*.21},w*.016,chrome,14);
+      const rail=addBox(
+        footRailSize,
+        {x:sign*(beltWidth+footRailWidth)/2,y:footRailCenterY,z:.03},graphite,
+        {
+          rotationX:incline,partTag:"x16-foot-rail",side:sign<0?"left":"right",castShadow:false,
+          ribCount:8,ribDepth:.012,
+        }
+      );
+      addIntegratedFootRailRibs(view,rail,footRailSize,8,.012);
     });
-    addBox({x:w*.08,y:h*.44,z:d*.07},{x:0,y:h*.66,z:-d*.18},frame);
-    addCylinder(w*.05,h*.07,{x:0,y:h*.78,z:-d*.21},chrome,{rotationZ:Math.PI/2,segments:16});
-    // A 16-inch diagonal 16:9 screen is about 13.9 by 7.8 inches: intentionally modest.
-    addBox({x:Math.min(w*.365,1.16),y:Math.min(h*.106,.66),z:d*.045},{x:0,y:h*.87,z:-d*.23},screen,{castShadow:false,receiveShadow:false});
-    addBox({x:Math.min(w*.395,1.25),y:Math.min(h*.126,.77),z:d*.06},{x:0,y:h*.87,z:-d*.205},frame,{castShadow:false});
-    addBox({x:w*.18,y:h*.05,z:d*.12},{x:0,y:h*.08,z:d*.31},cushion);
-    addBeam({x:-w*.27,y:h*.1,z:d*.2},{x:w*.27,y:h*.1,z:d*.2},w*.04,frame,d*.035);
+
+    const rollerRadius=2.75/24,rollerLength=22.5/12;
+    const beltTopAt=z=>beltCenterY-Math.sin(incline)*(z-.03)+Math.cos(incline)*beltThickness/2;
+    const frontRollerZ=.03-beltLength/2,rearRollerZ=.03+beltLength/2;
+    addCylinder(rollerRadius,rollerLength,{x:0,y:beltTopAt(frontRollerZ)-rollerRadius,z:frontRollerZ},hardware,{
+      rotationZ:Math.PI/2,segments:16,partTag:"x16-front-roller",castShadow:false,
+    });
+    addCylinder(rollerRadius,rollerLength,{x:0,y:beltTopAt(rearRollerZ)-rollerRadius,z:rearRollerZ},hardware,{
+      rotationZ:Math.PI/2,segments:16,signature:"x16-rear-roller",partTag:"x16-rear-roller",castShadow:false,
+    });
+
+    // Open grounded chassis, transverse ties, four contacts, and one central lift linkage.
+    const baseWidth=.12,baseRadius=Math.hypot(baseWidth,baseWidth)/2;
+    [-1,1].forEach(sign=>addBeam(
+      {x:sign*1.36,y:baseRadius,z:-d/2+baseRadius},
+      {x:sign*1.36,y:baseRadius,z:d/2-baseRadius},
+      baseWidth,frame,baseWidth,{partTag:"x16-base-rail",side:sign<0?"left":"right"}
+    ));
+    [-1,1].forEach((sign,index)=>addBeam(
+      {x:-w/2+baseRadius,y:baseRadius,z:sign*2.68},
+      {x:w/2-baseRadius,y:baseRadius,z:sign*2.68},
+      baseWidth,frame,baseWidth,{partTag:"x16-crossmember",partIndex:index}
+    ));
+    [-1,1].forEach(sign=>[-1,1].forEach((endSign,index)=>addCylinder(
+      .085,.07,
+      {x:sign*(w/2-.085),y:.035,z:endSign*(d/2-.085)},hardware,
+      {segments:12,partTag:"x16-leveling-foot",side:sign<0?"left":"right",partIndex:index}
+    )));
+    addBeam(
+      {x:0,y:.1,z:-2.55},{x:0,y:.95,z:-1.95},
+      .1,hardware,.1,{partTag:"x16-lift-actuator",partIndex:0}
+    );
+
+    // Three low planes read as the X16's faceted front motor hood.
+    addBox({x:2,y:.24,z:.52},{x:0,y:1.72,z:-2.38},graphite,{partTag:"x16-motor-hood",side:"center",partIndex:0});
+    [-1,1].forEach((sign,index)=>addBox(
+      {x:.22,y:.18,z:.5},{x:sign*1.1,y:1.72,z:-2.38},graphite,
+      {rotationZ:-sign*.22,partTag:"x16-motor-hood",side:sign<0?"left":"right",partIndex:index+1}
+    ));
+
+    [-1,1].forEach(sign=>addBeam(
+      {x:sign*1.1,y:.42,z:-2.37},{x:sign*1.02,y:4.62,z:-1.56},
+      .16,frame,.2,{partTag:"x16-incline-upright",side:sign<0?"left":"right"}
+    ));
+    addBeam(
+      {x:0,y:4.62,z:-1.56},{x:0,y:5.08,z:-1.78},
+      .15,frame,.18,{partTag:"x16-pivot-neck"}
+    );
+    addBox({x:32/12,y:.32,z:.26},{x:0,y:5.12,z:-1.86},graphite,{partTag:"x16-console-shell"});
+    addBox({x:2.2,y:.12,z:.08},{x:0,y:5.3,z:-2.04},hardware,{partTag:"x16-console-controls",castShadow:false});
+    addCylinder(.055,.06,{x:.78,y:5.3,z:-2.12},red,{
+      rotationX:Math.PI/2,segments:12,partTag:"x16-stop-key",castShadow:false,
+    });
+    addBox({x:15/12,y:9/12,z:.11},{x:0,y:5.62,z:-1.99},frame,{partTag:"x16-display-bezel",castShadow:false});
+    addBox({x:13.9/12,y:7.8/12,z:.07},{x:0,y:5.62,z:-2.085},screen,{
+      partTag:"x16-display-panel",castShadow:false,receiveShadow:false,
+    });
+
+    // Three connected molded handle segments on each side reach the measured top silhouette.
+    [-1,1].forEach(sign=>{
+      const side=sign<0?"left":"right";
+      const points=[
+        {x:sign*1.16,y:3.25,z:-.95},
+        {x:sign*1.4,y:4.25,z:-1.25},
+        {x:sign*1.38,y:5.4,z:-1.53},
+        {x:sign*.92,y:5.98,z:-1.9},
+      ];
+      for(let index=0;index<3;index++) addTube(
+        points[index],points[index+1],.07,frame,12,
+        {partTag:"x16-handrail",side,partIndex:index}
+      );
+    });
     return "photo-matched NordicTrack X16";
   }
 
   function buildRitfitGatorBenchModel(view,group,inst,base,height){
-    const {w,d,h,material,addBox,addCylinder,addBeam,addTube}=createModelKit(view,group,inst,base,height);
-    const frame=material({color:0x111519,roughness:.48,metalness:.46,envMapIntensity:.72});
-    const pad=material({color:0x080a0c,roughness:.92,metalness:.01,envMapIntensity:.1});
-    const silver=material({color:0xc5ccd0,roughness:.2,metalness:.94,envMapIntensity:1.2});
-    const foam=material({color:0x050607,roughness:.96,metalness:0,envMapIntensity:.06});
-    // Open feet and triangular spine leave the floor visibly open beneath the pads.
-    [-1,1].forEach(sign=>{
-      addBeam({x:sign*w*.39,y:h*.06,z:-d*.36},{x:sign*w*.39,y:h*.06,z:d*.34},w*.05,frame,d*.035);
-      addBeam({x:sign*w*.39,y:h*.06,z:d*.34},{x:sign*w*.46,y:h*.06,z:d*.39},w*.042,frame,d*.03);
-      addBeam({x:sign*w*.39,y:h*.06,z:-d*.36},{x:sign*w*.46,y:h*.06,z:-d*.4},w*.042,frame,d*.03);
+    const kit=createModelKit(view,group,inst,base,height);
+    const {w,d,h,material,addBox,addCylinder,addBeam,addTube}=kit;
+    const frame=material({color:0x101316,roughness:.56,metalness:.4,envMapIntensity:.68});
+    const pad=material({color:0x07090b,roughness:.91,metalness:.01,envMapIntensity:.1});
+    const silver=material({color:0xbfc6ca,roughness:.24,metalness:.9,envMapIntensity:1.15});
+    const rubber=material({color:0x040506,roughness:.96,metalness:0,envMapIntensity:.05});
+    const padAngle=-.55;
+    const padThickness=2.7/12;
+    const padLengths={seat:12.6/12,back:25.9/12,head:9/12};
+    const seatBackGap=2/12;
+    const padTrainLength=padLengths.seat+seatBackGap+padLengths.back+padLengths.head;
+    const padTrainStartZ=-Math.cos(padAngle)*padTrainLength/2;
+    const padTrainBaseY=h*.28;
+    const padPose=(offset,length)=>{
+      const center=offset+length/2;
+      return {
+        x:0,
+        y:padTrainBaseY-Math.sin(padAngle)*center,
+        z:padTrainStartZ+Math.cos(padAngle)*center,
+      };
+    };
+    const seatPose=padPose(0,padLengths.seat);
+    const backPose=padPose(padLengths.seat+seatBackGap,padLengths.back);
+    const headPose=padPose(padLengths.seat+seatBackGap+padLengths.back,padLengths.head);
+    const padUnderside=pose=>({
+      x:0,
+      y:pose.y-Math.cos(padAngle)*padThickness/2,
+      z:pose.z-Math.sin(padAngle)*padThickness/2,
     });
-    addBeam({x:0,y:h*.12,z:d*.32},{x:0,y:h*.48,z:d*.04},w*.055,frame,d*.045);
-    addBeam({x:0,y:h*.48,z:d*.04},{x:0,y:h*.74,z:-d*.25},w*.055,frame,d*.045);
-    addBeam({x:-w*.34,y:h*.12,z:d*.32},{x:w*.34,y:h*.12,z:d*.32},w*.045,frame,d*.035);
-    addBeam({x:-w*.28,y:h*.14,z:-d*.31},{x:w*.28,y:h*.14,z:-d*.31},w*.045,frame,d*.035);
-    addBox({x:w*.44,y:h*.12,z:d*.26},{x:0,y:h*.42,z:d*.16},pad,{rotationX:-.12});
-    addBox({x:w*.52,y:h*.14,z:d*.43},{x:0,y:h*.62,z:-d*.08},pad,{rotationX:-.48});
-    addBox({x:w*.4,y:h*.11,z:d*.19},{x:0,y:h*.79,z:-d*.29},pad,{rotationX:-.48});
-    // Seven individual rungs make the silver adjustment ladder explicit.
-    [-1,1].forEach(sign=>addBeam({x:sign*w*.17,y:h*.19,z:d*.26},{x:sign*w*.17,y:h*.56,z:d*.08},w*.025,silver,d*.025));
-    for(let rung=0;rung<7;rung++){
-      const t=rung/6;
-      addBeam({x:-w*.17,y:h*(.19+t*.37),z:d*(.26-t*.18)},{x:w*.17,y:h*(.19+t*.37),z:d*(.26-t*.18)},w*.018,silver,d*.018);
+    const seatUnder=padUnderside(seatPose);
+    const backUnder=padUnderside(backPose);
+    const headUnder=padUnderside(headPose);
+
+    addBox({x:w*.92,y:h*.045,z:d*.07},{x:0,y:h*.025,z:d*.39},frame,{partTag:"gator-rear-stabilizer"});
+    addBox({x:w*.72,y:h*.045,z:d*.07},{x:0,y:h*.025,z:-d*.39},frame,{partTag:"gator-front-stabilizer"});
+    addBeam({x:0,y:h*.1,z:d*.36},{x:0,y:h*.27,z:seatUnder.z+d*.08},w*.09,frame,w*.065,{partTag:"gator-main-spine"});
+    [-1,1].forEach((side,index)=>{
+      addCylinder(w*.045,w*.075,{x:side*w*.29,y:w*.045,z:d*.36},rubber,{rotationZ:Math.PI/2,partTag:"gator-transport-wheel",side:side<0?"left":"right",partIndex:index,geometryKey:"gator-wheel"});
+      addBox({x:w*.13,y:h*.025,z:d*.08},{x:side*w*.38,y:h*.015,z:-d*.39},rubber,{partTag:"gator-foot-pad",side:side<0?"left":"right",geometryKey:"gator-foot-pad"});
+    });
+    addTube({x:-w*.16,y:h*.09,z:d*.43},{x:w*.16,y:h*.09,z:d*.43},w*.022,rubber,12,{partTag:"gator-lifting-handle"});
+
+    addBox({x:11.8/12,y:padThickness,z:padLengths.seat},seatPose,pad,{rotationX:padAngle,partTag:"gator-seat-pad"});
+    addBox({x:11.8/12,y:padThickness,z:padLengths.back},backPose,pad,{rotationX:padAngle,partTag:"gator-back-pad"});
+    addBox({x:11.8/12,y:padThickness,z:padLengths.head},headPose,pad,{rotationX:padAngle,partTag:"gator-head-pad"});
+    addBeam({x:0,y:h*.11,z:seatUnder.z+d*.08},seatUnder,w*.055,frame,w*.05,{partTag:"gator-seat-support"});
+    addBeam({x:0,y:h*.19,z:backUnder.z+d*.1},backUnder,w*.06,frame,w*.05,{partTag:"gator-back-support"});
+    addBeam({x:0,y:backUnder.y-h*.1,z:backUnder.z+d*.04},headUnder,w*.05,frame,w*.045,{partTag:"gator-head-support"});
+
+    addBox({x:w*.52,y:h*.05,z:d*.42},{x:0,y:backUnder.y-h*.2,z:backUnder.z+d*.03},silver,{rotationX:padAngle,partTag:"gator-angle-plate"});
+    for(let index=0;index<10;index++){
+      const t=index/9;
+      addBox({x:w*.035,y:h*.018,z:d*.025},{x:0,y:h*(.20+t*.18),z:d*(.20-t*.34)},rubber,{partTag:"gator-angle-station",partIndex:index,geometryKey:"gator-station",castShadow:false});
     }
-    // The roller bar and foam pair live at the elevated head/back end, not by the front feet.
-    addCylinder(w*.025,w*.72,{x:0,y:h*.77,z:-d*.31},silver,{rotationZ:Math.PI/2,segments:16});
-    [-1,1].forEach(sign=>{
-      addCylinder(h*.075,w*.12,{x:sign*w*.3,y:h*.77,z:-d*.31},foam,{rotationZ:Math.PI/2,segments:16,signature:"gator-elevated-foam-roller"});
-      addCylinder(h*.075,w*.12,{x:sign*w*.3,y:h*.68,z:-d*.25},foam,{rotationZ:Math.PI/2,segments:16,signature:"gator-elevated-foam-roller"});
-      addTube({x:sign*w*.28,y:h*.68,z:-d*.25},{x:sign*w*.28,y:h*.77,z:-d*.31},w*.014,frame,12);
+    addCylinder(w*.025,w*.38,{x:0,y:h*.31,z:d*.04},silver,{rotationZ:Math.PI/2,partTag:"gator-lock-pin"});
+    [h*.68,h*.77].forEach((y,barIndex)=>{
+      const z=-d*(.25+barIndex*.06);
+      addCylinder(w*.022,w*.78,{x:0,y,z},silver,{rotationZ:Math.PI/2,partTag:"gator-roller-crossbar",partIndex:barIndex,geometryKey:"gator-crossbar"});
+      [-1,1].forEach((side,index)=>addCylinder(h*.075,8.7/12,{x:side*w*.3,y,z},rubber,{rotationZ:Math.PI/2,partTag:"gator-foam-roller",side:side<0?"left":"right",partIndex:barIndex*2+index,geometryKey:"gator-roller"}));
     });
-    addBeam({x:-w*.2,y:h*.48,z:d*.04},{x:w*.2,y:h*.48,z:d*.04},w*.04,frame,d*.035);
+    addBeam({x:0,y:h*.08,z:-d*.4},{x:0,y:h*.23,z:-d*.33},w*.055,frame,w*.05,{partTag:"gator-front-brace"});
     return "photo-matched RitFit GATOR bench";
+  }
+
+  function buildRogueEchoRowerModel(view,group,inst,base,height){
+    const {w,d,h,material,addBox,addCylinder,addBeam,addTube}=createModelKit(view,group,inst,base,height);
+    const aluminum=material({color:0x171b1f,roughness:.48,metalness:.62,envMapIntensity:.85});
+    const black=material({color:0x06080a,roughness:.83,metalness:.12,envMapIntensity:.24});
+    const rubber=material({color:0x030405,roughness:.96,metalness:0,envMapIntensity:.05});
+    const nickel=material({color:0xbec7cc,roughness:.2,metalness:.94,envMapIntensity:1.2});
+    const screen=material({color:0x0b5367,emissive:0x16a6bd,emissiveIntensity:.55,roughness:.22,metalness:.08});
+
+    addBeam({x:0,y:h*.055,z:d*.44},{x:0,y:h*.22,z:-d*.27},w*.07,aluminum,w*.06,{partTag:"echo-main-frame"});
+    addBox({x:w*.22,y:h*.08,z:d*.7},{x:0,y:h*.16,z:d*.12},aluminum,{partTag:"echo-slide-rail"});
+    addBox({x:w*.055,y:h*.025,z:d*.66},{x:0,y:h*.205,z:d*.14},black,{partTag:"echo-rail-channel",castShadow:false});
+    const stabilizerHeight=h*.05;
+    addBox({x:w*.64,y:stabilizerHeight,z:d*.055},{x:0,y:stabilizerHeight/2,z:d*.46},aluminum,{partTag:"echo-rear-foot"});
+    addBox({x:w*.42,y:h*.065,z:d*.12},{x:0,y:16/12-h*.032,z:d*.18},black,{partTag:"echo-seat"});
+    [-1,1].forEach((side,index)=>addCylinder(w*.035,w*.16,{x:side*w*.12,y:16/12-h*.10,z:d*.18},rubber,{rotationZ:Math.PI/2,partTag:"echo-seat-roller",side:side<0?"left":"right",partIndex:index,geometryKey:"echo-seat-roller"}));
+    addBox({x:w*.28,y:h*.05,z:d*.025},{x:0,y:h*.22,z:d*.42},rubber,{partTag:"echo-rail-stop"});
+
+    const fanY=h*.35,fanZ=-d*.34;
+    const fanFaceOffset=w*(.035+.065/2);
+    [-1,1].forEach((side,index)=>{
+      const sideName=side<0?"left":"right";
+      const faceX=side*fanFaceOffset;
+      addCylinder(w*.36,w*.065,{x:side*w*.035,y:fanY,z:fanZ},black,{rotationZ:Math.PI/2,segments:28,partTag:"echo-fan-housing",side:sideName,partIndex:index,geometryKey:"echo-fan-shell"});
+      for(let partIndex=0;partIndex<12;partIndex++){
+        const angle=partIndex*Math.PI/6;
+        addBeam({x:faceX,y:fanY,z:fanZ},{x:faceX,y:fanY+Math.cos(angle)*w*.27,z:fanZ+Math.sin(angle)*w*.27},w*.012,nickel,w*.012,{partTag:"echo-fan-spoke",side:sideName,partIndex,geometryKey:"echo-fan-spoke",castShadow:false});
+      }
+      for(let partIndex=0;partIndex<6;partIndex++){
+        const angle=partIndex*Math.PI/3;
+        const next=angle+Math.PI/3;
+        addBeam({x:faceX,y:fanY+Math.cos(angle)*w*.315,z:fanZ+Math.sin(angle)*w*.315},{x:faceX,y:fanY+Math.cos(next)*w*.315,z:fanZ+Math.sin(next)*w*.315},w*.012,nickel,w*.012,{partTag:"echo-fan-grille",side:sideName,partIndex,geometryKey:"echo-fan-grille",castShadow:false});
+      }
+    });
+    addCylinder(w*.055,w*.11,{x:0,y:h*.35,z:-d*.34},nickel,{rotationZ:Math.PI/2,segments:16,partTag:"echo-damper"});
+    addBox({x:w*.82,y:stabilizerHeight,z:d*.055},{x:0,y:stabilizerHeight/2,z:-d*.39},aluminum,{partTag:"echo-front-foot"});
+    [-1,1].forEach((side,index)=>{
+      const sideName=side<0?"left":"right";
+      addCylinder(w*.055,w*.08,{x:side*w*.31,y:w*.055,z:-d*.39},rubber,{rotationZ:Math.PI/2,partTag:"echo-transport-wheel",side:sideName,partIndex:index,geometryKey:"echo-wheel"});
+      addCylinder(w*.085,w*.08,{x:side*w*.41,y:w*.085,z:-d*.34},rubber,{rotationZ:Math.PI/2,partTag:"echo-turf-tire",side:sideName,partIndex:index,geometryKey:"echo-tire"});
+      addBox({x:w*.26,y:h*.055,z:d*.12},{x:side*w*.17,y:h*.22,z:-d*.18},black,{rotationX:-.42,partTag:"echo-footplate",side:sideName,partIndex:index,geometryKey:"echo-footplate"});
+      addBox({x:w*.2,y:h*.025,z:d*.035},{x:side*w*.17,y:h*.245,z:-d*.18},rubber,{rotationX:-.42,partTag:"echo-foot-strap",side:sideName,partIndex:index,geometryKey:"echo-strap",castShadow:false});
+      addBox({x:w*.2,y:h*.065,z:d*.025},{x:side*w*.17,y:h*.27,z:-d*.12},rubber,{rotationX:-.42,partTag:"echo-heel-cup",side:sideName,partIndex:index,geometryKey:"echo-heel-cup"});
+    });
+    addTube({x:0,y:h*.35,z:-d*.29},{x:0,y:h*.42,z:-d*.08},w*.009,nickel,10,{partTag:"echo-chain",castShadow:false});
+    addCylinder(w*.022,w*.55,{x:0,y:h*.43,z:-d*.06},black,{rotationZ:Math.PI/2,partTag:"echo-rowing-handle"});
+    addBox({x:w*.2,y:h*.035,z:d*.04},{x:0,y:h*.39,z:-d*.14},black,{partTag:"echo-handle-rest"});
+    addCylinder(w*.04,w*.42,{x:0,y:h*.2,z:-d*.06},aluminum,{rotationZ:Math.PI/2,partTag:"echo-fold-hinge"});
+    addBox({x:w*.12,y:h*.055,z:d*.04},{x:0,y:h*.25,z:-d*.01},black,{partTag:"echo-fold-latch"});
+    [-1,1].forEach((side,index)=>addBeam({x:side*w*.12,y:h*.39,z:-d*.25},{x:side*w*.12,y:h*.78,z:-d*.15},w*.025,aluminum,w*.025,{partTag:"echo-monitor-mast",side:side<0?"left":"right",partIndex:index,geometryKey:"echo-monitor-mast"}));
+    addBox({x:w*.4,y:h*.17,z:d*.045},{x:0,y:h*.82,z:-d*.14},black,{rotationX:-.1,partTag:"echo-console-shell"});
+    addBox({x:3.9/12,y:2.6/12,z:d*.014},{x:0,y:h*.83,z:-d*.17},screen,{rotationX:-.1,partTag:"echo-console-screen",castShadow:false});
+    addBox({x:3.45/12,y:h*.025,z:d*.07},{x:0,y:h*.93,z:-d*.11},black,{partTag:"echo-phone-holder"});
+    return "photo-matched Rogue Echo Rower";
   }
 
   function buildBrightwayHS08RowModel(view,group,inst,base,height){
@@ -308,6 +597,7 @@
   BUILDERS["syedee-stair-machine"]=buildSyedeeStairMachineModel;
   BUILDERS["nordictrack-x16"]=buildNordicTrackX16Model;
   BUILDERS["ritfit-gator-bench"]=buildRitfitGatorBenchModel;
+  BUILDERS["rogue-echo-rower"]=buildRogueEchoRowerModel;
   BUILDERS["brightway-hs08-row"]=buildBrightwayHS08RowModel;
   BUILDERS["shizhuo-seated-standing-row"]=buildShizhuoSeatedStandingRowModel;
   BUILDERS["wanjia-combo-adductor"]=buildWanjiaComboAdductorModel;

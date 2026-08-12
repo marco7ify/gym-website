@@ -623,6 +623,16 @@
       stroke-width: 0.08;
     }
 
+    .garageDoorArea:focus-visible { outline: none; }
+    .garageDoorArea:focus-visible .areaGarage,
+    .garageDoorSelected .areaGarage { stroke: #2563eb; stroke-width: 0.14; }
+    .garageDoorInvalid .areaGarage { stroke: #dc2626; stroke-width: 0.12; stroke-dasharray: 0.2 0.1; }
+    .garageOpeningLine { stroke: #92400e; stroke-width: 0.16; stroke-linecap: square; pointer-events: none; }
+    .garageSectionLine { stroke: rgba(146, 64, 14, 0.78); stroke-width: 0.055; pointer-events: none; }
+    .garageBayLine { stroke: rgba(180, 83, 9, 0.62); stroke-width: 0.04; stroke-dasharray: 0.12 0.07; pointer-events: none; }
+    .garagePanelFace { fill: rgba(245, 158, 11, 0.06); stroke: none; pointer-events: none; }
+    .garageDoorWarning { margin-top: 10px; padding: 9px 10px; border: 1px solid #fca5a5; border-radius: 8px; background: #fef2f2; color: #991b1b; font-size: 12px; line-height: 1.4; }
+
     .areaCut {
       fill: rgba(0, 0, 0, 0.08);
       stroke: rgba(0, 0, 0, 0.3);
@@ -2515,6 +2525,13 @@
       grid-template-rows: 74px minmax(0, 1fr);
       background: #0b1119;
       color: #fff;
+      width: 100vw;
+      height: 100vh;
+      max-width: none;
+      max-height: none;
+      margin: 0;
+      padding: 0;
+      border: 0;
     }
 
     .walkthroughHeader {
@@ -2525,6 +2542,49 @@
       padding: 0 22px;
       border-bottom: 1px solid #2d3846;
       background: #111923;
+    }
+
+    .walkthroughHeader button,
+    .walkthroughEditPanel button,
+    .walkthroughEditPanel input,
+    .walkthroughEditPanel select {
+      min-width: 44px;
+      min-height: 44px;
+    }
+
+    .walkthroughModeSwitch {
+      display: grid;
+      grid-template-columns: repeat(2,minmax(72px,1fr));
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid #435063;
+      border-radius: 10px;
+      background: #0b121b;
+    }
+
+    .walkthroughModeSwitch button {
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: #aeb8c5;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 850;
+      cursor: pointer;
+    }
+
+    .walkthroughModeSwitch button[aria-checked="true"] {
+      background: #f47a2a;
+      color: #fff;
+      box-shadow: 0 3px 12px rgba(244,122,42,.24);
+    }
+
+    .walkthroughModeSwitch button:focus-visible,
+    .walkthroughEditPanel button:focus-visible,
+    .walkthroughEditPanel input:focus-visible,
+    .walkthroughEditPanel select:focus-visible {
+      outline: 3px solid #7dd3fc;
+      outline-offset: 2px;
     }
 
     .walkthroughTitle {
@@ -2573,6 +2633,10 @@
       grid-template-columns: minmax(0, 1fr) 260px;
     }
 
+    .walkthroughStage.isEditing {
+      grid-template-columns: minmax(0, 1fr) 330px;
+    }
+
     .walkthroughViewport {
       min-height: 0;
       background: #cad1d8;
@@ -2580,6 +2644,10 @@
 
     .walkthroughViewport .gym3dCanvas {
       cursor: crosshair;
+    }
+
+    .walkthroughViewport.isEditing .gym3dCanvas {
+      cursor: pointer;
     }
 
     .walkthroughViewport.isLocked .gym3dCanvas {
@@ -2748,6 +2816,198 @@
       font-weight: 800;
     }
 
+    .walkthroughEditPanel {
+      min-width: 0;
+      min-height: 0;
+      overflow: auto;
+      padding: 18px;
+      border-left: 1px solid #2d3846;
+      background: #111923;
+      color: #e5e7eb;
+    }
+
+    .walkthroughEditPanelTop,
+    .walkthroughEditorHeading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .walkthroughEditorHeadingActions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .walkthroughEditPanelTop {
+      padding-bottom: 13px;
+      border-bottom: 1px solid #2d3846;
+    }
+
+    .walkthroughEditPanel button,
+    .walkthroughEditPanel input,
+    .walkthroughEditPanel select {
+      box-sizing: border-box;
+      border: 1px solid #4a586a;
+      border-radius: 9px;
+      background: #192432;
+      color: #fff;
+      font: inherit;
+    }
+
+    .walkthroughEditPanel button {
+      padding: 8px 11px;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .walkthroughEditPanel button:hover:not(:disabled),
+    .walkthroughEditPanel button[aria-pressed="true"] {
+      border-color: #f47a2a;
+      background: #3a261d;
+    }
+
+    .walkthroughEditPanel button:disabled {
+      cursor: not-allowed;
+      opacity: .46;
+    }
+
+    .walkthroughEditorSection {
+      padding: 18px 0 14px;
+    }
+
+    .walkthroughEditorKicker {
+      color: #93a0b0;
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .walkthroughEditorSection h2 {
+      margin: 4px 0 0;
+      color: #fff;
+      font-size: 19px;
+      line-height: 1.15;
+      letter-spacing: -.025em;
+    }
+
+    .walkthroughEditorSection p {
+      margin: 8px 0 14px;
+      color: #aeb8c5;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .walkthroughDangerAction {
+      border-color: #ef4444 !important;
+      color: #fecaca !important;
+    }
+
+    .walkthroughPosition {
+      display: grid;
+      grid-template-columns: repeat(2,minmax(0,1fr));
+      gap: 8px;
+      margin: 16px 0;
+    }
+
+    .walkthroughPosition span {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid #344153;
+      border-radius: 8px;
+      color: #93a0b0;
+      font-size: 11px;
+    }
+
+    .walkthroughPosition strong { color:#fff; }
+
+    .walkthroughDirectionalPad {
+      display: grid;
+      grid-template-columns: repeat(3,52px);
+      grid-template-rows: repeat(3,48px);
+      justify-content: center;
+      gap: 5px;
+    }
+
+    .walkthroughDirectionalPad button { font-size:20px; }
+    .walkthroughDirectionalPad [data-direction="up"] { grid-column:2; grid-row:1; }
+    .walkthroughDirectionalPad [data-direction="left"] { grid-column:1; grid-row:2; }
+    .walkthroughDirectionalPad [data-direction="right"] { grid-column:3; grid-row:2; }
+    .walkthroughDirectionalPad [data-direction="down"] { grid-column:2; grid-row:3; }
+
+    .walkthroughStepGroup,
+    .walkthroughWallToolGroup,
+    .walkthroughNudgeGroup {
+      display: grid;
+      gap: 7px;
+      margin-top: 14px;
+    }
+
+    .walkthroughStepGroup { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    .walkthroughWallToolGroup { grid-template-columns: 1fr; }
+    .walkthroughNudgeGroup { grid-template-columns: repeat(4,minmax(44px,1fr)); }
+
+    .walkthroughCancelTool { width:100%; margin-top:9px; }
+
+    .walkthroughFeatureFields {
+      display: grid;
+      grid-template-columns: repeat(2,minmax(0,1fr));
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .walkthroughCompactField,
+    .walkthroughMeasureField {
+      min-width: 0;
+      margin: 0;
+    }
+
+    .walkthroughCompactField > span,
+    .walkthroughMeasureField legend,
+    .walkthroughMeasureField label span {
+      display: block;
+      margin-bottom: 5px;
+      color: #aeb8c5;
+      font-size: 10px;
+      font-weight: 750;
+    }
+
+    .walkthroughCompactField input,
+    .walkthroughCompactField select { width:100%; padding:8px; }
+    .walkthroughCompactField input[type="color"] { padding:5px; }
+    .walkthroughCompactField input[type="range"] { padding:0 8px; }
+
+    .walkthroughMeasureField {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: repeat(2,minmax(0,1fr));
+      gap: 7px;
+      padding: 0;
+      border: 0;
+    }
+
+    .walkthroughMeasureField legend { grid-column:1 / -1; padding:0; }
+    .walkthroughMeasureField input { width:100%; padding:8px; }
+
+    .walkthroughLiveStatus {
+      padding: 11px 12px;
+      border: 1px solid #344153;
+      border-radius: 9px;
+      background: #0d1621;
+      color: #cbd5e1;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    .walkthroughLiveStatus.success { border-color:#2f855a; color:#bbf7d0; }
+    .walkthroughLiveStatus.warning { border-color:#d97706; color:#fde68a; }
+    .walkthroughLiveStatus.error { border-color:#dc2626; color:#fecaca; }
+
     .modalCard,
     .lightbox img {
       border-radius: 12px;
@@ -2875,6 +3135,10 @@
         grid-template-columns: 1fr;
       }
 
+      .walkthroughStage.isEditing {
+        grid-template-columns: minmax(0,1fr) 310px;
+      }
+
       .walkthroughGuide {
         display: none;
       }
@@ -2982,7 +3246,21 @@
       }
 
       .walkthroughHeader {
-        padding-inline: 12px;
+        display: grid;
+        grid-template-columns: minmax(0,1fr) auto;
+        grid-template-rows: auto auto;
+        gap: 8px;
+        padding: 8px 10px;
+      }
+
+      .walkthroughOverlay { grid-template-rows: auto minmax(0,1fr); }
+
+      .walkthroughHeaderActions { grid-column:2; grid-row:1; }
+
+      .walkthroughModeSwitch {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        width: 100%;
       }
 
       .walkthroughTitle strong {
@@ -2992,6 +3270,22 @@
       .walkthroughReset {
         display: none;
       }
+
+      .walkthroughStage.isEditing {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(260px,1fr) minmax(210px,42vh);
+      }
+
+      .walkthroughEditPanel {
+        max-height: none;
+        padding: 14px;
+        border-top: 1px solid #2d3846;
+        border-left: 0;
+      }
+
+      .walkthroughEditorSection { padding-top:14px; }
+
+      .walkthroughFeatureFields { gap:8px; }
 
       .walkthroughMinimap {
         width: 150px;
@@ -3044,6 +3338,6 @@
   <script type="importmap">
     {"imports":{"three":"./vendor/three.module.js"}}
   </script>
-  <script type="module" src="gltf-runtime.js?v=33"></script>
+  <script type="module" src="gltf-runtime.js?v=42"></script>
 </body>
 </html>
