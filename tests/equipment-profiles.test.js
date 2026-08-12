@@ -127,9 +127,10 @@
     GymTests.assert(point.z-radius>=-envelope.d/2-1e-9 && point.z+radius<=envelope.d/2+1e-9,`${label} exceeds depth envelope`);
   }
 
-  function assertRigidEnvelope(parts,envelope){
+  function assertRigidEnvelope(parts,envelope,{requirePartTags=false,touchFloor=false}={}){
     parts.forEach((part,index)=>{
       const label=`${part.kind} ${index}`;
+      if(requirePartTags) GymTests.assert(part.userData.partTag,`${label} needs a stable partTag`);
       if(part.kind==="box"){
         const {rotationX:rx=0,rotationY:ry=0,rotationZ:rz=0}=part.options||{};
         const sx=Math.sin(rx),cx=Math.cos(rx),sy=Math.sin(ry),cy=Math.cos(ry),sz=Math.sin(rz),cz=Math.cos(rz);
@@ -170,6 +171,7 @@
         }
       }
     });
+    if(touchFloor) GymTests.closeTo(modelAabb(parts).min.y,0,1e-9,"Rigid assembly must touch the floor");
   }
 
   function signatureParts(parts,signature){
@@ -192,6 +194,12 @@
     return probe.parts;
   }
 
+  function gatorProbeParts(){
+    const probe=modelProbe();
+    window.GymEquipmentModels.build("ritfit-gator-bench",probe.view,probe.group,{id:"gator-probe"},{w:26/12,h:58/12},53/12);
+    return probe.parts;
+  }
+
   function orderedMetadata(parts){
     return parts.map(part=>[part.userData.side,part.userData.partIndex]);
   }
@@ -209,7 +217,7 @@
       ["ice-barrel-500",10,"photo-matched Ice Barrel 500",{w:2.5583,d:4.8,h:3.5}],
       ["syedee-stair-machine",28,"photo-matched syedee Stair Machine",{w:2.6667,d:4.1667,h:6.8333}],
       ["nordictrack-x16",20,"photo-matched NordicTrack X16",{w:3.175,d:5.825,h:6.1083}],
-      ["ritfit-gator-bench",22,"photo-matched RitFit GATOR bench",{w:2.1667,d:4.8333,h:4.4167}],
+      ["ritfit-gator-bench",22,"photo-matched RitFit GATOR bench",{w:26/12,d:58/12,h:53/12}],
     ];
     cases.forEach(([profile,minParts,modelType,envelope])=>{
       GymTests.assert(window.GymEquipmentModels.has(profile),`${profile} should be registered`);
@@ -218,7 +226,10 @@
       GymTests.equal(result?.builderKey,profile,`${profile} should return its exact builder key`);
       GymTests.equal(result?.modelType,modelType,`${profile} should return its exact model type`);
       GymTests.assert(probe.parts.length>=minParts,`${profile} needs at least ${minParts} signature primitives`);
-      assertRigidEnvelope(probe.parts,envelope);
+      assertRigidEnvelope(probe.parts,envelope,{
+        requirePartTags:profile==="ritfit-gator-bench",
+        touchFloor:profile==="ritfit-gator-bench",
+      });
     });
   });
 
@@ -491,18 +502,30 @@
     GymTests.assert(new Set(parts.map(geometrySignature)).size<=24,"Stair must reuse at most 24 distinct geometry signatures");
   });
 
-  GymTests.test("keeps GATOR foam rollers large and elevated at the local back end",()=>{
-    const envelope={w:2.1667,d:4.8333,h:4.4167};
-    const probe=modelProbe();
-    window.GymEquipmentModels.build("ritfit-gator-bench",probe.view,probe.group,{id:"probe"},{w:envelope.w,h:envelope.d},envelope.h);
-    const rollers=signatureParts(probe.parts,"gator-elevated-foam-roller");
-    GymTests.equal(rollers.length,4,"GATOR needs four tagged elevated foam rollers");
-    rollers.forEach((roller,index)=>{
-      GymTests.equal(roller.kind,"cylinder",`GATOR foam roller ${index+1} must be a cylinder`);
-      const diameter=roller.size.radius*2;
-      GymTests.assert(diameter>=envelope.h*.14 && diameter<=envelope.h*.17,`GATOR foam roller ${index+1} must be photo-scale`);
-      GymTests.assert(roller.pos.z<-envelope.d*.04,`GATOR foam roller ${index+1} must remain at the local back/head end`);
-      GymTests.assert(roller.pos.y>envelope.h*.6,`GATOR foam roller ${index+1} must remain elevated`);
+  GymTests.test("builds the GATOR pads at official proportions",()=>{
+    const parts=gatorProbeParts();
+    const sizes=Object.fromEntries(["seat","back","head"].map(name=>{
+      const part=partsByTag(parts,`gator-${name}-pad`)[0];
+      GymTests.assert(part,`Missing GATOR ${name} pad`);
+      return [name,part.size];
+    }));
+    GymTests.closeTo(sizes.seat.z,12.6/12,.03);
+    GymTests.closeTo(sizes.back.z,25.9/12,.03);
+    GymTests.closeTo(sizes.head.z,9/12,.03);
+    [sizes.seat,sizes.back,sizes.head].forEach(size=>{
+      GymTests.closeTo(size.x,11.8/12,.03);
+      GymTests.closeTo(size.y,2.7/12,.025);
+    });
+  });
+
+  GymTests.test("exposes the complete GATOR adjustment and transport assembly",()=>{
+    const parts=gatorProbeParts();
+    GymTests.equal(partsByTag(parts,"gator-angle-station").length,10);
+    GymTests.equal(partsByTag(parts,"gator-foam-roller").length,4);
+    GymTests.equal(partsByTag(parts,"gator-roller-crossbar").length,2);
+    GymTests.equal(partsByTag(parts,"gator-transport-wheel").length,2);
+    ["gator-main-spine","gator-front-stabilizer","gator-rear-stabilizer","gator-lifting-handle","gator-angle-plate","gator-lock-pin","gator-front-brace"].forEach(tag=>{
+      GymTests.assert(partsByTag(parts,tag).length>0,`Missing ${tag}`);
     });
   });
 

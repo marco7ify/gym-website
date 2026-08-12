@@ -324,38 +324,41 @@
   }
 
   function buildRitfitGatorBenchModel(view,group,inst,base,height){
-    const {w,d,h,material,addBox,addCylinder,addBeam,addTube}=createModelKit(view,group,inst,base,height);
-    const frame=material({color:0x111519,roughness:.48,metalness:.46,envMapIntensity:.72});
-    const pad=material({color:0x080a0c,roughness:.92,metalness:.01,envMapIntensity:.1});
-    const silver=material({color:0xc5ccd0,roughness:.2,metalness:.94,envMapIntensity:1.2});
-    const foam=material({color:0x050607,roughness:.96,metalness:0,envMapIntensity:.06});
-    // Open feet and triangular spine leave the floor visibly open beneath the pads.
-    [-1,1].forEach(sign=>{
-      addBeam({x:sign*w*.39,y:h*.06,z:-d*.36},{x:sign*w*.39,y:h*.06,z:d*.34},w*.05,frame,d*.035);
-      addBeam({x:sign*w*.39,y:h*.06,z:d*.34},{x:sign*w*.46,y:h*.06,z:d*.39},w*.042,frame,d*.03);
-      addBeam({x:sign*w*.39,y:h*.06,z:-d*.36},{x:sign*w*.46,y:h*.06,z:-d*.4},w*.042,frame,d*.03);
+    const kit=createModelKit(view,group,inst,base,height);
+    const {w,d,h,material,addBox,addCylinder,addBeam,addTube}=kit;
+    const frame=material({color:0x101316,roughness:.56,metalness:.4,envMapIntensity:.68});
+    const pad=material({color:0x07090b,roughness:.91,metalness:.01,envMapIntensity:.1});
+    const silver=material({color:0xbfc6ca,roughness:.24,metalness:.9,envMapIntensity:1.15});
+    const rubber=material({color:0x040506,roughness:.96,metalness:0,envMapIntensity:.05});
+
+    addBox({x:w*.92,y:h*.045,z:d*.07},{x:0,y:h*.025,z:d*.39},frame,{partTag:"gator-rear-stabilizer"});
+    addBox({x:w*.72,y:h*.045,z:d*.07},{x:0,y:h*.025,z:-d*.39},frame,{partTag:"gator-front-stabilizer"});
+    addBeam({x:0,y:h*.1,z:d*.36},{x:0,y:h*.45,z:-d*.2},w*.09,frame,w*.065,{partTag:"gator-main-spine"});
+    [-1,1].forEach((side,index)=>{
+      addCylinder(w*.045,w*.075,{x:side*w*.29,y:w*.045,z:d*.36},rubber,{rotationZ:Math.PI/2,partTag:"gator-transport-wheel",side:side<0?"left":"right",partIndex:index,geometryKey:"gator-wheel"});
+      addBox({x:w*.13,y:h*.025,z:d*.08},{x:side*w*.38,y:h*.015,z:-d*.39},rubber,{partTag:"gator-foot-pad",side:side<0?"left":"right",geometryKey:"gator-foot-pad"});
     });
-    addBeam({x:0,y:h*.12,z:d*.32},{x:0,y:h*.48,z:d*.04},w*.055,frame,d*.045);
-    addBeam({x:0,y:h*.48,z:d*.04},{x:0,y:h*.74,z:-d*.25},w*.055,frame,d*.045);
-    addBeam({x:-w*.34,y:h*.12,z:d*.32},{x:w*.34,y:h*.12,z:d*.32},w*.045,frame,d*.035);
-    addBeam({x:-w*.28,y:h*.14,z:-d*.31},{x:w*.28,y:h*.14,z:-d*.31},w*.045,frame,d*.035);
-    addBox({x:w*.44,y:h*.12,z:d*.26},{x:0,y:h*.42,z:d*.16},pad,{rotationX:-.12});
-    addBox({x:w*.52,y:h*.14,z:d*.43},{x:0,y:h*.62,z:-d*.08},pad,{rotationX:-.48});
-    addBox({x:w*.4,y:h*.11,z:d*.19},{x:0,y:h*.79,z:-d*.29},pad,{rotationX:-.48});
-    // Seven individual rungs make the silver adjustment ladder explicit.
-    [-1,1].forEach(sign=>addBeam({x:sign*w*.17,y:h*.19,z:d*.26},{x:sign*w*.17,y:h*.56,z:d*.08},w*.025,silver,d*.025));
-    for(let rung=0;rung<7;rung++){
-      const t=rung/6;
-      addBeam({x:-w*.17,y:h*(.19+t*.37),z:d*(.26-t*.18)},{x:w*.17,y:h*(.19+t*.37),z:d*(.26-t*.18)},w*.018,silver,d*.018);
+    addTube({x:-w*.16,y:h*.09,z:d*.43},{x:w*.16,y:h*.09,z:d*.43},w*.022,rubber,12,{partTag:"gator-lifting-handle"});
+
+    addBox({x:11.8/12,y:2.7/12,z:12.6/12},{x:0,y:h*.34,z:d*.21},pad,{rotationX:-.12,partTag:"gator-seat-pad"});
+    addBox({x:11.8/12,y:2.7/12,z:25.9/12},{x:0,y:h*.58,z:-d*.08},pad,{rotationX:-.55,partTag:"gator-back-pad"});
+    addBox({x:11.8/12,y:2.7/12,z:9/12},{x:0,y:h*.84,z:-d*.34},pad,{rotationX:-.43,partTag:"gator-head-pad"});
+    addBeam({x:0,y:h*.18,z:d*.23},{x:0,y:h*.32,z:d*.18},w*.055,frame,w*.05,{partTag:"gator-seat-support"});
+    addBeam({x:0,y:h*.28,z:d*.08},{x:0,y:h*.69,z:-d*.2},w*.06,frame,w*.05,{partTag:"gator-back-support"});
+    addBeam({x:0,y:h*.68,z:-d*.2},{x:0,y:h*.81,z:-d*.34},w*.05,frame,w*.045,{partTag:"gator-head-support"});
+
+    addBox({x:w*.52,y:h*.05,z:d*.42},{x:0,y:h*.25,z:d*.03},silver,{rotationX:-.12,partTag:"gator-angle-plate"});
+    for(let index=0;index<10;index++){
+      const t=index/9;
+      addBox({x:w*.035,y:h*.018,z:d*.025},{x:0,y:h*(.20+t*.18),z:d*(.20-t*.34)},rubber,{partTag:"gator-angle-station",partIndex:index,geometryKey:"gator-station",castShadow:false});
     }
-    // The roller bar and foam pair live at the elevated head/back end, not by the front feet.
-    addCylinder(w*.025,w*.72,{x:0,y:h*.77,z:-d*.31},silver,{rotationZ:Math.PI/2,segments:16});
-    [-1,1].forEach(sign=>{
-      addCylinder(h*.075,w*.12,{x:sign*w*.3,y:h*.77,z:-d*.31},foam,{rotationZ:Math.PI/2,segments:16,signature:"gator-elevated-foam-roller"});
-      addCylinder(h*.075,w*.12,{x:sign*w*.3,y:h*.68,z:-d*.25},foam,{rotationZ:Math.PI/2,segments:16,signature:"gator-elevated-foam-roller"});
-      addTube({x:sign*w*.28,y:h*.68,z:-d*.25},{x:sign*w*.28,y:h*.77,z:-d*.31},w*.014,frame,12);
+    addCylinder(w*.025,w*.38,{x:0,y:h*.31,z:d*.04},silver,{rotationZ:Math.PI/2,partTag:"gator-lock-pin"});
+    [h*.68,h*.77].forEach((y,barIndex)=>{
+      const z=-d*(.25+barIndex*.06);
+      addCylinder(w*.022,w*.78,{x:0,y,z},silver,{rotationZ:Math.PI/2,partTag:"gator-roller-crossbar",partIndex:barIndex,geometryKey:"gator-crossbar"});
+      [-1,1].forEach((side,index)=>addCylinder(h*.075,8.7/12,{x:side*w*.3,y,z},rubber,{rotationZ:Math.PI/2,partTag:"gator-foam-roller",side:side<0?"left":"right",partIndex:barIndex*2+index,geometryKey:"gator-roller"}));
     });
-    addBeam({x:-w*.2,y:h*.48,z:d*.04},{x:w*.2,y:h*.48,z:d*.04},w*.04,frame,d*.035);
+    addBeam({x:0,y:h*.08,z:-d*.4},{x:0,y:h*.23,z:-d*.33},w*.055,frame,w*.05,{partTag:"gator-front-brace"});
     return "photo-matched RitFit GATOR bench";
   }
 

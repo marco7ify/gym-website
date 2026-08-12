@@ -27,6 +27,7 @@
   const savedLayout3Instances=savedLayout3Source.layout.instances;
   const savedX16=savedLayout3Items.find(item=>item.id==="x16");
   const savedStair=savedLayout3Items.find(item=>item.id==="stair");
+  const savedGator=savedLayout3Items.find(item=>item.id==="gator");
 
   const savedLayout3Placements=[
     {id:"inst_maxwell",widthFt:43/12,depthFt:63/12,centerX:1/24,centerZ:16.875,rotationY:0,visualRotationY:-Math.PI/2},
@@ -619,6 +620,32 @@
     }finally{ fixture.destroy(); }
   });
 
+  GymTests.test("publishes the complete GATOR semantic mesh contract through real Three primitives",()=>{
+    const fixture=createEquipmentDispatchFixture({items:[dedicatedItems[3]]});
+    try{
+      const group=fixture.view.itemGroups.get("inst_gator");
+      const tagged=groupMeshes(group).filter(mesh=>String(mesh.userData.partTag||"").startsWith("gator-"));
+      GymTests.equal(group.userData.modelType,"photo-matched RitFit GATOR bench");
+      GymTests.assert(tagged.length>0 && tagged.length<=58,"The dedicated GATOR root must expose its bounded tagged assembly");
+      GymTests.assert(tagged.every(mesh=>mesh.userData.instId==="inst_gator"),"Every tagged GATOR mesh must preserve its interaction target");
+      [
+        ["gator-seat-pad",1],["gator-back-pad",1],["gator-head-pad",1],
+        ["gator-angle-station",10],["gator-foam-roller",4],["gator-roller-crossbar",2],
+        ["gator-transport-wheel",2],["gator-lifting-handle",1],
+      ].forEach(([tag,count])=>GymTests.equal(tagged.filter(mesh=>mesh.userData.partTag===tag).length,count));
+      ["gator-main-spine","gator-front-stabilizer","gator-rear-stabilizer","gator-angle-plate","gator-lock-pin","gator-front-brace"].forEach(tag=>{
+        GymTests.assert(tagged.some(mesh=>mesh.userData.partTag===tag),`Real GATOR is missing ${tag}`);
+      });
+      GymTests.assert(new Set(tagged.map(mesh=>mesh.material)).size<=6,"Real GATOR meshes must reuse at most six material objects");
+      GymTests.assert(new Set(tagged.map(mesh=>mesh.geometry)).size<=26,"Real GATOR meshes must reuse at most 26 geometry objects");
+      ["gator-foot-pad","gator-angle-station","gator-transport-wheel","gator-roller-crossbar","gator-foam-roller"].forEach(tag=>{
+        const meshes=tagged.filter(mesh=>mesh.userData.partTag===tag);
+        GymTests.equal(new Set(meshes.map(mesh=>mesh.geometry)).size,1,`${tag} meshes must share one geometry resource`);
+      });
+      assertNear(Math.min(...tagged.map(mesh=>new THREE.Box3().setFromObject(mesh).min.y)),0,"Real GATOR assembly must touch the floor");
+    }finally{ fixture.destroy(); }
+  });
+
   GymTests.test("keeps the saved Stair low-ceiling warning singular and unchanged",()=>{
     const item={...dedicatedItems[1],requiredCeilingFt:8.7};
     const fixture=createEquipmentDispatchFixture({
@@ -795,6 +822,19 @@
       assertNear(stairEntry.x,1,"Saved Stair entry must face the open room");
       assertNear(stairEntry.z,0,"Saved Stair entry must not face along the boundary wall");
 
+      const gator=view.itemGroups.get("inst_gator");
+      GymTests.assert(gator,"Expected the exact saved GATOR placement group");
+      assertNear(gator.userData.canonicalFootprint.widthFt,savedGator.width,"Saved GATOR canonical width");
+      assertNear(gator.userData.canonicalFootprint.depthFt,savedGator.length,"Saved GATOR canonical depth");
+      assertNear(gator.userData.canonicalFootprint.heightFt,savedGator.height,"Saved GATOR canonical height");
+      assertNear(gator.userData.worldFootprint.widthFt,savedGator.length,"Rotated saved GATOR world width");
+      assertNear(gator.userData.worldFootprint.depthFt,savedGator.width,"Rotated saved GATOR world depth");
+      assertNear(gator.position.x,3+savedGator.length/2,"Saved GATOR world center x");
+      assertNear(gator.position.z,4+savedGator.width/2,"Saved GATOR world center z");
+      assertNear(gator.rotation.y,Math.PI/2,"Saved GATOR placement rotation");
+      assertNear(gator.userData.rotationY,Math.PI/2,"Saved GATOR published rotation");
+      assertNear(gator.userData.visualRotationY,0,"Saved GATOR visual rotation");
+
       const warnings=host.querySelector("[data-gym3d-warnings]");
       GymTests.equal(warnings.querySelector("strong").textContent,"1 warning","Saved Stair ceiling warning must occur exactly once");
       GymTests.equal(warnings.querySelector("span").textContent,"Stair Machine: needs 8.7 ft ceiling");
@@ -803,7 +843,7 @@
     }finally{ fixture.destroy(); }
   });
 
-  GymTests.test("disposes exact saved Layout 3 cardio resources once across repeat lifecycles",()=>{
+  GymTests.test("disposes exact saved Layout 3 featured resources once across repeat lifecycles",()=>{
     function captureCycle(){
       const fixture=createSavedLayout3Fixture();
       let destroyed=false;
@@ -811,6 +851,7 @@
         const {host,view}=fixture;
         const x16=captureDedicatedResources(view,"inst_x16","x16-");
         const stair=captureDedicatedResources(view,"inst_stair","stair-");
+        const gator=captureDedicatedResources(view,"inst_gator","gator-");
 
         GymTests.equal(host.dataset.dedicatedModels,"11");
         GymTests.equal(host.dataset.builderFailures,"0");
@@ -824,18 +865,21 @@
         GymTests.assert(stair.geometries.length<=24,`Saved Stair must stay within 24 geometry resources; received ${stair.geometries.length}`);
         GymTests.assert(stair.materials.length<=8,`Saved Stair must stay within eight materials; received ${stair.materials.length}`);
         GymTests.assert(stair.summary.geometrySignatures<=24,`Saved Stair must stay within 24 geometry signatures; received ${stair.summary.geometrySignatures}`);
-        [x16,stair].forEach(capture=>{
-          GymTests.assert(capture.meshes.every(mesh=>typeof mesh.userData.partTag==="string"&&mesh.userData.partTag),"Every dedicated cardio mesh must remain semantically tagged");
-          GymTests.equal(new Set(capture.clickTargets).size,capture.clickTargets.length,"Dedicated cardio click targets must remain unique");
-          GymTests.equal(capture.clickTargets.length,capture.meshes.length,"Every dedicated cardio mesh must remain a click target");
+        GymTests.assert(gator.meshes.length<=58,`Saved GATOR must stay within 58 meshes; received ${gator.meshes.length}`);
+        GymTests.assert(gator.geometries.length<=26,`Saved GATOR must stay within 26 geometry resources; received ${gator.geometries.length}`);
+        GymTests.assert(gator.materials.length<=6,`Saved GATOR must stay within six materials; received ${gator.materials.length}`);
+        [x16,stair,gator].forEach(capture=>{
+          GymTests.assert(capture.meshes.every(mesh=>typeof mesh.userData.partTag==="string"&&mesh.userData.partTag),"Every featured dedicated mesh must remain semantically tagged");
+          GymTests.equal(new Set(capture.clickTargets).size,capture.clickTargets.length,"Featured dedicated click targets must remain unique");
+          GymTests.equal(capture.clickTargets.length,capture.meshes.length,"Every featured dedicated mesh must remain a click target");
         });
 
         fixture.destroy();
         destroyed=true;
-        [x16,stair].forEach(capture=>capture.tracked.forEach(record=>{
-          GymTests.equal(record.count,1,`Saved cardio ${record.kind} must be disposed exactly once; received ${record.count}`);
+        [x16,stair,gator].forEach(capture=>capture.tracked.forEach(record=>{
+          GymTests.equal(record.count,1,`Saved featured ${record.kind} must be disposed exactly once; received ${record.count}`);
         }));
-        return {x16:x16.summary,stair:stair.summary};
+        return {x16:x16.summary,stair:stair.summary,gator:gator.summary};
       }finally{
         if(!destroyed) fixture.destroy();
       }
