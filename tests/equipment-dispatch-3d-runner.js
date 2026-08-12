@@ -21,12 +21,12 @@ try{
     "./test-harness.js?v=1",
     "../wall-features.js?v=3",
     "../garage-doors.js?v=2",
-    "../app.js?v=85",
+    "../app.js?v=86",
     "./garage-door-fixtures.js?v=2",
-    "../equipment-models.js?v=4",
+    "../equipment-models.js?v=5",
     "../garage-door-3d.js?v=1",
-    "../view3d.js?v=40",
-    "./equipment-dispatch-3d.test.js?v=equipment-faithful-cardio-final-fix-v1",
+    "../view3d.js?v=41",
+    "./equipment-dispatch-3d.test.js?v=gator-echo-v1",
   ]) await loadClassicScript(src);
   GymTests.finish();
 }catch(error){

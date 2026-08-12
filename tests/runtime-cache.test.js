@@ -27,7 +27,7 @@
   const runnerContracts=[
     ["garage-door-3d-runner.html","garage-door-3d-runner.js?v=garage-layout3-fixture-v2"],
     ["wall-features-3d-runner.html","wall-features-3d-runner.js?v=garage-final-fix-wave-1"],
-    ["equipment-dispatch-3d-runner.html","equipment-dispatch-3d-runner.js?v=equipment-faithful-cardio-final-fix-v1"],
+    ["equipment-dispatch-3d-runner.html","equipment-dispatch-3d-runner.js?v=gator-echo-v1"],
   ];
   const runnerModuleScripts=await Promise.all(runnerContracts.map(async ([html])=>{
     const source=await fetch(`./${html}?runtime-cache-contract=${Date.now()}`,{cache:"no-store"}).then(response=>response.text());
@@ -39,7 +39,7 @@
   const equipmentInnerScript=leafUrl(equipmentInnerMatch?.[1]||"");
 
   GymTests.test("loads the current runtime entry URL",()=>{
-    GymTests.equal(leafUrl(runtimeScript?.src||""),"gltf-runtime.js?v=39");
+    GymTests.equal(leafUrl(runtimeScript?.src||""),"gltf-runtime.js?v=40");
   });
 
   GymTests.test("loads every classic production asset at its current cache URL",()=>{
@@ -47,10 +47,10 @@
       "model-assets.js?v=4",
       "wall-features.js?v=3",
       "garage-doors.js?v=2",
-      "app.js?v=85",
-      "equipment-models.js?v=4",
+      "app.js?v=86",
+      "equipment-models.js?v=5",
       "garage-door-3d.js?v=1",
-      "view3d.js?v=40",
+      "view3d.js?v=41",
       "panels.js?v=73",
       "layout.js?v=86",
       "events.js?v=82",
@@ -62,8 +62,8 @@
     GymTests.deepEqual(logicProductionScripts,[
       "wall-features.js?v=3",
       "garage-doors.js?v=2",
-      "app.js?v=85",
-      "equipment-models.js?v=4",
+      "app.js?v=86",
+      "equipment-models.js?v=5",
       "layout.js?v=86",
       "events.js?v=82",
     ]);
@@ -74,7 +74,7 @@
   });
 
   GymTests.test("loads the current inner equipment real-Three test at its cache URL",()=>{
-    GymTests.equal(equipmentInnerScript,"equipment-dispatch-3d.test.js?v=equipment-faithful-cardio-final-fix-v1");
+    GymTests.equal(equipmentInnerScript,"equipment-dispatch-3d.test.js?v=gator-echo-v1");
   });
 
   GymTests.finish();

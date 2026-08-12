@@ -30,6 +30,31 @@
   const savedX16=savedLayout3Items.find(item=>item.id==="x16");
   const savedStair=savedLayout3Items.find(item=>item.id==="stair");
   const savedGator=savedLayout3Items.find(item=>item.id==="gator");
+  const exactSavedGator={
+    id:"item_e480f74e83796_19d9488df84",
+    brand:"RitFit",
+    name:"RitFit GATOR 1600LB Adjustable Weight Bench",
+    category:"Benches",
+    width:26,
+    length:58,
+    height:53,
+    unit:"in",
+  };
+  const exactSavedEcho={
+    id:"item_83e6deed4834c_19d9433a616",
+    brand:"Rogue Fitness",
+    name:"Rogue Echo Rower",
+    category:"Cardio & Conditioning",
+    width:26,
+    length:99,
+    height:16,
+    unit:"in",
+  };
+  const exactSavedGatorPlacements=[
+    {layoutName:"Layout 1",instance:{id:"inst_9b13e2bd351e7_19d94894fa0",itemId:exactSavedGator.id,xFt:3,xIn:0,yFt:4.5,yIn:0,rotated:true,deadspaceFt:null,deadspaceIn:0,deadspaceSides:null,__invalid:false}},
+    {layoutName:"Layout 2",instance:{id:"inst_9b13e2bd351e7_19d94894fa0",itemId:exactSavedGator.id,xFt:3,xIn:0,yFt:4,yIn:0,rotated:true,deadspaceFt:null,deadspaceIn:0,deadspaceSides:null,__invalid:false}},
+    {layoutName:"Layout 3",instance:{id:"inst_9b13e2bd351e7_19d94894fa0",itemId:exactSavedGator.id,xFt:3,xIn:0,yFt:4,yIn:0,rotated:true,deadspaceFt:null,deadspaceIn:0,deadspaceSides:null,__invalid:false}},
+  ];
 
   const savedLayout3Placements=[
     {id:"inst_maxwell",widthFt:43/12,depthFt:63/12,centerX:1/24,centerZ:16.875,rotationY:0,visualRotationY:-Math.PI/2},
@@ -73,7 +98,7 @@
     garageWallRevision=0,
   }={}){
     state.settings=settings || fixtureSettings();
-    state.items=items.map(item=>normalizeItemRecord({...item,unit:"ft"}));
+    state.items=items.map(item=>normalizeItemRecord({...item,unit:item.unit||"ft"}));
     state.layout=normalizeLayout({
       ...deepCopy(DEFAULT_LAYOUT),
       garageWallRevision,
@@ -122,6 +147,16 @@
       wallFeatures:saved.layout.wallFeatures,
       spatial3d:saved.layout.spatial3d,
       garageWallRevision:saved.layout.garageWallRevision,
+    });
+  }
+
+  function createExactGatorEchoFixture(){
+    return createEquipmentDispatchFixture({
+      items:[exactSavedGator,exactSavedEcho],
+      instances:[
+        {id:"inst_gator",itemId:exactSavedGator.id,xFt:3,xIn:0,yFt:4,yIn:0,rotated:true,__invalid:false},
+        {id:"inst_echo",itemId:exactSavedEcho.id,xFt:10,xIn:0,yFt:10,yIn:0,rotated:false,__invalid:false},
+      ],
     });
   }
 
@@ -922,6 +957,78 @@
     const first=captureCycle();
     const second=captureCycle();
     GymTests.deepEqual(second,first,"Repeated saved Layout 3 create/destroy cycles must retain stable cardio resource counts");
+  });
+
+  GymTests.test("byte-preserves all three saved GATOR placements and Echo dimensions through rendering",()=>{
+    const gatorSourcesBefore=JSON.stringify(exactSavedGatorPlacements);
+    const gatorItemBefore=JSON.stringify(exactSavedGator);
+    const echoItemBefore=JSON.stringify(exactSavedEcho);
+    exactSavedGatorPlacements.forEach(({layoutName,instance})=>{
+      const fixture=createEquipmentDispatchFixture({items:[exactSavedGator],instances:[instance]});
+      try{
+        const group=fixture.view.itemGroups.get(instance.id);
+        GymTests.assert(group,`${layoutName} must render its exact saved GATOR placement`);
+        assertNear(group.userData.canonicalFootprint.widthFt,26/12,`${layoutName} GATOR canonical width`);
+        assertNear(group.userData.canonicalFootprint.depthFt,58/12,`${layoutName} GATOR canonical depth`);
+        assertNear(group.userData.canonicalFootprint.heightFt,53/12,`${layoutName} GATOR canonical height`);
+      }finally{ fixture.destroy(); }
+    });
+    const echoFixture=createEquipmentDispatchFixture({
+      items:[exactSavedEcho],
+      instances:[{id:"saved_echo",itemId:exactSavedEcho.id,xFt:0,xIn:0,yFt:0,yIn:0,rotated:false,__invalid:false}],
+    });
+    try{
+      const echo=echoFixture.view.itemGroups.get("saved_echo");
+      assertNear(echo.userData.canonicalFootprint.widthFt,26/12,"Saved Echo canonical width");
+      assertNear(echo.userData.canonicalFootprint.depthFt,99/12,"Saved Echo canonical depth");
+      assertNear(echo.userData.canonicalFootprint.heightFt,16/12,"Saved Echo canonical seat height");
+      assertNear(echo.userData.visualHeightFt,3.25,"Saved Echo visual height");
+    }finally{ echoFixture.destroy(); }
+    GymTests.equal(JSON.stringify(exactSavedGatorPlacements),gatorSourcesBefore,"Rendering must leave all three saved GATOR source placements byte-equal");
+    GymTests.equal(JSON.stringify(exactSavedGator),gatorItemBefore,"Rendering must leave the saved GATOR item byte-equal");
+    GymTests.equal(JSON.stringify(exactSavedEcho),echoItemBefore,"Rendering must leave Echo's saved dimensions byte-equal");
+  });
+
+  GymTests.test("disposes exact saved GATOR and Echo resources once across repeat lifecycles",()=>{
+    const gatorSourceBefore=JSON.stringify(exactSavedGator);
+    const echoSourceBefore=JSON.stringify(exactSavedEcho);
+    function captureCycle(){
+      const fixture=createExactGatorEchoFixture();
+      let destroyed=false;
+      try{
+        const {view}=fixture;
+        const gator=captureDedicatedResources(view,"inst_gator","gator-");
+        const echo=captureDedicatedResources(view,"inst_echo","echo-");
+        GymTests.equal(gator.meshes.length<=58,true);
+        GymTests.equal(gator.materials.length<=6,true);
+        GymTests.equal(gator.geometries.length<=26,true);
+        GymTests.equal(echo.meshes.length<=72,true);
+        GymTests.equal(echo.materials.length<=8,true);
+        GymTests.equal(echo.geometries.length<=30,true);
+        GymTests.assert([...gator.meshes,...echo.meshes].every(mesh=>mesh.userData.partTag));
+        [gator,echo].forEach(capture=>{
+          GymTests.equal(new Set(capture.clickTargets).size,capture.clickTargets.length,"Dedicated click targets must remain unique");
+          GymTests.equal(capture.clickTargets.length,capture.meshes.length,"Every dedicated mesh, including invisible siblings, must remain a click target");
+        });
+        fixture.destroy();
+        destroyed=true;
+        [gator,echo].forEach(capture=>capture.tracked.forEach(record=>{
+          GymTests.equal(record.count,1,`${record.kind} must be disposed exactly once; received ${record.count}`);
+        }));
+        return {gator:gator.summary,echo:echo.summary};
+      }finally{
+        if(!destroyed) fixture.destroy();
+      }
+    }
+
+    const first=captureCycle();
+    const second=captureCycle();
+    globalThis.GATOR_ECHO_RESOURCE_SUMMARY={first,second};
+    document.querySelector("#test-results").dataset.gatorEchoResources=JSON.stringify({first,second});
+    GymTests.equal(JSON.stringify(second.gator),JSON.stringify(first.gator),"GATOR resource summaries must remain byte-equal across cycles");
+    GymTests.equal(JSON.stringify(second.echo),JSON.stringify(first.echo),"Echo resource summaries must remain byte-equal across cycles");
+    GymTests.equal(JSON.stringify(exactSavedGator),gatorSourceBefore,"Lifecycle rendering must leave the exact saved GATOR record byte-equal");
+    GymTests.equal(JSON.stringify(exactSavedEcho),echoSourceBefore,"Lifecycle rendering must leave Echo's saved dimensions byte-equal");
   });
 
   GymTests.test("captures invisible sibling meshes from the complete dedicated assembly",()=>{
