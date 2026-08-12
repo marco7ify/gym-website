@@ -257,4 +257,3 @@ Final acceptance requires:
 - No relevant console warning/error.
 - Fresh logic, equipment real-Three, wall-feature, garage-door, and runtime-cache runners at zero failures.
 - Atomic cache-version updates for every changed production/test asset.
-
