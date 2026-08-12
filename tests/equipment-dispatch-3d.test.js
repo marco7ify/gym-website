@@ -375,6 +375,42 @@
     GymTests.assert(Math.abs(actual-expected)<=.001,`${message}: expected ${expected}, received ${actual}`);
   }
 
+  GymTests.test("recreated Preview and Walkthrough publish the same commanded equipment center and orientation",()=>{
+    const item={id:"cross_view_item",brand:"Test",name:"Cross-view bench",category:"Benches",width:2,length:4,height:3};
+    const fixture=createEquipmentDispatchFixture({
+      items:[item],
+      instances:[{id:"cross_view_instance",itemId:item.id,xFt:6,xIn:0,yFt:6,yIn:0,rotated:false}],
+    });
+    let acceptedInstances;
+    try{
+      GymWalkthroughEditing.reset();
+      GymWalkthroughEditing.setMode("edit");
+      GymTests.equal(GymWalkthroughEditing.nudgeInstance("cross_view_instance",1,0).ok,true);
+      GymTests.equal(GymWalkthroughEditing.rotateInstance("cross_view_instance").ok,true);
+      acceptedInstances=deepCopy(state.layout.instances);
+    }finally{ fixture.destroy(); }
+
+    const capture=mode=>{
+      const rendered=createEquipmentDispatchFixture({items:[item],instances:acceptedInstances,mode});
+      try{
+        const group=rendered.view.itemGroups.get("cross_view_instance");
+        return {
+          center:{x:group.position.x,z:group.position.z},
+          rotationY:group.userData.rotationY,
+          builderFailures:rendered.host.dataset.builderFailures,
+        };
+      }finally{ rendered.destroy(); }
+    };
+    const preview=capture("preview");
+    const walkthrough=capture("walkthrough");
+    GymTests.deepEqual(preview,walkthrough);
+    GymTests.closeTo(preview.center.x,7.5,1e-9);
+    GymTests.closeTo(preview.center.z,8,1e-9);
+    GymTests.closeTo(preview.rotationY,Math.PI/2,1e-9);
+    GymTests.equal(preview.builderFailures,"0");
+    GymWalkthroughEditing.reset();
+  });
+
   function meshGeometrySignature(mesh){
     mesh.geometry.computeBoundingBox();
     const size=new THREE.Vector3();

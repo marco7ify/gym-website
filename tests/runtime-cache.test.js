@@ -22,12 +22,12 @@
   const logicProductionScripts=Array.from(logicDocument.querySelectorAll('script[src^="../"]'))
     .map(script=>leafUrl(script.getAttribute("src")))
     .filter(url=>[
-      "wall-features.js?","garage-doors.js?","app.js?","equipment-models.js?","layout.js?","events.js?",
+      "wall-features.js?","garage-doors.js?","app.js?","walkthrough-editing.js?","equipment-models.js?","layout.js?","events.js?",
     ].some(prefix=>url.startsWith(prefix)));
   const runnerContracts=[
     ["garage-door-3d-runner.html","garage-door-3d-runner.js?v=garage-layout3-fixture-v2"],
-    ["wall-features-3d-runner.html","wall-features-3d-runner.js?v=garage-final-fix-wave-1"],
-    ["equipment-dispatch-3d-runner.html","equipment-dispatch-3d-runner.js?v=gator-echo-v1"],
+    ["wall-features-3d-runner.html","wall-features-3d-runner.js?v=walkthrough-edit-v1"],
+    ["equipment-dispatch-3d-runner.html","equipment-dispatch-3d-runner.js?v=walkthrough-edit-v1"],
   ];
   const runnerModuleScripts=await Promise.all(runnerContracts.map(async ([html])=>{
     const source=await fetch(`./${html}?runtime-cache-contract=${Date.now()}`,{cache:"no-store"}).then(response=>response.text());
@@ -37,9 +37,12 @@
   const equipmentRunnerSource=await fetch(`./equipment-dispatch-3d-runner.js?runtime-cache-contract=${Date.now()}`,{cache:"no-store"}).then(response=>response.text());
   const equipmentInnerMatch=equipmentRunnerSource.match(/["'](\.\/equipment-dispatch-3d\.test\.js\?v=[^"']+)["']/);
   const equipmentInnerScript=leafUrl(equipmentInnerMatch?.[1]||"");
+  const wallRunnerSource=await fetch(`./wall-features-3d-runner.js?runtime-cache-contract=${Date.now()}`,{cache:"no-store"}).then(response=>response.text());
+  const wallInnerMatch=wallRunnerSource.match(/["'](\.\/wall-features-3d\.test\.js\?v=[^"']+)["']/);
+  const wallInnerScript=leafUrl(wallInnerMatch?.[1]||"");
 
   GymTests.test("loads the current runtime entry URL",()=>{
-    GymTests.equal(leafUrl(runtimeScript?.src||""),"gltf-runtime.js?v=40");
+    GymTests.equal(leafUrl(runtimeScript?.src||""),"gltf-runtime.js?v=41");
   });
 
   GymTests.test("loads every classic production asset at its current cache URL",()=>{
@@ -48,12 +51,13 @@
       "wall-features.js?v=3",
       "garage-doors.js?v=2",
       "app.js?v=86",
+      "walkthrough-editing.js?v=1",
       "equipment-models.js?v=5",
       "garage-door-3d.js?v=1",
-      "view3d.js?v=41",
+      "view3d.js?v=42",
       "panels.js?v=73",
-      "layout.js?v=86",
-      "events.js?v=82",
+      "layout.js?v=87",
+      "events.js?v=83",
       "render.js?v=70",
     ]);
   });
@@ -63,9 +67,10 @@
       "wall-features.js?v=3",
       "garage-doors.js?v=2",
       "app.js?v=86",
+      "walkthrough-editing.js?v=1",
       "equipment-models.js?v=5",
-      "layout.js?v=86",
-      "events.js?v=82",
+      "layout.js?v=87",
+      "events.js?v=83",
     ]);
   });
 
@@ -74,7 +79,11 @@
   });
 
   GymTests.test("loads the current inner equipment real-Three test at its cache URL",()=>{
-    GymTests.equal(equipmentInnerScript,"equipment-dispatch-3d.test.js?v=gator-echo-v1");
+    GymTests.equal(equipmentInnerScript,"equipment-dispatch-3d.test.js?v=walkthrough-edit-v1");
+  });
+
+  GymTests.test("loads the current inner wall-feature real-Three test at its cache URL",()=>{
+    GymTests.equal(wallInnerScript,"wall-features-3d.test.js?v=walkthrough-edit-v1");
   });
 
   GymTests.finish();

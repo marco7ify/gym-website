@@ -96,6 +96,41 @@ function pointLights(group){
   return result;
 }
 
+GymTests.test("recreated Preview and Walkthrough publish the same commanded wall-feature transform",()=>{
+  const fixture=createWallFeature3dFixture({features:[]});
+  let acceptedFeatures;
+  let featureId;
+  try{
+    GymWalkthroughEditing.reset();
+    GymWalkthroughEditing.setMode("edit");
+    const added=GymWalkthroughEditing.addFeatureFromWallHit("mirror",{wall:"top",alongFt:8,mountFt:4});
+    GymTests.equal(added.ok,true);
+    featureId=added.feature.id;
+    acceptedFeatures=deepCopy(state.layout.wallFeatures);
+  }finally{ fixture.destroy(); }
+
+  const capture=mode=>{
+    const rendered=createWallFeature3dFixture({features:acceptedFeatures,mode});
+    try{
+      const group=rendered.view.wallFeatureGroups.get(featureId);
+      return {
+        focusPoint:{...group.userData.focusPoint},
+        rotationY:group.userData.rotationY,
+        worldFootprint:{...group.userData.worldFootprint},
+        builderFailures:rendered.host.dataset.builderFailures,
+      };
+    }finally{ rendered.destroy(); }
+  };
+  const preview=capture("preview");
+  const walkthrough=capture("walkthrough");
+  GymTests.deepEqual(preview,walkthrough);
+  GymTests.deepEqual(preview.focusPoint,{x:8,y:4,z:.08});
+  GymTests.closeTo(preview.rotationY,0,1e-9);
+  GymTests.deepEqual(preview.worldFootprint,{widthFt:6,depthFt:.28,heightFt:5});
+  GymTests.equal(preview.builderFailures,"0");
+  GymWalkthroughEditing.reset();
+});
+
 function wallEditListenerAudit(){
   const originalAdd=EventTarget.prototype.addEventListener;
   const originalRemove=EventTarget.prototype.removeEventListener;

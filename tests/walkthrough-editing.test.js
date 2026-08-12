@@ -18,6 +18,12 @@ function withWalkthroughFixture(config,run){
     items:state.items,
     layout:state.layout,
     settings:state.settings,
+    layouts:state.layouts,
+    activeLayoutId:state.activeLayoutId,
+    tab:state.tab,
+    categories:state.categories,
+    exportMode:state.exportMode,
+    exportLayoutScope:state.exportLayoutScope,
     roomCache:state._roomCache,
     render:window.render,
   };
@@ -47,6 +53,12 @@ function withWalkthroughFixture(config,run){
     state.items=previous.items;
     state.layout=previous.layout;
     state.settings=previous.settings;
+    state.layouts=previous.layouts;
+    state.activeLayoutId=previous.activeLayoutId;
+    state.tab=previous.tab;
+    state.categories=previous.categories;
+    state.exportMode=previous.exportMode;
+    state.exportLayoutScope=previous.exportLayoutScope;
     if(hadRoomCache) state._roomCache=previous.roomCache;
     else delete state._roomCache;
     window.render=previous.render;
@@ -99,6 +111,7 @@ GymTests.test("hard movement rejection preserves layout and undo byte-for-byte",
     const result=GymWalkthroughEditing.nudgeInstance("target",-1,0);
     GymTests.equal(result.ok,false);
     GymTests.equal(result.reason,"hard-invalid");
+    GymTests.assert(GymWalkthroughEditing.state().status.message.startsWith("Can’t move there"));
     GymTests.deepEqual(state.layout,before);
     GymTests.equal(GymWalkthroughEditing.state().undo,undo);
   });
@@ -299,6 +312,133 @@ GymTests.test("reset clears transient editor state without mutating the layout",
     GymTests.equal(GymWalkthroughEditing.setMode("not-a-mode").mode,"walk");
     GymTests.equal(GymWalkthroughEditing.setMoveStep("not-a-step").moveStep,"coarse");
     GymTests.equal(GymWalkthroughEditing.setWallTool("not-a-tool").wallTool,null);
+  });
+});
+
+GymTests.test("accepted Walkthrough edits round-trip through persistence, duplication, and both layout export routes",()=>{
+  withWalkthroughFixture(basicWalkthroughFixture(),()=>{
+    const storageBefore=Object.fromEntries(Object.values(LS).map(key=>[key,localStorage.getItem(key)]));
+    try{
+      state.layouts=[{id:"ly_walk_source",name:"Walkthrough source",layout:deepCopy(state.layout)}];
+      state.activeLayoutId="ly_walk_source";
+      state.tab="layout";
+      state.categories=["Benches"];
+
+      GymWalkthroughEditing.setMode("edit");
+      GymTests.equal(GymWalkthroughEditing.nudgeInstance("target",1,0).ok,true);
+      GymWalkthroughEditing.setMoveStep("fine");
+      GymTests.equal(GymWalkthroughEditing.nudgeInstance("target",0,1).ok,true);
+      GymTests.equal(GymWalkthroughEditing.rotateInstance("target").ok,true);
+      const added=GymWalkthroughEditing.addFeatureFromWallHit("led",{wall:"top",alongFt:10,mountFt:8});
+      GymTests.equal(added.ok,true);
+      const patched=GymWalkthroughEditing.patchFeature(added.feature.id,{
+        label:"Round-trip LED",
+        widthFt:4,widthIn:0,
+        bottomFt:7,bottomIn:0,
+        color:"#12AB34",
+        brightnessPct:42,
+      });
+      GymTests.equal(patched.ok,true);
+      GymTests.equal(GymWalkthroughEditing.removeFeature(added.feature.id).ok,true);
+      GymTests.equal(GymWalkthroughEditing.undoLast().ok,true);
+
+      const acceptedInstance=state.layout.instances.find(instance=>instance.id==="target");
+      const acceptedFeature=state.layout.wallFeatures.find(feature=>feature.id===added.feature.id);
+      GymTests.closeTo(instXTotalFt(acceptedInstance),4.5,1e-9);
+      GymTests.closeTo(instYTotalFt(acceptedInstance),4+1/12,1e-9);
+      GymTests.equal(acceptedInstance.rotated,true);
+      GymTests.deepEqual({
+        kind:acceptedFeature.kind,
+        wall:acceptedFeature.wall,
+        label:acceptedFeature.label,
+        width:GymWallFeatures.width(acceptedFeature),
+        bottom:GymWallFeatures.bottom(acceptedFeature),
+        color:acceptedFeature.color,
+        brightnessPct:acceptedFeature.brightnessPct,
+      },{
+        kind:"led",wall:"top",label:"Round-trip LED",width:4,bottom:7,color:"#12ab34",brightnessPct:42,
+      });
+      const accepted={
+        instances:deepCopy(state.layout.instances),
+        wallFeatures:deepCopy(state.layout.wallFeatures),
+      };
+
+      persist();
+      const persistedLayout=normalizeNamedLayout(
+        "Walkthrough source",
+        loadJSON(LS.layout,null),
+        state.settings,
+        state.items,
+      );
+      GymTests.deepEqual(persistedLayout.instances,accepted.instances);
+      GymTests.deepEqual(persistedLayout.wallFeatures,accepted.wallFeatures);
+
+      const persistedLayouts=loadJSON(LS.layouts,[]).map(entry=>({
+        id:entry.id,
+        name:entry.name,
+        layout:normalizeNamedLayout(entry.name,entry.layout,state.settings,state.items),
+      }));
+      const reloadedState={
+        settings:state.settings,
+        items:state.items,
+        layouts:persistedLayouts,
+        activeLayoutId:loadJSON(LS.activeLayoutId,null),
+        layout:persistedLayout,
+        tab:"layout",
+        _roomCache:null,
+      };
+      GymTests.equal(performLayoutLibraryAction("duplicate",reloadedState,{
+        requestName:()=>"Walkthrough disposable copy",
+        makeId:()=>"ly_walk_copy",
+      }),true);
+      GymTests.deepEqual(reloadedState.layout.instances,accepted.instances);
+      GymTests.deepEqual(reloadedState.layout.wallFeatures,accepted.wallFeatures);
+
+      state.layouts=reloadedState.layouts;
+      state.activeLayoutId=reloadedState.activeLayoutId;
+      state.layout=reloadedState.layout;
+      const assertImportedAccepted=(payload,expectedCount)=>{
+        const imported=normalizeImportedLayoutPayload(payload,payload.settings,payload.items,()=>"ly_imported");
+        GymTests.equal(imported.layouts.length,expectedCount);
+        imported.layouts.forEach(entry=>{
+          GymTests.deepEqual(entry.layout.instances,accepted.instances);
+          GymTests.deepEqual(entry.layout.wallFeatures,accepted.wallFeatures);
+        });
+      };
+      const assertNoEditorState=payload=>{
+        const json=JSON.stringify(payload);
+        ["moveStep","wallTool","undo"].forEach(key=>{
+          GymTests.equal(json.includes(`\"${key}\"`),false,`Export must omit transient ${key}`);
+        });
+        ["mode","moveStep","wallTool","status","undo"].forEach(key=>{
+          GymTests.equal(Object.prototype.hasOwnProperty.call(payload,key),false,`Export payload must omit transient editor ${key}`);
+        });
+        [payload.layout,...(payload.layouts||[]).map(entry=>entry.layout)].filter(Boolean).forEach(layout=>{
+          ["mode","moveStep","wallTool","status","undo"].forEach(key=>{
+            GymTests.equal(Object.prototype.hasOwnProperty.call(layout,key),false,`Exported layout must omit ${key}`);
+          });
+        });
+      };
+
+      state.exportMode="full";
+      state.exportLayoutScope="all";
+      const fullAll=exportPayloadFromState().payload;
+      assertImportedAccepted(fullAll,2);
+      assertNoEditorState(fullAll);
+
+      state.exportMode="layoutsOnly";
+      state.exportLayoutScope="active";
+      const layoutOnly=exportPayloadFromState().payload;
+      assertImportedAccepted(layoutOnly,1);
+      assertNoEditorState(layoutOnly);
+      GymTests.equal(GymWalkthroughEditing.state().mode,"edit","Export must not reset the live editor as a side effect");
+      GymTests.equal(GymWalkthroughEditing.state().undo,null,"The accepted remove/undo sequence must leave one-step undo consumed");
+    }finally{
+      Object.entries(storageBefore).forEach(([key,value])=>{
+        if(value===null) localStorage.removeItem(key);
+        else localStorage.setItem(key,value);
+      });
+    }
   });
 });
 

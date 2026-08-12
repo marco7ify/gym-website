@@ -53,7 +53,9 @@
     const rawRects=effectiveRectForInst(rawCandidate,item);
     const conflict=hardPlacementConflict(instId,rawRects.base);
     if(conflict){
-      return finish("error",conflict.message,{ok:false,reason:"hard-invalid",conflict});
+      const message=String(conflict.message||"That movement is not valid.")
+        .replace(/^Can’t rotate here/,"Can’t move there");
+      return finish("error",message,{ok:false,reason:"hard-invalid",conflict});
     }
 
     const x=splitTotalFtToFtIn(rawX);

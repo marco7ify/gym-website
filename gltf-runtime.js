@@ -23,12 +23,13 @@ const classicScripts=[
   "./wall-features.js?v=3",
   "./garage-doors.js?v=2",
   "./app.js?v=86",
+  "./walkthrough-editing.js?v=1",
   "./equipment-models.js?v=5",
   "./garage-door-3d.js?v=1",
-  "./view3d.js?v=41",
+  "./view3d.js?v=42",
   "./panels.js?v=73",
-  "./layout.js?v=86",
-  "./events.js?v=82",
+  "./layout.js?v=87",
+  "./events.js?v=83",
   "./render.js?v=70",
 ];
 
