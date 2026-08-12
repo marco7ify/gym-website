@@ -29,7 +29,7 @@ function extraLedFeature(index){
   };
 }
 
-function createWallFeature3dFixture({walls=true,invalid=false,extraLeds=0,mode="preview",features=null,architecture=false}={}){
+function createWallFeature3dFixture({walls=true,invalid=false,extraLeds=0,mode="preview",features=null,floorZones=null,architecture=false}={}){
   const settings=wallFeature3dSettings();
   const areas=architecture ? [
     {id:"wall_hit_entry",kind:"door",label:"Entry",xFt:12,xIn:6,yFt:0,yIn:0,widthFt:3,widthIn:1,heightFt:1,heightIn:0},
@@ -43,6 +43,7 @@ function createWallFeature3dFixture({walls=true,invalid=false,extraLeds=0,mode="
     garageWallRevision:architecture?1:0,
     areas,
     wallExtensions,
+    floorZones:floorZones||deepCopy(DEFAULT_LAYOUT.floorZones),
     wallFeatures:features||GymWallFeatures.layout3Starter(),
     spatial3d:{...DEFAULT_LAYOUT.spatial3d,walls,wallColor:"black"},
   },settings);
@@ -129,6 +130,62 @@ GymTests.test("recreated Preview and Walkthrough publish the same commanded wall
   GymTests.deepEqual(preview.worldFootprint,{widthFt:6,depthFt:.28,heightFt:5});
   GymTests.equal(preview.builderFailures,"0");
   GymWalkthroughEditing.reset();
+});
+
+GymTests.test("serialized continuity LED preserves its exact Plan, Preview, and Walkthrough transform",()=>{
+  const savedFeature={
+    id:"wf_reload_continuity",
+    kind:"led",
+    label:"Reload continuity LED",
+    wall:"top",
+    startFt:1,startIn:2,
+    bottomFt:5,bottomIn:7,
+    widthFt:3,widthIn:4,
+    heightFt:0,heightIn:2,
+    color:"#7c3aed",
+    brightnessPct:37,
+  };
+  const reloadedFeature=JSON.parse(JSON.stringify(savedFeature));
+  GymTests.deepEqual(reloadedFeature,savedFeature);
+
+  const planRect=GymWallFeatures.planRect(reloadedFeature,{W:19+10/12,L:19.5});
+  GymTests.closeTo(planRect.x,1+2/12,1e-9);
+  GymTests.closeTo(planRect.y,0,1e-9);
+  GymTests.closeTo(planRect.w,3+4/12,1e-9);
+  GymTests.closeTo(planRect.h,.22,1e-9);
+
+  const floorZones=[{
+    id:"reload_continuity_floor",
+    label:"Elevated floor",
+    xFt:0,xIn:0,yFt:0,yIn:0,
+    widthFt:19,widthIn:8,heightFt:3,heightIn:0,
+    elevationIn:4,
+  }];
+  const capture=mode=>{
+    const rendered=createWallFeature3dFixture({features:[reloadedFeature],floorZones,mode});
+    try{
+      const group=rendered.view.wallFeatureGroups.get(savedFeature.id);
+      return {
+        feature:deepCopy(group.userData.wallFeature),
+        focusPoint:{...group.userData.focusPoint},
+        rotationY:group.userData.rotationY,
+        worldFootprint:{...group.userData.worldFootprint},
+        builderFailures:rendered.host.dataset.builderFailures,
+      };
+    }finally{ rendered.destroy(); }
+  };
+  const preview=capture("preview");
+  const walkthrough=capture("walkthrough");
+  GymTests.deepEqual(preview,walkthrough);
+  GymTests.deepEqual(preview.feature,savedFeature);
+  GymTests.closeTo(preview.focusPoint.x,2+10/12,1e-9);
+  GymTests.closeTo(preview.focusPoint.y,6,1e-9);
+  GymTests.closeTo(preview.focusPoint.z,.08,1e-9);
+  GymTests.closeTo(preview.rotationY,0,1e-9);
+  GymTests.closeTo(preview.worldFootprint.widthFt,3+4/12,1e-9);
+  GymTests.closeTo(preview.worldFootprint.depthFt,.28,1e-9);
+  GymTests.closeTo(preview.worldFootprint.heightFt,2/12,1e-9);
+  GymTests.equal(preview.builderFailures,"0");
 });
 
 function wallEditListenerAudit(){

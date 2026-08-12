@@ -26,7 +26,7 @@
     ].some(prefix=>url.startsWith(prefix)));
   const runnerContracts=[
     ["garage-door-3d-runner.html","garage-door-3d-runner.js?v=garage-layout3-fixture-v2"],
-    ["wall-features-3d-runner.html","wall-features-3d-runner.js?v=walkthrough-edit-v1"],
+    ["wall-features-3d-runner.html","wall-features-3d-runner.js?v=walkthrough-edit-round1-v1"],
     ["equipment-dispatch-3d-runner.html","equipment-dispatch-3d-runner.js?v=walkthrough-edit-v1"],
   ];
   const runnerModuleScripts=await Promise.all(runnerContracts.map(async ([html])=>{
@@ -83,7 +83,7 @@
   });
 
   GymTests.test("loads the current inner wall-feature real-Three test at its cache URL",()=>{
-    GymTests.equal(wallInnerScript,"wall-features-3d.test.js?v=walkthrough-edit-v1");
+    GymTests.equal(wallInnerScript,"wall-features-3d.test.js?v=walkthrough-edit-round1-v1");
   });
 
   GymTests.finish();

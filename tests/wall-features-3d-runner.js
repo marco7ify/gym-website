@@ -25,7 +25,7 @@ try{
     "../walkthrough-editing.js?v=1",
     "../garage-door-3d.js?v=1",
     "../view3d.js?v=42",
-    "./wall-features-3d.test.js?v=walkthrough-edit-v1",
+    "./wall-features-3d.test.js?v=walkthrough-edit-round1-v1",
   ]) await loadClassicScript(src);
   GymTests.finish();
 }catch(error){
