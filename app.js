@@ -204,10 +204,6 @@ function formatFtIn(ft){
 /** Split a total-feet value (may be negative for wall extensions) into integer ft + inch. */
 function splitTotalFtToFtIn(totalFt){
   const t = safeNum(totalFt);
-  if(t < 0){
-    // Negative: store as negative ft, 0 inches (avoids confusing -0ft 6in display)
-    return { ft: Math.ceil(t - 1e-9), inch: 0 };
-  }
   let ft = Math.floor(t + 1e-9);
   let inch = (t - ft) * 12;
   if(inch < 1e-6) inch = 0;
@@ -274,16 +270,31 @@ function pointInRoom(x, y, rects){
 }
 
 function rectInsideRoom(rect){
-  const x0 = rect.x, y0 = rect.y, x1 = rect.x + rect.w, y1 = rect.y + rect.h;
-  const pts = [
-    [x0,y0],[x1,y0],[x0,y1],[x1,y1],
-    [(x0+x1)/2,y0],[(x0+x1)/2,y1],[x0,(y0+y1)/2],[x1,(y0+y1)/2],
-    [(x0+x1)/2,(y0+y1)/2],
-  ];
   const r = room();
   const rs = r.validRects || r.rects;
-  for(const [x,y] of pts){
-    if(!pointInRoom(x, y, rs)) return false;
+  const x0=rect.x, y0=rect.y, x1=rect.x+rect.w, y1=rect.y+rect.h;
+  const yBreaks=[y0,y1];
+  for(const zone of rs){
+    const top=zone.y, bottom=zone.y+zone.h;
+    if(top>y0 && top<y1) yBreaks.push(top);
+    if(bottom>y0 && bottom<y1) yBreaks.push(bottom);
+  }
+  yBreaks.sort((a,b)=>a-b);
+  for(let i=0;i<yBreaks.length-1;i++){
+    if(yBreaks[i+1]-yBreaks[i]<=1e-9) continue;
+    const mid=(yBreaks[i]+yBreaks[i+1])/2;
+    const spans=rs
+      .filter(zone=>zone.y<=mid && zone.y+zone.h>=mid)
+      .map(zone=>({start:Math.max(x0,zone.x),end:Math.min(x1,zone.x+zone.w)}))
+      .filter(span=>span.end>=span.start)
+      .sort((a,b)=>a.start-b.start);
+    let covered=x0;
+    for(const span of spans){
+      if(span.start>covered+1e-9) return false;
+      covered=Math.max(covered,span.end);
+      if(covered>=x1-1e-9) break;
+    }
+    if(covered<x1-1e-9) return false;
   }
   return true;
 }
@@ -743,6 +754,15 @@ const MODEL3D_PROFILES = [
   {value:"three-tier-rack", label:"Three-tier dumbbell rack"},
   {value:"adductor-combo", label:"Combo adductor / abductor"},
   {value:"incline-treadmill", label:"Incline treadmill"},
+  {value:"ice-barrel-500", label:"Ice Barrel 500"},
+  {value:"syedee-stair-machine", label:"syedee Stair Machine"},
+  {value:"nordictrack-x16", label:"NordicTrack X16 Treadmill"},
+  {value:"ritfit-gator-bench", label:"RitFit GATOR adjustable bench"},
+  {value:"brightway-hs08-row", label:"Brightway HS08 rowing machine"},
+  {value:"shizhuo-seated-standing-row", label:"Shizhuo seated / standing row"},
+  {value:"wanjia-combo-adductor", label:"Wanjia combo adductor / abductor"},
+  {value:"yindun-three-tier-rack", label:"Yindun three-tier dumbbell rack"},
+  {value:"rogue-echo-rower", label:"Rogue Echo Rower"},
 ];
 
 const MODEL3D_PROFILE_FAMILY = {
@@ -760,7 +780,31 @@ const MODEL3D_PROFILE_FAMILY = {
   "three-tier-rack":"storage-rack",
   "adductor-combo":"adductor",
   "incline-treadmill":"treadmill",
+  "ice-barrel-500":"cold-plunge",
+  "syedee-stair-machine":"stair-climber",
+  "nordictrack-x16":"treadmill",
+  "ritfit-gator-bench":"bench",
+  "brightway-hs08-row":"rowing-machine",
+  "shizhuo-seated-standing-row":"rowing-machine",
+  "wanjia-combo-adductor":"adductor",
+  "yindun-three-tier-rack":"storage-rack",
+  "rogue-echo-rower":"rowing-machine",
 };
+
+const DEDICATED_MODEL_PROFILES = new Set([
+  "ice-barrel-500",
+  "syedee-stair-machine",
+  "nordictrack-x16",
+  "ritfit-gator-bench",
+  "brightway-hs08-row",
+  "shizhuo-seated-standing-row",
+  "wanjia-combo-adductor",
+  "yindun-three-tier-rack",
+  "gazelle-pro",
+  "maxwell-903bh",
+  "rx3-compact-smith",
+  "rogue-echo-rower",
+]);
 
 function inferEquipmentModelFamily(item){
   const text = `${item?.category||""} ${item?.name||""} ${item?.equipmentTypes||""}`.toLowerCase();
@@ -771,7 +815,7 @@ function inferEquipmentModelFamily(item){
   if(/pulley tower|weight stack.*tower|single tower/.test(text)) return "pulley-tower";
   if(/leg press|hack squat/.test(text)) return "leg-press";
   if(/adductor|abductor/.test(text)) return "adductor";
-  if(/rower|rowing|seated.?standing row|seated row|t.?bar.*row|linear row/.test(text)) return "rowing-machine";
+  if(/rower|rowing|seated(?:\s*[-/]\s*|\s+)standing row|seated row|t.?bar.*row|linear row/.test(text)) return "rowing-machine";
   if(/treadmill/.test(text)) return "treadmill";
   if(/bike|cycle/.test(text)) return "bike";
   if(/bench/.test(text)) return "bench";
@@ -791,8 +835,41 @@ function equipmentModelFamilyLabel(value){
   return MODEL3D_FAMILIES.find(x=>x.value===value)?.label || "General selectorized machine";
 }
 
+function normalizedEquipmentModelText(value){
+  return String(value||"").toLowerCase().replace(/\s+/g," ").trim();
+}
+
+function canonicalEquipmentModelText(value){
+  return String(value||"").normalize("NFKD").toLowerCase()
+    .replace(/[\u2010-\u2015\u2212]/g,"-")
+    .replace(/&/g," and ")
+    .replace(/[/-]/g," ")
+    .replace(/[^a-z0-9]+/g," ")
+    .replace(/\s+/g," ").trim();
+}
+
 function inferEquipmentModelProfile(item){
-  const text = `${item?.brand||""} ${item?.name||""} ${item?.category||""}`.toLowerCase();
+  const brand=normalizedEquipmentModelText(item?.brand);
+  const name=normalizedEquipmentModelText(item?.name);
+  const canonicalBrand=canonicalEquipmentModelText(item?.brand);
+  const canonicalName=canonicalEquipmentModelText(item?.name);
+  const text = `${brand} ${name} ${normalizedEquipmentModelText(item?.category)}`.trim();
+  const exact=(expectedBrand,expectedName)=>canonicalBrand===expectedBrand && canonicalName===expectedName;
+  const wanjiaDimensions=()=>{
+    const fp=footprint(item);
+    return Math.abs(fp.L-4.99)<=.02 && Math.abs(fp.W-2.38)<=.02 && Math.abs(fp.H-4.61)<=.02;
+  };
+
+  if(exact("ice barrel","ice barrel 500")) return "ice-barrel-500";
+  if(exact("syedee","stair machine")) return "syedee-stair-machine";
+  if(exact("nordictrack","x16 treadmill")) return "nordictrack-x16";
+  if(exact("ritfit","ritfit gator 1600lb adjustable weight bench")) return "ritfit-gator-bench";
+  if(exact("shandong brightway fitness","hs08 rowing machine")) return "brightway-hs08-row";
+  if(exact("dezhou shizhuo fitness technology co ltd","seated standing row")) return "shizhuo-seated-standing-row";
+  if(exact("shandong wanjia fitness equipment","combo adductor and abductor") && wanjiaDimensions()) return "wanjia-combo-adductor";
+  if(exact("dezhou yindun seiko technology co ltd","three tier dumbbell rack")) return "yindun-three-tier-rack";
+  if(exact("rogue fitness","rogue echo rower")) return "rogue-echo-rower";
+
   if(/rx3 tornado compact smith/.test(text)) return "rx3-compact-smith";
   if(/stair machine|stairmill|stair climber/.test(text)) return "commercial-stair";
   if(/hs08/.test(text)) return "selectorized-seated-row";
@@ -822,8 +899,28 @@ function equipmentModelProfileLabel(value){
   return MODEL3D_PROFILES.find(x=>x.value===value)?.label || "Standard family model";
 }
 
+function equipmentModelVisualHeight(profile,fp,ceilingFt){
+  const measured=Math.max(0,safeNum(fp?.H));
+  const requested=profile==="rogue-echo-rower" ? Math.max(measured,3.25) : measured;
+  return clamp(requested || 3.2,.45,Math.max(.6,safeNum(ceilingFt)+1.5));
+}
+
+function equipmentModelPresentation(profile,hasCustomAsset,fp){
+  const longFaceProfile=!hasCustomAsset && [
+    "maxwell-903bh","infrared-sauna","rx3-compact-smith","compact-smith",
+    "three-tier-rack","yindun-three-tier-rack",
+  ].includes(profile);
+  return {
+    longFaceProfile,
+    modelBase:longFaceProfile
+      ? {w:Math.max(.4,fp.L),h:Math.max(.4,fp.W)}
+      : {w:Math.max(.4,fp.W),h:Math.max(.4,fp.L)},
+    profileFacingRotation:profile==="maxwell-903bh" ? -Math.PI/2 : (longFaceProfile ? Math.PI/2 : 0),
+  };
+}
+
 function itemUsesPhotoMatched3d(item){
-  return !itemHasLocal3dModel(item) && equipmentModelProfile(item)!=="standard";
+  return !itemHasLocal3dModel(item) && DEDICATED_MODEL_PROFILES.has(equipmentModelProfile(item));
 }
 
 function equipmentModelProfilesForItem(item){
@@ -936,6 +1033,7 @@ const DEFAULT_LAYOUT = {
   ceilingZones: [],
   floorZones: [],
   flooringPieces: [],
+  wallFeatures: [],
   // Staging / parking zone size preset. Controls how wide (and sometimes
   // taller) the off-room staging strip is so you can park more equipment
   // there while rearranging. One of "small" | "medium" | "large" | "xlarge".
@@ -955,6 +1053,7 @@ const DEFAULT_LAYOUT = {
   selectedCeilingZoneId: null,
   selectedFloorZoneId: null,
   selectedFlooringId: null,
+  selectedWallFeatureId: null,
   // A single spatial state powers the plan, split, 3D, and walkthrough views.
   // Keeping these preferences with each saved layout makes switching layouts
   // feel predictable without changing the underlying placement data.
@@ -1100,13 +1199,30 @@ function wallExtToRect(ext, baseW, baseL){
   }
 }
 
+function wallFeatureRoomData(layout, settings){
+  const sourceSettings=settings && typeof settings==="object" ? settings : DEFAULT_SETTINGS;
+  const W=settingsRoomWidthTotalFt(sourceSettings);
+  const L=settingsRoomLengthTotalFt(sourceSettings);
+  return {
+    W,
+    L,
+    ceiling:settingsCeilingHeightTotalFt(sourceSettings),
+    rects:[
+      {x:0,y:0,w:W,h:L},
+      ...(Array.isArray(layout?.wallExtensions) ? layout.wallExtensions : []).map(ext=>wallExtToRect(ext,W,L)),
+    ],
+  };
+}
+
 /**
  * Normalize persisted layout data. Pass `settingsForRoomMigration` whenever `state` may not
  * exist yet (e.g. while building initial `state`) so old `roomBlocks` migration does not
  * touch `state` (TDZ ReferenceError).
  */
-function normalizeLayout(l, settingsForRoomMigration){
-  const base = {...DEFAULT_LAYOUT, ...(l||{})};
+function normalizeLayout(l, settingsForRoomMigration, {name="",items=[]}={}){
+  const source=l&&typeof l==="object" ? l : {};
+  const hadWallFeatures=Object.prototype.hasOwnProperty.call(source,"wallFeatures");
+  const base = {...DEFAULT_LAYOUT, ...source};
   base.instances = Array.isArray(base.instances) ? base.instances : [];
   base.areas = Array.isArray(base.areas) ? base.areas : [];
   base.outlets = Array.isArray(base.outlets) ? base.outlets : [];
@@ -1114,6 +1230,8 @@ function normalizeLayout(l, settingsForRoomMigration){
   base.ceilingZones = Array.isArray(base.ceilingZones) ? base.ceilingZones : [];
   base.floorZones = Array.isArray(base.floorZones) ? base.floorZones : [];
   base.flooringPieces = Array.isArray(base.flooringPieces) ? base.flooringPieces : [];
+  base.wallFeatures = Array.isArray(base.wallFeatures) ? base.wallFeatures : [];
+  base.garageWallRevision=Math.max(0,Math.floor(safeNum(base.garageWallRevision)));
   base.spatialViewMode = ["plan", "split", "3d"].includes(base.spatialViewMode) ? base.spatialViewMode : "plan";
   const sourceSpatial3d = base.spatial3d && typeof base.spatial3d === "object" ? base.spatial3d : {};
   base.spatial3d = {
@@ -1240,6 +1358,7 @@ function normalizeLayout(l, settingsForRoomMigration){
 
   base.areas = base.areas.map(a=>{
     const o = {
+      ...(a.kind==="garagedoor"?a:{}),
       id: a.id || uid("area"),
       kind: a.kind || "walkway",
       label: a.label || "",
@@ -1257,7 +1376,11 @@ function normalizeLayout(l, settingsForRoomMigration){
       doorRadiusFt: (a.doorRadiusFt===null || a.doorRadiusFt===undefined || a.doorRadiusFt==="") ? null : safeNum(a.doorRadiusFt),
       doorRadiusIn: Math.max(0, safeNum(a.doorRadiusIn)),
       doorClearEnabled: (a.doorClearEnabled===undefined) ? true : !!a.doorClearEnabled,
+      ...(typeof a.blocksPlacement==="boolean"?{blocksPlacement:a.blocksPlacement}:{}),
+      ...(typeof a.subtractsSpace==="boolean"?{subtractsSpace:a.subtractsSpace}:{}),
     };
+    if(typeof a.blocksPlacement!=="boolean") delete o.blocksPlacement;
+    if(typeof a.subtractsSpace!=="boolean") delete o.subtractsSpace;
     const wRaw = safeNum(o.widthFt) + safeNum(o.widthIn)/12;
     const hRaw = safeNum(o.heightFt) + safeNum(o.heightIn)/12;
     if(wRaw < 0.5 - 1e-9){ o.widthFt = 3; o.widthIn = 0; }
@@ -1270,7 +1393,15 @@ function normalizeLayout(l, settingsForRoomMigration){
     }else if(radFtEmpty){
       o.doorRadiusFt = 0;
     }
-    return o;
+    if(o.kind==="garagedoor"){
+      delete o.doorOrientation;
+      delete o.doorSwing;
+      delete o.doorHinge;
+      delete o.doorRadiusFt;
+      delete o.doorRadiusIn;
+      delete o.doorClearEnabled;
+    }
+    return GymGarageDoors.normalizeArea(a,o);
   });
 
   base.outlets = base.outlets.map(o=>({
@@ -1357,7 +1488,44 @@ function normalizeLayout(l, settingsForRoomMigration){
     price: safeNum(f.price),
   }));
 
-  return base;
+  const wallFeatureRoom=wallFeatureRoomData(base,settingsForRoomMigration || DEFAULT_SETTINGS);
+  const wallFeatureIds=new Set();
+  const freshWallFeatureId=()=>{
+    let id="";
+    do{ id=String(uid("wf")||"").trim(); }while(!id || wallFeatureIds.has(id));
+    return id;
+  };
+  base.wallFeatures=base.wallFeatures
+    .filter(feature=>feature && typeof feature==="object" && GymWallFeatures.KINDS.includes(feature.kind) && GymWallFeatures.SIDES.includes(feature.wall))
+    .map(feature=>{
+      const sourceId=typeof feature.id==="string" ? feature.id.trim() : "";
+      const id=sourceId && !wallFeatureIds.has(sourceId) ? sourceId : freshWallFeatureId();
+      wallFeatureIds.add(id);
+      return GymWallFeatures.normalize({...feature,id},wallFeatureRoom,()=>id,base);
+    });
+  const byId=new Map((items||[]).map(item=>[item.id,item]));
+  const profileKeys=[...new Set(base.instances.map(inst=>byId.get(inst.itemId)).filter(Boolean).map(equipmentModelProfile))].sort();
+  const migrated=GymGarageDoors.migrateLayout3(base,{
+    name,
+    room:wallFeatureRoom,
+    profileKeys,
+    hadWallFeatures,
+    legacyFeatures:GymWallFeatures.layout3LegacyStarter(),
+    starterFeatures:GymWallFeatures.layout3Starter(),
+  });
+  const migratedWallFeatureIds=new Set(migrated.wallFeatures.map(feature=>feature.id));
+  const selectedWallFeatureId=typeof migrated.selectedWallFeatureId==="string"
+    ? migrated.selectedWallFeatureId.trim()
+    : "";
+  migrated.selectedWallFeatureId=migratedWallFeatureIds.has(selectedWallFeatureId)
+    ? selectedWallFeatureId
+    : null;
+
+  return migrated;
+}
+
+function normalizeNamedLayout(name, rawLayout, settings, items=[]){
+  return normalizeLayout(rawLayout,settings,{name,items});
 }
 
 function loadInitialSettings(){
@@ -1429,6 +1597,7 @@ const state = {
   layoutExpandedTab: "general",
   layoutToolsPanelOpen: false,
   layoutFocusMode: false,
+  layoutActionStatus: null,
   layoutWorkspace: LayoutEditorCore.workspaceDefaults(),
   wishlistCategoriesOpen: false,
   exportDialogOpen: false,
@@ -1448,19 +1617,19 @@ const state = {
     state.layouts = lib.map(x=>({
       id: x.id || uid("ly"),
       name: x.name || "Layout",
-      layout: normalizeLayout(x.layout || x.data || x, state.settings),
+      layout: normalizeNamedLayout(x.name, x.layout || x.data || x, state.settings, state.items),
     }));
   } else {
     state.layouts = [{
       id: uid("ly"),
       name: "Layout 1",
-      layout: normalizeLayout(state.layout, state.settings),
+      layout: normalizeLayout(state.layout, state.settings, {name:"Layout 1",items:state.items}),
     }];
   }
 
   state.activeLayoutId = (active && state.layouts.some(x=>x.id===active)) ? active : state.layouts[0].id;
   const activeEntry = state.layouts.find(x=>x.id===state.activeLayoutId) || state.layouts[0];
-  state.layout = normalizeLayout(activeEntry.layout, state.settings);
+  state.layout = normalizeLayout(activeEntry.layout, state.settings, {name:activeEntry.name,items:state.items});
 
   function setActiveLayout(id){
     if(Array.isArray(state.layouts) && state.layouts.length){
@@ -1470,7 +1639,7 @@ const state = {
 
     const next = state.layouts.find(x=>x.id===id) || state.layouts[0];
     state.activeLayoutId = next.id;
-    state.layout = normalizeLayout(next.layout, state.settings);
+    state.layout = normalizeLayout(next.layout, state.settings, {name:next.name,items:state.items});
 
     state.layout.selectedInstId = null;
     state.layout.selectedAreaId = null;
@@ -1478,6 +1647,7 @@ const state = {
     state.layout.selectedWallExtId = null;
     state.layout.selectedCeilingZoneId = null;
     state.layout.selectedFloorZoneId = null;
+    state.layout.selectedWallFeatureId = null;
     state._roomCache = null;
   }
 
@@ -1552,15 +1722,19 @@ function room(){
   return { L: baseL, W: baseW, clearance, rects, validRects: [...rects, staging], bounds, staging, area };
 }
 
+function areaSubtractsSpace(area,settings=state.settings){
+  const enabled=new Set(Array.isArray(settings.reservedAreaKindsSubtractSpace)?settings.reservedAreaKindsSubtractSpace:["walkway","door","garagedoor","nogospace","cutout"]);
+  return GymGarageDoors.subtractsSpace(area,enabled);
+}
+function areaBlocksPlacement(area,settings=state.settings){
+  const enabled=new Set(Array.isArray(settings.reservedAreaKindsBlockPlacement)?settings.reservedAreaKindsBlockPlacement:["walkway","door","garagedoor","nogospace","cutout"]);
+  return GymGarageDoors.blocksPlacement(area,enabled);
+}
+
 function reservedSqFt(){
-  const enabledKinds = new Set(
-    Array.isArray(state.settings.reservedAreaKindsSubtractSpace)
-      ? state.settings.reservedAreaKindsSubtractSpace
-      : ["walkway", "door", "garagedoor", "nogospace", "cutout"]
-  );
   let sum = 0;
   for(const a of (state.layout.areas||[])){
-    if(!enabledKinds.has(a.kind)) continue;
+    if(!areaSubtractsSpace(a)) continue;
     const w = areaWidthTotalFt(a);
     const h = areaHeightTotalFt(a);
     sum += w*h;
@@ -2121,6 +2295,16 @@ function instanceDims(inst, item){
   return inst.rotated ? {w:len, h:wid} : {w:wid, h:len};
 }
 
+function rotatedInstanceCandidate(inst,item){
+  const oldDims=instanceDims(inst,item);
+  const candidate={...inst,rotated:!inst.rotated};
+  const newDims=instanceDims(candidate,item);
+  const x=instXTotalFt(inst)+(oldDims.w-newDims.w)/2;
+  const y=instYTotalFt(inst)+(oldDims.h-newDims.h)/2;
+  const clean=n=>Math.round(n*1200)/1200;
+  return {...candidate,xFt:clean(x),xIn:0,yFt:clean(y),yIn:0};
+}
+
 function deadspaceConfig(inst){
   const r = room();
   const ov = instDeadspaceOverrideTotalFt(inst);
@@ -2236,6 +2420,8 @@ function doorArcPath(a){
 
 function resizeHandles(target, id, rect){
   const hs = 0.35;
+  const safeTarget = escapeAttr(target);
+  const safeId = escapeAttr(id);
   const x0 = rect.x, y0 = rect.y, x1 = rect.x + rect.w, y1 = rect.y + rect.h;
   const xm = (x0+x1)/2, ym = (y0+y1)/2;
 
@@ -2246,7 +2432,7 @@ function resizeHandles(target, id, rect){
   ];
 
   return pts.map(([h,x,y])=>(
-    `<rect data-resize="${target}" data-id="${id}" data-handle="${h}" x="${x - hs/2}" y="${y - hs/2}" width="${hs}" height="${hs}" class="handle" />`
+    `<rect data-resize="${safeTarget}" data-id="${safeId}" data-handle="${escapeAttr(h)}" x="${x - hs/2}" y="${y - hs/2}" width="${hs}" height="${hs}" class="handle" />`
   )).join("");
 }
 
@@ -2404,14 +2590,8 @@ function isInvalidPlacement(instId, baseRect, effRect){
   // If fully in staging/parking zone, allow free overlap (acts like a holding area)
   if(rectInsideRect(baseRect, r.staging || layoutStagingRect(r))) return false;
   
-  const blockedKinds = new Set(
-    Array.isArray(state.settings.reservedAreaKindsBlockPlacement)
-      ? state.settings.reservedAreaKindsBlockPlacement
-      : ["walkway", "door", "garagedoor", "nogospace", "cutout"]
-  );
-  
   for(const a of state.layout.areas||[]){
-    if(!blockedKinds.has(a.kind)) continue;
+    if(!areaBlocksPlacement(a)) continue;
     if(rectsOverlap(baseRect, areaRect(a))) return true;
     const dc = doorClearanceRect(a);
     if(dc && rectsOverlap(baseRect, dc)) return true;
@@ -2430,37 +2610,45 @@ function isInvalidPlacement(instId, baseRect, effRect){
 // another item's body (or a hard-blocked area). This is the ONLY condition that
 // causes a drag to snap back. Halo/clearance overlap alone is a soft warning so
 // users can still stick items to walls even when clearance zones touch.
-function isHardInvalidPlacement(instId, baseRect){
+function hardPlacementConflict(instId, baseRect){
   const r = room();
-  if(!rectInsideRoom(baseRect)) return true;
+  if(!rectInsideRoom(baseRect)){
+    return {kind:"outside-room", message:"Can’t rotate here — the equipment would extend outside the room."};
+  }
   // Free-placement zone: anything inside staging is always hard-valid.
-  if(rectInsideRect(baseRect, r.staging || layoutStagingRect(r))) return false;
-
-  const blockedKinds = new Set(
-    Array.isArray(state.settings.reservedAreaKindsBlockPlacement)
-      ? state.settings.reservedAreaKindsBlockPlacement
-      : ["walkway", "door", "garagedoor", "nogospace", "cutout"]
-  );
+  if(rectInsideRect(baseRect, r.staging || layoutStagingRect(r))) return null;
 
   for(const a of state.layout.areas||[]){
-    if(!blockedKinds.has(a.kind)) continue;
-    if(rectsOverlap(baseRect, areaRect(a))) return true;
+    if(!areaBlocksPlacement(a)) continue;
+    const areaName=String(a.label||"").trim() || kindMeta(a.kind).label;
+    if(rectsOverlap(baseRect, areaRect(a))){
+      return {kind:"reserved-area", areaId:a.id, message:`Can’t rotate here — it would overlap ${areaName}.`};
+    }
     const dc = doorClearanceRect(a);
-    if(dc && rectsOverlap(baseRect, dc)) return true;
+    if(dc && rectsOverlap(baseRect, dc)){
+      return {kind:"door-clearance", areaId:a.id, message:`Can’t rotate here — it would block the clearance for ${areaName}.`};
+    }
   }
   for(const other of state.layout.instances||[]){
     if(other.id===instId) continue;
     const it = getItemById(other.itemId);
     if(!it) continue;
-    const otherBase = {
-      x: instXTotalFt(other),
-      y: instYTotalFt(other),
-      w: instanceDims(other, it).w,
-      h: instanceDims(other, it).h,
-    };
-    if(rectsOverlap(baseRect, otherBase)) return true;
+    const otherBase=effectiveRectForInst(other, it).base;
+    if(rectsOverlap(baseRect, otherBase)){
+      const itemName=String(it.name||"").trim() || "another item";
+      return {
+        kind:"equipment-overlap",
+        instanceId:other.id,
+        itemId:other.itemId,
+        message:`Can’t rotate here — it would overlap ${itemName}.`,
+      };
+    }
   }
-  return false;
+  return null;
+}
+
+function isHardInvalidPlacement(instId, baseRect){
+  return !!hardPlacementConflict(instId, baseRect);
 }
 
 function snap(v){
@@ -2506,20 +2694,25 @@ function captureFocus(){
   const el = document.activeElement;
   if(!el) return null;
   const tag = (el.tagName||"").toLowerCase();
-  if(!["input","textarea","select"].includes(tag)) return null;
+  const textControl=["input","textarea","select"].includes(tag);
+  const focusKey=el.dataset?.focusKey || "";
+  const hasStableButtonTarget=tag==="button" && !!(el.id || focusKey || (el.dataset?.action && el.dataset?.id));
+  if(!textControl && !hasStableButtonTarget) return null;
 
-  const info = { tag, id: el.id || null, selector: null, selection: null };
+  const info = { tag, id: el.id || null, focusKey: focusKey || null, selector: null, selection: null };
   if(!info.id){
-    const act = el.dataset && el.dataset.action ? el.dataset.action : "";
-    const did = el.dataset && el.dataset.id ? el.dataset.id : "";
-    if(act || did){
-      const parts = [];
-      if(act) parts.push(`[data-action="${cssEscapeAttrForSelector(act)}"]`);
-      if(did) parts.push(`[data-id="${cssEscapeAttrForSelector(did)}"]`);
-      info.selector = parts.join("");
+    if(!info.focusKey){
+      const act = el.dataset && el.dataset.action ? el.dataset.action : "";
+      const did = el.dataset && el.dataset.id ? el.dataset.id : "";
+      if(act || did){
+        const parts = [];
+        if(act) parts.push(`[data-action="${cssEscapeAttrForSelector(act)}"]`);
+        if(did) parts.push(`[data-id="${cssEscapeAttrForSelector(did)}"]`);
+        info.selector = parts.join("");
+      }
     }
   }
-  if(typeof el.selectionStart === "number"){
+  if(textControl && typeof el.selectionStart === "number"){
     info.selection = { start: el.selectionStart, end: el.selectionEnd, dir: el.selectionDirection || "none" };
   }
   return info;
@@ -2529,6 +2722,7 @@ function restoreFocus(info){
   if(!info) return;
   let el = null;
   if(info.id) el = document.getElementById(info.id);
+  else if(info.focusKey) el = document.querySelector(`[data-focus-key="${cssEscapeAttrForSelector(info.focusKey)}"]`);
   else if(info.selector) el = document.querySelector(info.selector);
 
   if(el){
@@ -2586,6 +2780,7 @@ function clearAllSelections(){
   state.layout.selectedCeilingZoneId = null;
   state.layout.selectedFloorZoneId = null;
   state.layout.selectedFlooringId = null;
+  state.layout.selectedWallFeatureId = null;
 }
 
 function placementPoint(inst,x,y){

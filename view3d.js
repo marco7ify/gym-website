@@ -59,6 +59,54 @@ function frameSelectedGym3D(){
   if(view) view.frameSelected();
 }
 
+function segmentRectRoomInterval(start,end,rect){
+  const epsilon=1e-9;
+  let enter=0,exit=1;
+  for(const [origin,delta,min,max] of [
+    [start.x,end.x-start.x,rect.x,rect.x+rect.w],
+    [start.z,end.z-start.z,rect.y,rect.y+rect.h],
+  ]){
+    if(Math.abs(delta)<=epsilon){
+      if(origin<min-epsilon || origin>max+epsilon) return null;
+      continue;
+    }
+    let a=(min-origin)/delta,b=(max-origin)/delta;
+    if(a>b) [a,b]=[b,a];
+    enter=Math.max(enter,a);
+    exit=Math.min(exit,b);
+    if(enter>exit+epsilon) return null;
+  }
+  return [Math.max(0,enter),Math.min(1,exit)];
+}
+
+function segmentCoveredByRoomRects(start,end,rects){
+  const epsilon=1e-9;
+  const intervals=(rects||[])
+    .map(rect=>segmentRectRoomInterval(start,end,rect))
+    .filter(Boolean)
+    .sort((a,b)=>a[0]-b[0] || b[1]-a[1]);
+  let covered=0;
+  for(const [from,to] of intervals){
+    if(from>covered+epsilon) return false;
+    covered=Math.max(covered,to);
+    if(covered>=1-epsilon) return true;
+  }
+  return false;
+}
+
+function segmentHasRoomClearance(start,end,rects,clearance=.22){
+  const offsets=[
+    [0,0],
+    [clearance,0],[-clearance,0],
+    [0,clearance],[0,-clearance],
+  ];
+  return offsets.every(([dx,dz])=>segmentCoveredByRoomRects(
+    {x:start.x+dx,z:start.z+dz},
+    {x:end.x+dx,z:end.z+dz},
+    rects,
+  ));
+}
+
 class Gym3DView {
   constructor(host, mode){
     this.host = host;
@@ -126,8 +174,24 @@ class Gym3DView {
 
     this.disposables = [];
     this.clickTargets = [];
+    this.wallEditSurfaces = [];
+    this.wallEditPreview = null;
+    this.wallEditPreviewPlane = null;
     this.itemGroups = new Map();
     this.areaGroups = new Map();
+    this.wallFeatureGroups = new Map();
+    this.rawBoundarySegments=GymGarageDoors.boundarySegments(this.roomData.rects);
+    this.garageDoorGroups=new Map();
+    this.garageDoorWarnings=[];
+    this.garageDoorMinimapSegments=[];
+    this.resolvedGarageDoors=this.resolveGarageDoorAreas();
+    this.standardDoorModelCount=0;
+    this.garageDoorModelCount=0;
+    this.garageDoorFallbackCount=0;
+    this.garageDoorPanelCount=0;
+    this.garageDoorTrackPairCount=0;
+    this.invalidWallFeatureWarning = "";
+    this.featurePointLights = 0;
     this.doorCollisionSegments = [];
     this.labelSprites = new Map();
     this.hoveredInstId = null;
@@ -135,9 +199,19 @@ class Gym3DView {
     this.keys = new Set();
     this.drag = null;
     this.lookDrag = null;
+    this.editPointerDown = null;
     this.walkActive = false;
     this.reconstructedModelCount = 0;
     this.host.dataset.reconstructedModels = "0";
+    this.dedicatedModelCount = 0;
+    this.builderFailureCount = 0;
+    this.modelProfileKeys = new Set();
+    this.modelBuilderKeys = new Set();
+    this.builderFallbackWarnings = [];
+    this.host.dataset.dedicatedModels = "0";
+    this.host.dataset.builderFailures = "0";
+    this.host.dataset.modelProfiles = "";
+    this.host.dataset.modelBuilders = "";
     this.customAssetModelCount = 0;
     this.customAssetErrorCount = 0;
     this.customAssetRequestedCount = this.roomInstances.filter(inst=>itemHasLocal3dModel(getItemById(inst.itemId))).length;
@@ -154,7 +228,11 @@ class Gym3DView {
     this.addEnvironment();
     this.addLights();
     this.buildRoom();
+    this.buildWallEditPreview();
     this.buildDoors();
+    this.buildGarageDoors();
+    this.publishDoorDiagnostics();
+    this.buildWallFeatures();
     this.buildZones();
     this.buildEquipment();
     this.buildOutlets();
@@ -164,7 +242,7 @@ class Gym3DView {
 
     const loading = this.host.querySelector(".gym3dLoading");
     if(loading) loading.remove();
-    if(this.mode === "walkthrough") this.activateWalkthrough();
+    if(this.mode === "walkthrough") this.setWalkthroughEditMode(this.walkthroughEditingState().mode);
     this.updateWarnings();
     this.host.dataset.renderQuality = "studio-pbr";
     this.animate();
@@ -284,6 +362,15 @@ class Gym3DView {
     return geometry;
   }
 
+  applyPartMetadata(mesh,options={}){
+    if(options.instId) mesh.userData.instId=options.instId;
+    if(options.partTag) mesh.userData.partTag=String(options.partTag);
+    if(options.side!==undefined) mesh.userData.side=String(options.side);
+    if(options.partIndex!==undefined) mesh.userData.partIndex=Number(options.partIndex);
+    if(options.instId) this.clickTargets.push(mesh);
+    return mesh;
+  }
+
   box(parent, size, position, material, options={}){
     const mesh = new THREE.Mesh(this.geometry(new THREE.BoxGeometry(size.x, size.y, size.z)), material);
     mesh.position.set(position.x, position.y, position.z);
@@ -292,10 +379,7 @@ class Gym3DView {
     if(options.rotationX) mesh.rotation.x = options.rotationX;
     if(options.rotationY) mesh.rotation.y = options.rotationY;
     if(options.rotationZ) mesh.rotation.z = options.rotationZ;
-    if(options.instId){
-      mesh.userData.instId = options.instId;
-      this.clickTargets.push(mesh);
-    }
+    this.applyPartMetadata(mesh,options);
     parent.add(mesh);
     return mesh;
   }
@@ -309,10 +393,7 @@ class Gym3DView {
     mesh.rotation.set(options.rotationX||0,options.rotationY||0,options.rotationZ||0);
     mesh.castShadow = options.castShadow !== false;
     mesh.receiveShadow = options.receiveShadow !== false;
-    if(options.instId){
-      mesh.userData.instId = options.instId;
-      this.clickTargets.push(mesh);
-    }
+    this.applyPartMetadata(mesh,options);
     parent.add(mesh);
     return mesh;
   }
@@ -330,10 +411,7 @@ class Gym3DView {
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),direction.normalize());
     mesh.castShadow=options.castShadow!==false;
     mesh.receiveShadow=options.receiveShadow!==false;
-    if(options.instId){
-      mesh.userData.instId=options.instId;
-      this.clickTargets.push(mesh);
-    }
+    this.applyPartMetadata(mesh,options);
     parent.add(mesh);
     return mesh;
   }
@@ -351,10 +429,25 @@ class Gym3DView {
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),direction.normalize());
     mesh.castShadow=options.castShadow!==false;
     mesh.receiveShadow=options.receiveShadow!==false;
-    if(options.instId){
-      mesh.userData.instId=options.instId;
-      this.clickTargets.push(mesh);
-    }
+    this.applyPartMetadata(mesh,options);
+    parent.add(mesh);
+    return mesh;
+  }
+
+  extrudedPanel(parent,points,depth,position,material,options={}){
+    const shape=new THREE.Shape();
+    points.forEach((point,index)=>index
+      ? shape.lineTo(point.x,point.y)
+      : shape.moveTo(point.x,point.y));
+    shape.closePath();
+    const geometry=this.geometry(new THREE.ExtrudeGeometry(shape,{depth,bevelEnabled:false,steps:1,curveSegments:1}));
+    geometry.translate(0,0,-depth/2);
+    const mesh=new THREE.Mesh(geometry,material);
+    mesh.position.set(position.x,position.y,position.z);
+    mesh.rotation.set(options.rotationX||0,options.rotationY||0,options.rotationZ||0);
+    mesh.castShadow=options.castShadow!==false;
+    mesh.receiveShadow=options.receiveShadow!==false;
+    this.applyPartMetadata(mesh,options);
     parent.add(mesh);
     return mesh;
   }
@@ -492,13 +585,24 @@ class Gym3DView {
       this.roomTrimMaterial=trimMat;
       this.roomWallHeight=wallHeight;
       this.roomBoundarySegments().forEach(seg=>{
+        let wall;
         if(seg.axis === "x"){
-          this.box(this.scene, {x:seg.length, y:wallHeight, z:0.16}, {x:seg.mid, y:wallHeight/2, z:seg.fixed}, wallMat);
+          wall=this.box(this.scene, {x:seg.length, y:wallHeight, z:0.16}, {x:seg.mid, y:wallHeight/2, z:seg.fixed}, wallMat);
           this.box(this.scene, {x:seg.length, y:0.18, z:0.21}, {x:seg.mid, y:0.09, z:seg.fixed}, trimMat, {castShadow:false});
         }else{
-          this.box(this.scene, {x:0.16, y:wallHeight, z:seg.length}, {x:seg.fixed, y:wallHeight/2, z:seg.mid}, wallMat);
+          wall=this.box(this.scene, {x:0.16, y:wallHeight, z:seg.length}, {x:seg.fixed, y:wallHeight/2, z:seg.mid}, wallMat);
           this.box(this.scene, {x:0.21, y:0.18, z:seg.length}, {x:seg.fixed, y:0.09, z:seg.mid}, trimMat, {castShadow:false});
         }
+        wall.userData.wallEdit={
+          wall:seg.wall,
+          axis:seg.axis,
+          fixed:seg.fixed,
+          start:seg.start,
+          end:seg.end,
+          inwardX:seg.inwardX,
+          inwardZ:seg.inwardZ,
+        };
+        this.wallEditSurfaces.push(wall);
       });
     }
 
@@ -520,6 +624,33 @@ class Gym3DView {
     }else{
       this.host.dataset.ceilingFixtures="0";
     }
+  }
+
+  buildWallEditPreview(){
+    this.host.dataset.walkthroughMode=this.mode==="walkthrough"?this.walkthroughEditingState().mode:"";
+    this.host.dataset.wallTool="";
+    this.host.dataset.wallHitValid="false";
+    if(this.mode!=="walkthrough") return;
+    const group=new THREE.Group();
+    const geometry=this.geometry(new THREE.PlaneGeometry(1,1));
+    const material=new THREE.MeshBasicMaterial({
+      color:0x38bdf8,
+      transparent:true,
+      opacity:.34,
+      depthWrite:false,
+      side:THREE.DoubleSide,
+    });
+    this.disposables.push(material);
+    const plane=new THREE.Mesh(geometry,material);
+    plane.castShadow=false;
+    plane.receiveShadow=false;
+    plane.renderOrder=20;
+    plane.userData.wallEditPreview=true;
+    group.add(plane);
+    group.visible=false;
+    this.scene.add(group);
+    this.wallEditPreview=group;
+    this.wallEditPreviewPlane=plane;
   }
 
   addCeilingFixtures(){
@@ -586,29 +717,51 @@ class Gym3DView {
     this.scene.add(new THREE.LineSegments(geometry, material));
   }
 
+  addGarageDoorWarning(message){
+    const text=String(message||"").trim();
+    if(text&&!this.garageDoorWarnings.includes(text)) this.garageDoorWarnings.push(text);
+  }
+
+  resolveGarageDoorAreas(){
+    return (state.layout.areas||[]).filter(area=>area.kind==="garagedoor").map(area=>{
+      const rect=areaRect(area);
+      const raw=GymGarageDoors.resolveOpening(rect,this.rawBoundarySegments,{areaId:area.id,label:area.label});
+      if(!raw.ok){
+        this.addGarageDoorWarning(`${area.label||"Garage door"}: ${raw.message}`);
+        return {area,rect,resolution:raw};
+      }
+      const resolution={
+        ...raw,
+        centerX:raw.axis==="z"?raw.fixed:(raw.start+raw.end)/2,
+        centerZ:raw.axis==="x"?raw.fixed:(raw.start+raw.end)/2,
+      };
+      return {area,rect,resolution};
+    });
+  }
+
+  garageDoorTrackDepth(resolution,maxFt=8){
+    if(!resolution?.ok) return 0;
+    const maximum=Math.max(0,safeNum(maxFt));
+    const margin=.25;
+    const step=.05;
+    let insideDistance=0;
+    for(let distance=.01;distance<=maximum+margin+step;distance+=step){
+      const x=resolution.centerX+resolution.inwardX*distance;
+      const z=resolution.centerZ+resolution.inwardZ*distance;
+      if(!pointInRoom(x,z,this.roomData.rects)) break;
+      insideDistance=distance;
+    }
+    if(insideDistance>=maximum+margin-.01) return maximum;
+    return Math.max(0,Math.min(maximum,insideDistance-margin));
+  }
+
   roomBoundarySegments(){
-    const rects = this.roomData.rects;
-    const xs = [...new Set(rects.flatMap(r=>[r.x,r.x+r.w]))].sort((a,b)=>a-b);
-    const zs = [...new Set(rects.flatMap(r=>[r.y,r.y+r.h]))].sort((a,b)=>a-b);
-    const result = [];
-    const eps = 0.002;
-    xs.forEach(x=>{
-      for(let i=0;i<zs.length-1;i++){
-        const a=zs[i], b=zs[i+1], mid=(a+b)/2;
-        const left=pointInRoom(x-eps,mid,rects), right=pointInRoom(x+eps,mid,rects);
-        if(left !== right) result.push({axis:"z",fixed:x,mid,length:b-a});
-      }
-    });
-    zs.forEach(z=>{
-      for(let i=0;i<xs.length-1;i++){
-        const a=xs[i], b=xs[i+1], mid=(a+b)/2;
-        const top=pointInRoom(mid,z-eps,rects), bottom=pointInRoom(mid,z+eps,rects);
-        if(top !== bottom) result.push({axis:"x",fixed:z,mid,length:b-a});
-      }
-    });
-    const openings=(state.layout.areas||[])
-      .filter(area=>area.kind==="door" || area.kind==="garagedoor")
+    const standardOpenings=(state.layout.areas||[])
+      .filter(area=>area.kind==="door")
       .map(area=>areaRect(area));
+    const garageOpenings=this.resolvedGarageDoors
+      .filter(entry=>entry.resolution.ok)
+      .map(entry=>entry.resolution);
     const subtractRange=(ranges,start,end)=>{
       const out=[];
       ranges.forEach(([a,b])=>{
@@ -619,10 +772,10 @@ class Gym3DView {
       return out;
     };
     const split=[];
-    result.filter(s=>s.length>0.01).forEach(seg=>{
-      const start=seg.mid-seg.length/2,end=seg.mid+seg.length/2;
+    this.rawBoundarySegments.filter(s=>s.length>0.01).forEach(seg=>{
+      const start=seg.start,end=seg.end;
       let ranges=[[start,end]];
-      openings.forEach(opening=>{
+      standardOpenings.forEach(opening=>{
         if(seg.axis==="x"){
           const touches=Math.abs(seg.fixed-opening.y)<.03 || Math.abs(seg.fixed-(opening.y+opening.h))<.03;
           if(touches) ranges=subtractRange(ranges,opening.x,opening.x+opening.w);
@@ -631,7 +784,12 @@ class Gym3DView {
           if(touches) ranges=subtractRange(ranges,opening.y,opening.y+opening.h);
         }
       });
-      ranges.filter(([a,b])=>b-a>.01).forEach(([a,b])=>split.push({...seg,mid:(a+b)/2,length:b-a}));
+      garageOpenings.forEach(opening=>{
+        if(opening.axis===seg.axis&&Math.abs(opening.fixed-seg.fixed)<.03){
+          ranges=subtractRange(ranges,opening.start,opening.end);
+        }
+      });
+      ranges.filter(([a,b])=>b-a>.01).forEach(([a,b])=>split.push({...seg,start:a,end:b,mid:(a+b)/2,length:b-a}));
     });
     return split;
   }
@@ -675,8 +833,9 @@ class Gym3DView {
 
   buildDoors(){
     const doors=(state.layout.areas||[]).filter(area=>area.kind==="door");
+    this.standardDoorModelCount=0;
     if(!doors.length){
-      this.host.dataset.doorModels="0";
+      this.host.dataset.standardDoorModels="0";
       return;
     }
     const slabMaterial=this.material({
@@ -815,9 +974,266 @@ class Gym3DView {
       assembly.userData.floorElevationFt=baseY;
       count++;
     });
-    this.host.dataset.doorModels=String(count);
+    this.standardDoorModelCount=count;
     this.host.dataset.standardDoorModels=String(count);
+  }
+
+  disposeGarageDoorStage(root,disposablesStart,protectedResources){
+    const protectedSet=new Set(
+      protectedResources instanceof Set
+        ? protectedResources
+        : Array.isArray(protectedResources)
+          ? protectedResources
+          : Object.values(protectedResources||{})
+    );
+    const stagedObjects=new Set();
+    const stagedGeometries=new Set();
+    root?.traverse?.(object=>{
+      stagedObjects.add(object);
+      if(object.geometry) stagedGeometries.add(object.geometry);
+    });
+    const stagedResources=new Set(this.disposables.slice(Math.max(0,disposablesStart)));
+    const disposed=new Set();
+    stagedGeometries.forEach(geometry=>{
+      if(protectedSet.has(geometry)) return;
+      geometry.dispose?.();
+      disposed.add(geometry);
+    });
+    stagedResources.forEach(resource=>{
+      if(protectedSet.has(resource)||disposed.has(resource)) return;
+      resource?.dispose?.();
+      disposed.add(resource);
+    });
+    this.disposables=this.disposables.filter(resource=>!disposed.has(resource));
+    this.clickTargets=this.clickTargets.filter(target=>!stagedObjects.has(target));
+    root?.removeFromParent?.();
+    return disposed.size;
+  }
+
+  buildGarageDoors(){
+    this.garageDoorModelCount=0;
+    this.garageDoorFallbackCount=0;
+    this.garageDoorPanelCount=0;
+    this.garageDoorTrackPairCount=0;
+    this.resolvedGarageDoors.filter(entry=>entry.resolution.ok).forEach(({area,resolution})=>{
+      const assembly=new THREE.Group();
+      const floorFt=this.floorElevationAt(
+        resolution.centerX+resolution.inwardX*.2,
+        resolution.centerZ+resolution.inwardZ*.2,
+      );
+      const heightFt=Math.max(.5,safeNum(area.garageDoorHeightFt)+safeNum(area.garageDoorHeightIn)/12);
+      assembly.position.set(resolution.centerX,floorFt,resolution.centerZ);
+      assembly.rotation.y=resolution.rotationY;
+      assembly.userData.areaId=area.id;
+
+      const resources=GymGarageDoor3D.prepareResources(this,area.garageDoorColor);
+      const protectedResources=new Set([
+        ...Object.values(resources),
+        this.roomWallMaterial,
+        this.roomTrimMaterial,
+      ].filter(Boolean));
+      const spec={
+        areaId:area.id,
+        widthFt:resolution.widthFt,
+        heightFt,
+        ceilingFt:Math.max(0,this.ceiling-floorFt),
+        floorFt:0,
+        trackDepthFt:this.garageDoorTrackDepth(resolution),
+        color:area.garageDoorColor,
+        boundary:resolution,
+        wallMaterial:this.roomWallMaterial||null,
+        preview:this.mode==="preview",
+        resources,
+      };
+
+      let staged=new THREE.Group();
+      staged.name="garage-door-detail-stage";
+      assembly.add(staged);
+      const disposablesStart=this.disposables.length;
+      let result;
+      let fallback=false;
+      try{
+        result=GymGarageDoor3D.buildRaisedPanel(this,staged,spec);
+      }catch(error){
+        this.disposeGarageDoorStage(staged,disposablesStart,protectedResources);
+        this.addGarageDoorWarning(`${area.label||"Garage door"}: detailed 3D model unavailable — using closed fallback.`);
+        staged=new THREE.Group();
+        staged.name="garage-door-fallback-stage";
+        assembly.add(staged);
+        result=GymGarageDoor3D.buildFallback(this,staged,spec);
+        fallback=true;
+      }
+
+      assembly.updateMatrixWorld(true);
+      const focusPoint=assembly.localToWorld(new THREE.Vector3(0,heightFt*.46,.35));
+      assembly.userData.modelType=result.modelType;
+      assembly.userData.boundaryMounted=true;
+      assembly.userData.boundaryWall=resolution.wall;
+      assembly.userData.garageBoundary=resolution;
+      assembly.userData.rotationY=resolution.rotationY;
+      assembly.userData.focusPoint={x:focusPoint.x,y:focusPoint.y,z:focusPoint.z};
+      assembly.userData.worldFootprint={widthFt:resolution.widthFt,depthFt:2/12,heightFt};
+      assembly.userData.openingWidthFt=resolution.widthFt;
+      assembly.userData.doorHeightFt=heightFt;
+      assembly.userData.floorElevationFt=floorFt;
+      assembly.userData.fallback=fallback;
+      assembly.userData.panelCount=safeNum(result.panelCount);
+      assembly.userData.trackPairs=safeNum(result.trackPairs);
+      assembly.userData.meshCount=safeNum(result.meshCount);
+      assembly.userData.shadowCasterCount=safeNum(result.shadowCasterCount);
+      assembly.userData.interiorInsetFt=safeNum(result.interiorInsetFt);
+
+      this.scene.add(assembly);
+      this.areaGroups.set(area.id,assembly);
+      this.garageDoorGroups.set(area.id,assembly);
+      this.garageDoorMinimapSegments.push({areaId:area.id,group:assembly});
+      this.garageDoorModelCount++;
+      this.garageDoorFallbackCount+=fallback?1:0;
+      this.garageDoorPanelCount+=safeNum(result.panelCount);
+      this.garageDoorTrackPairCount+=safeNum(result.trackPairs);
+    });
+  }
+
+  publishDoorDiagnostics(){
+    const standardOpenings=(state.layout.areas||[]).filter(area=>area.kind==="door").length;
+    const garageOpenings=this.resolvedGarageDoors.filter(entry=>entry.resolution.ok).length;
+    const invalidGarages=this.resolvedGarageDoors.length-garageOpenings;
+    this.host.dataset.doorOpenings=String(standardOpenings+this.resolvedGarageDoors.length);
+    this.host.dataset.standardDoorOpenings=String(standardOpenings);
+    this.host.dataset.garageDoorOpenings=String(garageOpenings);
+    this.host.dataset.doorModels=String(this.standardDoorModelCount+this.garageDoorModelCount);
+    this.host.dataset.standardDoorModels=String(this.standardDoorModelCount);
+    this.host.dataset.garageDoorModels=String(this.garageDoorModelCount);
     this.host.dataset.doorColliders=String(this.doorCollisionSegments.length);
+    this.host.dataset.invalidGarageDoors=String(invalidGarages);
+    this.host.dataset.garageDoorFallbacks=String(this.garageDoorFallbackCount);
+    this.host.dataset.garageDoorPanels=String(this.garageDoorPanelCount);
+    this.host.dataset.garageDoorTrackPairs=String(this.garageDoorTrackPairCount);
+  }
+
+  buildWallFeatures(){
+    const counts={wall:0,mirror:0,slat:0,led:0,invalid:0};
+    const publish=()=>{
+      this.host.dataset.wallFeatures=String(counts.wall);
+      this.host.dataset.mirrorFeatures=String(counts.mirror);
+      this.host.dataset.slatFeatures=String(counts.slat);
+      this.host.dataset.ledFeatures=String(counts.led);
+      this.host.dataset.invalidWallFeatures=String(counts.invalid);
+      this.host.dataset.wallFeatureLights=String(this.featurePointLights);
+    };
+    if(!this.settings.walls){
+      publish();
+      return;
+    }
+
+    const roomData={...this.roomData,ceiling:this.ceiling};
+    (state.layout.wallFeatures||[]).forEach(feature=>{
+      const validation=GymWallFeatures.validate(feature,state.layout,roomData);
+      if(!validation.valid){
+        counts.invalid++;
+        if(!this.invalidWallFeatureWarning){
+          const name=feature.label || ({mirror:"Mirror",slat:"Wood slat panel",led:"LED strip"})[feature.kind] || "Wall feature";
+          this.invalidWallFeatureWarning=`${name}: ${validation.reasons[0]?.message||"invalid placement"}`;
+        }
+        return;
+      }
+
+      const transform=GymWallFeatures.worldTransform(feature,roomData,state.layout);
+      const group=new THREE.Group();
+      group.position.set(transform.x,transform.y,transform.z);
+      group.rotation.y=transform.rotationY;
+      group.userData.wallFeatureId=feature.id;
+      group.userData.wallFeature=feature;
+      group.userData.rotationY=transform.rotationY;
+      group.userData.worldFootprint={widthFt:transform.width,depthFt:.28,heightFt:transform.height};
+      group.userData.focusPoint={x:transform.x,y:transform.y,z:transform.z};
+      group.userData.selectionMaterials=[];
+      this.scene.add(group);
+
+      if(feature.kind==="mirror") this.buildMirrorWallFeature(group,feature,transform);
+      else if(feature.kind==="slat") this.buildSlatWallFeature(group,feature,transform);
+      else this.buildLedWallFeature(group,feature,transform);
+
+      group.traverse(object=>{
+        if(!object.isMesh) return;
+        object.userData.wallFeatureId=feature.id;
+        this.clickTargets.push(object);
+      });
+      this.wallFeatureGroups.set(feature.id,group);
+      counts.wall++;
+      counts[feature.kind]++;
+    });
+    publish();
+  }
+
+  buildMirrorWallFeature(group,feature,transform){
+    const backer=this.material({color:0x20262c,roughness:.72,metalness:.18,envMapIntensity:.42});
+    const frame=this.material({color:0xaeb9c3,roughness:.24,metalness:.86,envMapIntensity:1.16});
+    const face=new THREE.MeshPhysicalMaterial({
+      color:feature.color||0xcbd5e1,
+      metalness:1,
+      roughness:.04,
+      clearcoat:1,
+      clearcoatRoughness:.035,
+      envMap:this.scene.environment||null,
+      envMapIntensity:1.45,
+    });
+    face.userData.baseEmissive=face.emissive?.getHex?.()||0;
+    face.userData.baseEmissiveIntensity=safeNum(face.emissiveIntensity);
+    this.disposables.push(face);
+
+    const width=transform.width,height=transform.height;
+    const frameSize=Math.min(.09,Math.max(.045,Math.min(width,height)*.022));
+    this.box(group,{x:width,y:height,z:1/12},{x:0,y:0,z:1/24},backer,{castShadow:false});
+    this.box(group,{x:Math.max(.02,width-frameSize*2),y:Math.max(.02,height-frameSize*2),z:.018},{x:0,y:0,z:.095},face,{castShadow:false});
+    this.box(group,{x:width,y:frameSize,z:.105},{x:0,y:height/2-frameSize/2,z:.078},frame,{castShadow:false});
+    this.box(group,{x:width,y:frameSize,z:.105},{x:0,y:-height/2+frameSize/2,z:.078},frame,{castShadow:false});
+    this.box(group,{x:frameSize,y:Math.max(.02,height-frameSize*2),z:.105},{x:-width/2+frameSize/2,y:0,z:.078},frame,{castShadow:false});
+    this.box(group,{x:frameSize,y:Math.max(.02,height-frameSize*2),z:.105},{x:width/2-frameSize/2,y:0,z:.078},frame,{castShadow:false});
+    group.userData.selectionMaterials.push(backer,frame);
+  }
+
+  buildSlatWallFeature(group,feature,transform){
+    const felt=this.material({color:0x242a2f,roughness:.96,metalness:0,envMapIntensity:.12});
+    const wood=this.material({color:feature.color||0x8f5f3a,roughness:.62,metalness:.015,envMapIntensity:.4});
+    const width=transform.width,height=transform.height;
+    const slatCount=clamp(Math.round(width/(2.5/12)),3,60);
+    const center=width/slatCount;
+    const slatWidth=Math.min(.16,Math.max(.075,center*.56));
+    this.box(group,{x:width,y:height,z:1/12},{x:0,y:0,z:1/24},felt,{castShadow:false});
+    for(let index=0;index<slatCount;index++){
+      const x=-width/2+center*(index+.5);
+      this.box(group,{x:slatWidth,y:height,z:.12},{x,y:0,z:.1},wood,{castShadow:false});
+    }
+    group.userData.slatCount=slatCount;
+    group.userData.selectionMaterials.push(felt);
+  }
+
+  buildLedWallFeature(group,feature,transform){
+    const channel=this.material({color:0x727b84,roughness:.32,metalness:.9,envMapIntensity:1.08});
+    const brightness=clamp(safeNum(feature.brightnessPct)/100,0,1);
+    const diffuser=this.material({
+      color:feature.color||0xffb36b,
+      emissive:feature.color||0xffb36b,
+      emissiveIntensity:.7+brightness*1.1,
+      transparent:true,
+      opacity:.82,
+      roughness:.3,
+      metalness:0,
+      depthWrite:false,
+      envMapIntensity:.18,
+    });
+    const width=Math.max(.055,transform.width),height=Math.max(.055,transform.height);
+    this.box(group,{x:width,y:height,z:.075},{x:0,y:0,z:.038},channel,{castShadow:false});
+    this.box(group,{x:Math.max(.045,width-.025),y:Math.max(.045,height-.025),z:.035},{x:0,y:0,z:.094},diffuser,{castShadow:false,receiveShadow:false});
+    if(this.featurePointLights<8){
+      const light=new THREE.PointLight(feature.color||0xffb36b,.42*brightness,6,2);
+      light.position.set(0,0,.48);
+      light.castShadow=false;
+      group.add(light);
+      this.featurePointLights++;
+    }
+    group.userData.selectionMaterials.push(channel);
   }
 
   floorElevationAt(x,z){
@@ -950,17 +1366,18 @@ class Gym3DView {
       const profile=equipmentModelProfile(item);
       const hasCustomAsset=itemHasLocal3dModel(item);
       const fallbackHeight = ["smith-cable","pulley-tower","strength-rack","sauna","stair-climber"].includes(family) ? 7.5 : 3.2;
-      const height = clamp(fp.H || fallbackHeight, 0.45, Math.max(0.6,this.ceiling+1.5));
+      const defaultHeight=fp.H || fallbackHeight;
+      const height=profile==="rogue-echo-rower"
+        ? equipmentModelVisualHeight(profile,{...fp,H:defaultHeight},this.ceiling)
+        : clamp(defaultHeight,.45,Math.max(.6,this.ceiling+1.5));
       const group = new THREE.Group();
       const visualGroup = new THREE.Group();
       const fallbackGroup = new THREE.Group();
-      const longFaceProfile=!hasCustomAsset && ["maxwell-903bh","infrared-sauna","rx3-compact-smith","compact-smith","three-tier-rack"].includes(profile);
+      const presentation=equipmentModelPresentation(profile,hasCustomAsset,fp);
+      const {longFaceProfile,modelBase,profileFacingRotation}=presentation;
       const centerX=base.x+base.w/2,centerZ=base.y+base.h/2;
       group.position.set(centerX,this.floorElevationAt(centerX,centerZ),centerZ);
       group.rotation.y=inst.rotated ? Math.PI/2 : 0;
-      const profileFacingRotation=profile==="maxwell-903bh"
-        ? -Math.PI/2
-        : (longFaceProfile ? Math.PI/2 : 0);
       visualGroup.rotation.y=(item.model3dFacing==="reverse" ? Math.PI : 0)+profileFacingRotation;
       group.add(visualGroup);
       visualGroup.add(fallbackGroup);
@@ -972,11 +1389,8 @@ class Gym3DView {
       group.userData.longFaceProfile = longFaceProfile;
       this.scene.add(group);
       this.itemGroups.set(inst.id,group);
-      const modelBase=longFaceProfile
-        ? {w:Math.max(.4,fp.L),h:Math.max(.4,fp.W)}
-        : {w:Math.max(.4,fp.W),h:Math.max(.4,fp.L)};
       this.addContactShadow(group,Math.max(.4,fp.W),Math.max(.4,fp.L));
-      this.buildEquipmentModel(fallbackGroup,inst,item,modelBase,height);
+      this.buildEquipmentModel(fallbackGroup,inst,item,modelBase,height,group);
       if(hasCustomAsset){
         this.loadCustomEquipmentModel({
           visualGroup,
@@ -992,7 +1406,8 @@ class Gym3DView {
       const hitMaterial=this.material({color:0xffffff,transparent:true,opacity:0,depthWrite:false});
       this.box(group,{x:Math.max(.4,fp.W),y:height,z:Math.max(.4,fp.L)},{x:0,y:height/2,z:0},hitMaterial,{castShadow:false,receiveShadow:false,instId:inst.id});
       group.userData.worldFootprint={widthFt:base.w,depthFt:base.h,heightFt:height};
-      group.userData.canonicalFootprint={widthFt:fp.W,depthFt:fp.L,heightFt:height};
+      group.userData.canonicalFootprint={widthFt:fp.W,depthFt:fp.L,heightFt:fp.H};
+      group.userData.visualHeightFt=height;
       group.userData.measuredFootprint=group.userData.worldFootprint;
 
       if(this.settings.clearances && rects.eff && (rects.eff.w > base.w+0.01 || rects.eff.h > base.h+0.01)){
@@ -1042,6 +1457,22 @@ class Gym3DView {
     });
     textures.forEach(texture=>texture.dispose?.());
     materials.forEach(material=>material.dispose?.());
+  }
+
+  disposeStagedDedicatedRoot(root,disposablesStart){
+    const resources=new Set(this.disposables.slice(disposablesStart));
+    root.traverse?.(object=>{
+      if(object.geometry) resources.add(object.geometry);
+      const materials=Array.isArray(object.material) ? object.material : [object.material];
+      materials.filter(Boolean).forEach(material=>{
+        resources.add(material);
+        Object.values(material).forEach(value=>{ if(value?.isTexture) resources.add(value); });
+      });
+    });
+    resources.forEach(resource=>resource?.dispose?.());
+    this.disposables.splice(disposablesStart);
+    root.removeFromParent();
+    root.clear();
   }
 
   registerExternalRoot(root,instId){
@@ -1507,10 +1938,76 @@ class Gym3DView {
     return "photo-matched RitFit Gazelle Pro 3-in-1";
   }
 
-  buildEquipmentModel(group,inst,item,base,height){
+  tryBuildDedicatedEquipmentModel(group,inst,item,base,height,profile){
+    const staged=new THREE.Group();
+    const clickStart=this.clickTargets.length;
+    const disposablesStart=this.disposables.length;
+    try{
+      let result=null;
+      if(profile==="rx3-compact-smith") result={builderKey:profile,modelType:this.buildRx3CompactSmithModel(staged,inst,base,height)};
+      else if(profile==="maxwell-903bh") result={builderKey:profile,modelType:this.buildMaxwell903BHModel(staged,inst,base,height)};
+      else if(profile==="gazelle-pro") result={builderKey:profile,modelType:this.buildGazelleModel(staged,inst,base,height)};
+      else result=window.GymEquipmentModels?.build(profile,this,staged,inst,base,height)||null;
+      if(!result){
+        this.clickTargets.length=clickStart;
+        this.disposeStagedDedicatedRoot(staged,disposablesStart);
+        return {built:false,error:null};
+      }
+      group.add(staged);
+      return {built:true,...result,root:staged};
+    }catch(error){
+      this.clickTargets.length=clickStart;
+      this.disposeStagedDedicatedRoot(staged,disposablesStart);
+      return {built:false,error:error instanceof Error ? error : new Error(String(error))};
+    }
+  }
+
+  updateDedicatedModelDiagnostics(){
+    this.host.dataset.dedicatedModels=String(this.dedicatedModelCount);
+    this.host.dataset.builderFailures=String(this.builderFailureCount);
+    this.host.dataset.modelProfiles=[...this.modelProfileKeys].sort().join(",");
+    this.host.dataset.modelBuilders=[...this.modelBuilderKeys].sort().join(",");
+  }
+
+  recordEquipmentDispatch(placementGroup,item,profile,result){
+    placementGroup.userData.modelProfile=profile;
+    placementGroup.userData.modelBuilder=result?.built ? result.builderKey : "";
+    placementGroup.userData.dedicatedModel=!!result?.built;
+    if(profile!=="standard") this.modelProfileKeys.add(profile);
+    if(result?.built){
+      this.dedicatedModelCount++;
+      this.modelBuilderKeys.add(result.builderKey);
+    }else if(result?.error || DEDICATED_MODEL_PROFILES.has(profile)){
+      this.builderFailureCount++;
+      const brand=String(item.brand||"").trim();
+      const name=String(item.name||"").trim();
+      const label=brand && name && !name.toLowerCase().startsWith(brand.toLowerCase())
+        ? `${brand} ${name}`
+        : (name||brand||profile);
+      this.builderFallbackWarnings.push(`${label}: dedicated 3D model unavailable — using measured fallback`);
+    }
+    this.updateDedicatedModelDiagnostics();
+  }
+
+  buildEquipmentModel(group,inst,item,base,height,placementGroup=group){
     const text = `${item.category||""} ${item.name||""}`.toLowerCase();
     const family=equipmentModelFamily(item);
     const profile=equipmentModelProfile(item);
+    const dedicated=this.tryBuildDedicatedEquipmentModel(group,inst,item,base,height,profile);
+    const w=Math.max(base.w,0.4), d=Math.max(base.h,0.4);
+    const isSelected = state.layout.selectedInstId === inst.id;
+    if(dedicated.built){
+      if(isSelected){
+        const selectedMat=this.material({color:0xf97316,transparent:true,opacity:.15,roughness:.72,depthWrite:false,envMapIntensity:.05});
+        const marker=this.box(group,{x:w+.18,y:.055,z:d+.18},{x:0,y:.07,z:0},selectedMat,{instId:inst.id});
+        marker.renderOrder=4;
+      }
+      group.userData.modelType=dedicated.modelType;
+      group.userData.measuredFootprint={widthFt:w,depthFt:d,heightFt:height};
+      placementGroup.userData.modelType=dedicated.modelType;
+      this.recordEquipmentDispatch(placementGroup,item,profile,dedicated);
+      return dedicated;
+    }
     const color = this.itemColor(item);
     const metal = this.material({color,roughness:.4,metalness:.34,envMapIntensity:.72});
     const dark = this.material({color:0x0b0e11,roughness:.62,metalness:.16,envMapIntensity:.42});
@@ -1519,18 +2016,14 @@ class Gym3DView {
     const silver = this.material({color:0xb6bec5,roughness:.24,metalness:.9,envMapIntensity:1.16});
     const red = this.material({color:0xb91c1c,roughness:.42,metalness:.38});
     const screen = this.material({color:0x164e63,emissive:0x0ea5e9,emissiveIntensity:.38,roughness:.24,metalness:.18});
-    const isSelected = state.layout.selectedInstId === inst.id;
     const selectedMat = metal;
-    const w=Math.max(base.w,0.4), d=Math.max(base.h,0.4);
 
     const add=(size,pos,mat=selectedMat,opts={})=>this.box(group,size,pos,mat,{...opts,instId:inst.id});
     const addCylinder=(radius,length,pos,mat=selectedMat,opts={})=>this.cylinder(group,radius,length,pos,mat,{...opts,instId:inst.id});
     const addBeam=(start,end,thickness,mat=selectedMat,depth=thickness)=>this.beam(group,start,end,thickness,depth,mat,{instId:inst.id});
     let modelType="general machine";
 
-    if(family==="sauna" && profile==="maxwell-903bh"){
-      modelType=this.buildMaxwell903BHModel(group,inst,base,height);
-    }else if(family==="sauna" && profile==="infrared-sauna"){
+    if(family==="sauna" && profile==="infrared-sauna"){
       modelType="glass-front infrared sauna";
       const wood=this.material({color:0xc89254,roughness:.72,metalness:.02});
       const trim=this.material({color:0xe1b77c,roughness:.66,metalness:.01});
@@ -1614,8 +2107,6 @@ class Gym3DView {
       add({x:w*.58,y:height*.13,z:d*.11},{x:0,y:height*.88,z:-d*.32},side,{rotationX:-.15});
       add({x:w*.4,y:height*.075,z:d*.025},{x:0,y:height*.9,z:-d*.385},screen,{castShadow:false});
       [-1,1].forEach(sign=>addBeam({x:sign*w*.405,y:height*.23,z:d*.3},{x:sign*w*.405,y:height*.62,z:-d*.18},.025,accent,.045));
-    }else if(family==="smith-cable" && profile==="rx3-compact-smith"){
-      modelType=this.buildRx3CompactSmithModel(group,inst,base,height);
     }else if(family==="smith-cable"){
       modelType="smith and cable machine";
       const post=Math.min(0.22,Math.max(0.1,Math.min(w,d)*0.1));
@@ -1661,31 +2152,27 @@ class Gym3DView {
       addCylinder(.045,w*.76,{x:0,y:height*.9,z:-d*.12},silver,{rotationZ:Math.PI/2});
       [-1,1].forEach(sign=>addBeam({x:sign*w*.22,y:height*.86,z:-d*.12},{x:sign*w*.4,y:height*.62,z:-d*.34},.045,silver,.045));
     }else if(family==="leg-press"){
-      if(profile==="gazelle-pro"){
-        modelType=this.buildGazelleModel(group,inst,base,height);
-      }else{
-        modelType="incline leg press";
-        add({x:w*.88,y:.12,z:d*.9},{x:0,y:.08,z:0},dark);
+      modelType="incline leg press";
+      add({x:w*.88,y:.12,z:d*.9},{x:0,y:.08,z:0},dark);
+      [-1,1].forEach(sign=>{
+        addBeam({x:sign*w*.3,y:.18,z:d*.38},{x:sign*w*.3,y:height*.78,z:-d*.2},.12,selectedMat,.18);
+        addBeam({x:sign*w*.18,y:.22,z:d*.33},{x:sign*w*.18,y:height*.72,z:-d*.18},.055,silver,.055);
+        addBeam({x:sign*w*.4,y:.16,z:-d*.35},{x:sign*w*.4,y:height*.85,z:-d*.35},.13,selectedMat,.13);
+      });
+      add({x:w*.62,y:.22,z:d*.28},{x:0,y:height*.51,z:-d*.02},pad,{rotationX:-.68});
+      add({x:w*.64,y:height*.14,z:d*.2},{x:0,y:height*.64,z:-d*.13},pad,{rotationX:-.68});
+      add({x:w*.76,y:.18,z:d*.22},{x:0,y:height*.26,z:d*.36},silver,{rotationX:-.45});
+      addCylinder(.07,w*.78,{x:0,y:height*.7,z:-d*.22},silver,{rotationZ:Math.PI/2});
+      [-1,1].forEach(sign=>addCylinder(Math.min(.18,w*.07),.16,{x:sign*w*.4,y:height*.7,z:-d*.22},dark,{rotationZ:Math.PI/2}));
+      [-1,1].forEach(sign=>add({x:w*.16,y:height*.13,z:d*.13},{x:sign*w*.17,y:height*.75,z:-d*.12},pad,{rotationX:-.68}));
+      if(profile==="sled-leg-press"){
+        modelType="3-in-1 leg press and hack squat";
         [-1,1].forEach(sign=>{
-          addBeam({x:sign*w*.3,y:.18,z:d*.38},{x:sign*w*.3,y:height*.78,z:-d*.2},.12,selectedMat,.18);
-          addBeam({x:sign*w*.18,y:.22,z:d*.33},{x:sign*w*.18,y:height*.72,z:-d*.18},.055,silver,.055);
-          addBeam({x:sign*w*.4,y:.16,z:-d*.35},{x:sign*w*.4,y:height*.85,z:-d*.35},.13,selectedMat,.13);
+          addBeam({x:sign*w*.43,y:.13,z:d*.42},{x:sign*w*.43,y:height*.88,z:-d*.32},.075,selectedMat,.075);
+          addCylinder(Math.min(.1,w*.04),w*.18,{x:sign*w*.42,y:height*.72,z:-d*.2},dark,{rotationZ:Math.PI/2});
+          addCylinder(Math.min(.1,w*.04),w*.18,{x:sign*w*.42,y:height*.42,z:d*.05},dark,{rotationZ:Math.PI/2});
         });
-        add({x:w*.62,y:.22,z:d*.28},{x:0,y:height*.51,z:-d*.02},pad,{rotationX:-.68});
-        add({x:w*.64,y:height*.14,z:d*.2},{x:0,y:height*.64,z:-d*.13},pad,{rotationX:-.68});
-        add({x:w*.76,y:.18,z:d*.22},{x:0,y:height*.26,z:d*.36},silver,{rotationX:-.45});
-        addCylinder(.07,w*.78,{x:0,y:height*.7,z:-d*.22},silver,{rotationZ:Math.PI/2});
-        [-1,1].forEach(sign=>addCylinder(Math.min(.18,w*.07),.16,{x:sign*w*.4,y:height*.7,z:-d*.22},dark,{rotationZ:Math.PI/2}));
-        [-1,1].forEach(sign=>add({x:w*.16,y:height*.13,z:d*.13},{x:sign*w*.17,y:height*.75,z:-d*.12},pad,{rotationX:-.68}));
-        if(profile==="sled-leg-press"){
-          modelType="3-in-1 leg press and hack squat";
-          [-1,1].forEach(sign=>{
-            addBeam({x:sign*w*.43,y:.13,z:d*.42},{x:sign*w*.43,y:height*.88,z:-d*.32},.075,selectedMat,.075);
-            addCylinder(Math.min(.1,w*.04),w*.18,{x:sign*w*.42,y:height*.72,z:-d*.2},dark,{rotationZ:Math.PI/2});
-            addCylinder(Math.min(.1,w*.04),w*.18,{x:sign*w*.42,y:height*.42,z:d*.05},dark,{rotationZ:Math.PI/2});
-          });
-          add({x:w*.74,y:.12,z:d*.25},{x:0,y:height*.13,z:d*.39},silver,{rotationX:-.58});
-        }
+        add({x:w*.74,y:.12,z:d*.25},{x:0,y:height*.13,z:d*.39},silver,{rotationX:-.58});
       }
     }else if(family==="bench"){
       modelType="adjustable bench";
@@ -1856,8 +2343,11 @@ class Gym3DView {
     }
     group.userData.modelType=modelType;
     group.userData.measuredFootprint={widthFt:w,depthFt:d,heightFt:height};
+    placementGroup.userData.modelType=modelType;
+    this.recordEquipmentDispatch(placementGroup,item,profile,dedicated);
     this.reconstructedModelCount++;
     this.host.dataset.reconstructedModels=String(this.reconstructedModelCount);
+    return dedicated;
   }
 
   addEquipmentLabel(group,instId,item,height,w,d){
@@ -2055,10 +2545,133 @@ class Gym3DView {
     this.camera.lookAt(this.target);
   }
 
+  frameCandidateRoomBlocked(focus,radius,theta,phi){
+    const reach=radius*Math.sin(phi);
+    const camera={
+      x:focus.x+reach*Math.sin(theta),
+      z:focus.z+reach*Math.cos(theta),
+    };
+    return !segmentHasRoomClearance(camera,focus,this.roomData.rects,.22);
+  }
+
+  frameCandidateBlocked(target,focus,radius,theta,phi){
+    const reach=radius*Math.sin(phi);
+    const camera={
+      x:focus.x+reach*Math.sin(theta),
+      z:focus.z+reach*Math.cos(theta),
+    };
+    if(this.frameCandidateRoomBlocked(focus,radius,theta,phi)) return true;
+    const crossesRect=(rect=>{
+      const dx=focus.x-camera.x, dz=focus.z-camera.z;
+      let enter=0, exit=1;
+      for(const [origin,delta,min,max] of [
+        [camera.x,dx,rect.minX,rect.maxX],
+        [camera.z,dz,rect.minZ,rect.maxZ],
+      ]){
+        if(Math.abs(delta)<1e-8){
+          if(origin<min || origin>max) return false;
+          continue;
+        }
+        const a=(min-origin)/delta, b=(max-origin)/delta;
+        enter=Math.max(enter,Math.min(a,b));
+        exit=Math.min(exit,Math.max(a,b));
+        if(enter>exit) return false;
+      }
+      return true;
+    });
+    return [...this.itemGroups.values()].some(group=>{
+      if(group===target) return false;
+      const footprint=group.userData.worldFootprint;
+      if(!footprint) return false;
+      const pad=.12;
+      const rect={
+        minX:group.position.x-footprint.widthFt/2-pad,
+        maxX:group.position.x+footprint.widthFt/2+pad,
+        minZ:group.position.z-footprint.depthFt/2-pad,
+        maxZ:group.position.z+footprint.depthFt/2+pad,
+      };
+      const cameraInside=camera.x>=rect.minX && camera.x<=rect.maxX && camera.z>=rect.minZ && camera.z<=rect.maxZ;
+      return cameraInside || crossesRect(rect);
+    });
+  }
+
+  boundaryFrameFocusCandidates(group,focus){
+    const boundary=group.userData.garageBoundary;
+    if(!boundary || (boundary.axis!=="x" && boundary.axis!=="z")) return [focus];
+    const start=Math.min(safeNum(boundary.start),safeNum(boundary.end));
+    const end=Math.max(safeNum(boundary.start),safeNum(boundary.end));
+    const tangentKey=boundary.axis;
+    const normalKey=boundary.axis==="x"?"z":"x";
+    const center=safeNum(focus[tangentKey]);
+    const normal=safeNum(focus[normalKey]);
+    const intervals=[];
+    this.itemGroups.forEach(itemGroup=>{
+      const footprint=itemGroup.userData.worldFootprint;
+      if(!footprint) return;
+      const pad=.12;
+      const rect={
+        minX:itemGroup.position.x-footprint.widthFt/2-pad,
+        maxX:itemGroup.position.x+footprint.widthFt/2+pad,
+        minZ:itemGroup.position.z-footprint.depthFt/2-pad,
+        maxZ:itemGroup.position.z+footprint.depthFt/2+pad,
+      };
+      const minNormal=normalKey==="x"?rect.minX:rect.minZ;
+      const maxNormal=normalKey==="x"?rect.maxX:rect.maxZ;
+      if(normal<minNormal || normal>maxNormal) return;
+      const minTangent=tangentKey==="x"?rect.minX:rect.minZ;
+      const maxTangent=tangentKey==="x"?rect.maxX:rect.maxZ;
+      const clippedStart=Math.max(start,minTangent);
+      const clippedEnd=Math.min(end,maxTangent);
+      if(clippedEnd>=clippedStart) intervals.push([clippedStart,clippedEnd]);
+    });
+    intervals.sort((a,b)=>a[0]-b[0]);
+    const merged=[];
+    intervals.forEach(interval=>{
+      const previous=merged[merged.length-1];
+      if(previous && interval[0]<=previous[1]+1e-9) previous[1]=Math.max(previous[1],interval[1]);
+      else merged.push([...interval]);
+    });
+    const clear=[];
+    let cursor=start;
+    merged.forEach(interval=>{
+      if(interval[0]>cursor+1e-9) clear.push([cursor,interval[0]]);
+      cursor=Math.max(cursor,interval[1]);
+    });
+    if(cursor<end-1e-9) clear.push([cursor,end]);
+    const epsilon=1/60;
+    return clear.map(([clearStart,clearEnd])=>{
+      const low=clearStart+(clearStart>start+1e-9?epsilon:0);
+      const high=clearEnd-(clearEnd<end-1e-9?epsilon:0);
+      if(high<low) return null;
+      const candidate={x:focus.x,y:focus.y,z:focus.z};
+      candidate[tangentKey]=clamp(center,low,high);
+      return candidate;
+    }).filter(Boolean).sort((a,b)=>Math.abs(a[tangentKey]-center)-Math.abs(b[tangentKey]-center));
+  }
+
+  boundaryFrameFitRadius(group,focus,height){
+    const boundary=group.userData.garageBoundary;
+    const verticalHalfFov=THREE.MathUtils.degToRad((safeNum(this.camera.fov)||54)*.5);
+    const cameraAspect=Math.max(.5,safeNum(this.camera.aspect)||1);
+    const horizontalHalfFov=Math.atan(Math.tan(verticalHalfFov)*cameraAspect);
+    const limitingHalfFov=Math.min(verticalHalfFov,horizontalHalfFov);
+    if(!boundary || (boundary.axis!=="x" && boundary.axis!=="z")){
+      const footprint=group.userData.worldFootprint||{};
+      return Math.max(4,(Math.hypot(safeNum(footprint.widthFt),safeNum(footprint.depthFt),height)*.5/Math.sin(limitingHalfFov))*1.08);
+    }
+    const tangent=boundary.axis==="x"?focus.x:focus.z;
+    const normal=boundary.axis==="x"?focus.z:focus.x;
+    const tangentExtent=Math.max(Math.abs(tangent-safeNum(boundary.start)),Math.abs(safeNum(boundary.end)-tangent));
+    const floor=safeNum(group.userData.floorElevationFt);
+    const verticalExtent=Math.max(Math.abs(focus.y-floor),Math.abs(floor+height-focus.y));
+    const normalExtent=Math.abs(normal-safeNum(boundary.fixed));
+    return Math.max(4,Math.hypot(tangentExtent,verticalExtent,normalExtent)/Math.max(.01,Math.sin(limitingHalfFov))*1.08);
+  }
+
   frameSelected(){
     if(this.mode!=="preview") return;
-    const selectedId=state.layout.selectedInstId || state.layout.selectedAreaId;
-    const group=this.itemGroups.get(selectedId) || this.areaGroups.get(selectedId);
+    const selectedId=state.layout.selectedInstId || state.layout.selectedAreaId || state.layout.selectedWallFeatureId;
+    const group=this.itemGroups.get(selectedId) || this.areaGroups.get(selectedId) || this.wallFeatureGroups.get(selectedId);
     if(!group) return;
     const footprint=group.userData.worldFootprint||{};
     const width=Math.max(.5,safeNum(footprint.widthFt));
@@ -2066,15 +2679,53 @@ class Gym3DView {
     const height=Math.max(.5,safeNum(footprint.heightFt));
     const cx=(this.bounds.minX+this.bounds.maxX)/2;
     const cz=(this.bounds.minY+this.bounds.maxY)/2;
-    const focus=group.userData.focusPoint || {x:group.position.x,y:Math.min(height*.43,this.ceiling*.38),z:group.position.z};
+    let focus=group.userData.focusPoint || {x:group.position.x,y:Math.min(height*.43,this.ceiling*.38),z:group.position.z};
     const dx=cx-focus.x,dz=cz-focus.z;
     const centerDistance=Math.hypot(dx,dz);
-    const idealRadius=Math.max(5.8,Math.hypot(width,depth)*1.2+height*.7);
+    let idealRadius=Math.max(5.8,Math.hypot(width,depth)*1.2+height*.7);
     let theta=centerDistance>.25?Math.atan2(dx,dz):-.78;
-    if(this.itemGroups.has(selectedId)){
+    if(group.userData.boundaryMounted){
+      const inward=new THREE.Vector3(0,0,1).applyAxisAngle(new THREE.Vector3(0,1,0),safeNum(group.userData.rotationY));
+      const preferredTheta=Math.atan2(inward.x,inward.z);
+      const focusCandidates=this.boundaryFrameFocusCandidates(group,focus);
+      const angleOffsets=[0,.16,-.16,.32,-.32];
+      const choices=focusCandidates.flatMap(candidateFocus=>{
+        const fitRadius=this.boundaryFrameFitRadius(group,candidateFocus,height);
+        const radii=[
+          idealRadius,
+          Math.max(fitRadius,idealRadius*.8),
+          Math.max(fitRadius,idealRadius*.65),
+          fitRadius,
+        ].filter((radius,index,all)=>all.findIndex(candidate=>Math.abs(candidate-radius)<=.01)===index);
+        return radii.flatMap(radius=>angleOffsets.map(offset=>({focus:candidateFocus,radius,theta:preferredTheta+offset})));
+      });
+      const choice=choices.find(candidate=>!this.frameCandidateBlocked(group,candidate.focus,candidate.radius,candidate.theta,1.06));
+      if(!choice) return;
+      focus=choice.focus;
+      theta=choice.theta;
+      idealRadius=choice.radius;
+    }else if(this.itemGroups.has(selectedId)){
       const totalRotation=safeNum(group.userData.rotationY)+safeNum(group.userData.visualRotationY);
       const front=new THREE.Vector3(0,0,-1).applyAxisAngle(new THREE.Vector3(0,1,0),totalRotation);
-      theta=Math.atan2(front.x,front.z)+.16;
+      const frontTheta=Math.atan2(front.x,front.z);
+      const offsets=[.16,-.32,.32,-.65,.65,-.96,.96];
+      const frontAngles=offsets.map(offset=>frontTheta+offset);
+      const oppositeAngles=offsets.map(offset=>frontTheta+Math.PI+offset);
+      const roomCenterTheta=Math.atan2(cx-focus.x,cz-focus.z);
+      const ringAngles=[roomCenterTheta,...Array.from({length:7},(_,index)=>roomCenterTheta+(index+1)*Math.PI/4)];
+      const halfFov=THREE.MathUtils.degToRad((safeNum(this.camera.fov)||54)*.5);
+      const fitRadius=Math.max(4,(Math.hypot(width,depth,height)*.5/Math.sin(halfFov))*1.08);
+      const radii=[idealRadius,Math.max(fitRadius,idealRadius*.75),Math.max(fitRadius,idealRadius*.55),fitRadius]
+        .filter((radius,index,all)=>index===0 || Math.abs(radius-all[index-1])>.01);
+      const candidates=[...frontAngles,...oppositeAngles,...ringAngles];
+      const choices=radii.flatMap(radius=>candidates.map(candidate=>({radius,candidate})));
+      const choice=choices.find(({radius,candidate})=>!this.frameCandidateBlocked(group,focus,radius,candidate,1.06));
+      if(!choice) return;
+      theta=choice.candidate;
+      idealRadius=choice.radius;
+    }else if(this.wallFeatureGroups.has(selectedId)){
+      const front=new THREE.Vector3(0,0,1).applyAxisAngle(new THREE.Vector3(0,1,0),safeNum(group.userData.rotationY));
+      theta=Math.atan2(front.x,front.z);
     }
     this.target.set(focus.x,focus.y,focus.z);
     this.orbit={
@@ -2094,6 +2745,130 @@ class Gym3DView {
     this.camera.rotation.x=this.pitch;
   }
 
+  walkthroughEditingState(){
+    const editor=globalThis.GymWalkthroughEditing;
+    const current=editor?.state?.();
+    return current&&typeof current==="object"
+      ? current
+      : {mode:"walk",moveStep:"coarse",wallTool:null,status:null,undo:null};
+  }
+
+  pointerForEvent(event){
+    const rect=this.renderer.domElement.getBoundingClientRect();
+    if(!rect.width||!rect.height) return null;
+    if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom) return null;
+    return new THREE.Vector2(
+      ((event.clientX-rect.left)/rect.width)*2-1,
+      -((event.clientY-rect.top)/rect.height)*2+1
+    );
+  }
+
+  wallIntersectionAt(pointer){
+    if(!pointer||!this.wallEditSurfaces.length) return null;
+    const raycaster=new THREE.Raycaster();
+    raycaster.setFromCamera(pointer,this.camera);
+    const isWorldVisible=object=>{
+      for(let current=object;current;current=current.parent){
+        if(current.visible===false) return false;
+      }
+      return true;
+    };
+    const targets=[...new Set([...this.clickTargets,...this.wallEditSurfaces])].filter(isWorldVisible);
+    const first=raycaster.intersectObjects(targets,false)[0]||null;
+    return first?.object?.userData?.wallEdit ? first : null;
+  }
+
+  resolveWallEditIntersection(hit){
+    const meta=hit?.object?.userData?.wallEdit;
+    if(!meta) return null;
+    const baseFixed={top:0,right:this.roomData.W,bottom:this.roomData.L,left:0}[meta.wall];
+    if(!Number.isFinite(baseFixed)||Math.abs(safeNum(meta.fixed)-baseFixed)>.03) return null;
+    const point=hit.point;
+    const alongFt=meta.axis==="x"?point.x:point.z;
+    const floor=this.floorElevationAt(
+      point.x+meta.inwardX*.2,
+      point.z+meta.inwardZ*.2,
+    );
+    return {
+      wall:meta.wall,
+      alongFt,
+      mountFt:Math.max(0,point.y-floor),
+      runStartFt:meta.start,
+      runEndFt:meta.end,
+    };
+  }
+
+  wallHitAt(pointer){
+    return this.resolveWallEditIntersection(this.wallIntersectionAt(pointer));
+  }
+
+  hideWallEditPreview(){
+    if(this.wallEditPreview) this.wallEditPreview.visible=false;
+    this.host.dataset.wallHitValid="false";
+  }
+
+  updateWallEditPreview(pointer){
+    const editor=this.walkthroughEditingState();
+    const active=this.mode==="walkthrough"&&editor.mode==="edit"&&editor.wallTool;
+    this.host.dataset.walkthroughMode=editor.mode==="edit"?"edit":"walk";
+    this.host.dataset.wallTool=active?editor.wallTool:"";
+    if(!active){
+      this.hideWallEditPreview();
+      return null;
+    }
+    const intersection=this.wallIntersectionAt(pointer);
+    const hit=this.resolveWallEditIntersection(intersection);
+    if(!hit){
+      this.hideWallEditPreview();
+      return null;
+    }
+    const candidate=globalThis.GymWalkthroughEditing?.featureFromWallHit?.(editor.wallTool,hit);
+    if(!candidate?.ok){
+      this.hideWallEditPreview();
+      return null;
+    }
+    const transform=globalThis.GymWallFeatures?.worldTransform?.(candidate.feature,this.roomData,state.layout);
+    if(!transform){
+      this.hideWallEditPreview();
+      return null;
+    }
+    this.wallEditPreview.position.set(
+      transform.x,
+      transform.y,
+      transform.z,
+    );
+    this.wallEditPreview.rotation.set(0,transform.rotationY,0);
+    this.wallEditPreviewPlane.scale.set(transform.width,transform.height,1);
+    this.wallEditPreview.visible=true;
+    this.host.dataset.wallHitValid="true";
+    return hit;
+  }
+
+  setWalkthroughEditMode(mode){
+    if(this.mode!=="walkthrough") return;
+    const next=mode==="edit"?"edit":"walk";
+    this.rememberCamera();
+    const editor=globalThis.GymWalkthroughEditing;
+    if(editor?.state?.()?.mode!==next) editor?.setMode?.(next);
+    this.host.dataset.walkthroughMode=next;
+    this.host.dataset.wallTool=next==="edit"?(this.walkthroughEditingState().wallTool||""):"";
+    this.editPointerDown=null;
+    this.keys.clear();
+    this.lookDrag=null;
+    this.hideWallEditPreview();
+    if(next==="edit"){
+      this.walkActive=false;
+      this.host.classList.remove("isActive","isLocked");
+      if(document.pointerLockElement===this.renderer.domElement) document.exitPointerLock?.();
+      const start=this.host.querySelector(".walkthroughStart");
+      if(start) start.hidden=true;
+      const status=this.host.querySelector("[data-walkthrough-status]");
+      if(status) status.textContent="Editing mode active";
+      return;
+    }
+    this.activateWalkthrough();
+  }
+
   bindEvents(){
     this.onResize=()=>this.resize();
     this.resizeObserver=new ResizeObserver(this.onResize);
@@ -2101,6 +2876,10 @@ class Gym3DView {
 
     this.onPointerDown=e=>{
       if(this.mode === "walkthrough"){
+        if(this.walkthroughEditingState().mode==="edit"){
+          this.editPointerDown={x:e.clientX,y:e.clientY};
+          return;
+        }
         this.activateWalkthrough();
         this.lookDrag={x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,moved:false};
         this.renderer.domElement.setPointerCapture?.(e.pointerId);
@@ -2111,6 +2890,10 @@ class Gym3DView {
     };
     this.onPointerMove=e=>{
       if(this.mode === "walkthrough"){
+        if(this.walkthroughEditingState().mode==="edit"){
+          this.updateWallEditPreview(this.pointerForEvent(e));
+          return;
+        }
         if(!this.walkActive) return;
         let dx=0,dy=0;
         if(document.pointerLockElement === this.renderer.domElement){
@@ -2138,6 +2921,23 @@ class Gym3DView {
     };
     this.onPointerUp=e=>{
       if(this.mode === "walkthrough"){
+        const editor=this.walkthroughEditingState();
+        if(editor.mode==="edit"){
+          const started=this.editPointerDown;
+          this.editPointerDown=null;
+          if(!started) return;
+          const pointer=this.pointerForEvent(e);
+          if(editor.wallTool){
+            const hit=this.wallHitAt(pointer);
+            this.hideWallEditPreview();
+            globalThis.GymWalkthroughEditing?.addFeatureFromWallHit?.(editor.wallTool,hit);
+            if(!this.destroyed) this.host.dataset.wallTool=this.walkthroughEditingState().wallTool||"";
+            return;
+          }
+          this.hideWallEditPreview();
+          this.selectAt(e,true,true);
+          return;
+        }
         const wasDrag=this.lookDrag?.moved;
         this.lookDrag=null;
         if(!wasDrag) this.selectAt(e);
@@ -2155,6 +2955,17 @@ class Gym3DView {
     };
     this.onKeyDown=e=>{
       if(this.mode !== "walkthrough") return;
+      const editor=this.walkthroughEditingState();
+      if(editor.mode==="edit"){
+        if(e.code==="Escape"&&editor.wallTool){
+          globalThis.GymWalkthroughEditing?.setWallTool?.(null);
+          this.host.dataset.wallTool="";
+          this.hideWallEditPreview();
+          e.preventDefault();
+          e.stopImmediatePropagation?.();
+        }
+        return;
+      }
       if(["KeyW","KeyA","KeyS","KeyD","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)){
         if(!this.walkActive) this.activateWalkthrough();
         const wasDown=this.keys.has(e.code);
@@ -2164,15 +2975,24 @@ class Gym3DView {
       }
     };
     this.onKeyUp=e=>this.keys.delete(e.code);
-    this.onBlur=()=>{this.keys.clear();this.lookDrag=null;};
+    this.onBlur=()=>{this.keys.clear();this.lookDrag=null;this.editPointerDown=null;this.hideWallEditPreview();};
     this.onVisibility=()=>{if(document.hidden)this.onBlur();};
     this.onLockChange=()=>{
       if(this.mode !== "walkthrough") return;
       const locked=document.pointerLockElement===this.renderer.domElement;
+      if(this.walkthroughEditingState().mode==="edit"){
+        this.host.classList.remove("isLocked");
+        if(locked) document.exitPointerLock?.();
+        return;
+      }
       this.host.classList.toggle("isLocked",locked);
       if(locked) this.activateWalkthrough();
     };
     this.onPointerLeave=()=>{
+      if(this.mode==="walkthrough"&&this.walkthroughEditingState().mode==="edit"){
+        this.hideWallEditPreview();
+        return;
+      }
       if(this.mode !== "walkthrough") this.setHoveredInst(null);
     };
     this.startButton=this.mode === "walkthrough" ? this.host.querySelector(".walkthroughStart") : null;
@@ -2195,18 +3015,26 @@ class Gym3DView {
     document.addEventListener("visibilitychange",this.onVisibility);
   }
 
-  selectAt(event){
-    const rect=this.renderer.domElement.getBoundingClientRect();
-    const pointer=new THREE.Vector2(
-      ((event.clientX-rect.left)/rect.width)*2-1,
-      -((event.clientY-rect.top)/rect.height)*2+1
-    );
-    const instId=this.pickInst(pointer);
-    if(!instId) return;
+  selectAt(event,renderWalkthroughEdit=false,clearOnMiss=false){
+    const pointer=this.pointerForEvent(event);
+    if(!pointer) return;
+    const picked=this.pickTarget(pointer);
+    if(!picked){
+      if(clearOnMiss){
+        const hadSelection=!!(state.layout.selectedInstId||state.layout.selectedWallFeatureId);
+        if(typeof clearAllSelections === "function") clearAllSelections();
+        if(hadSelection){
+          this.rememberCamera();
+          render();
+        }
+      }
+      return;
+    }
     if(typeof clearAllSelections === "function") clearAllSelections();
-    state.layout.selectedInstId=instId;
+    if(picked.type==="wallFeature") state.layout.selectedWallFeatureId=picked.id;
+    else state.layout.selectedInstId=picked.id;
     this.rememberCamera();
-    if(this.mode === "walkthrough"){
+    if(this.mode === "walkthrough"&&!renderWalkthroughEdit){
       gym3DControllers.forEach(controller=>controller.updateSelection());
       this.drawMinimap(performance.now()+100);
       return;
@@ -2219,6 +3047,15 @@ class Gym3DView {
     raycaster.setFromCamera(pointer,this.camera);
     const hit=raycaster.intersectObjects(this.clickTargets,false).find(x=>x.object.userData.instId);
     return hit?.object?.userData?.instId || null;
+  }
+
+  pickTarget(pointer){
+    const raycaster=new THREE.Raycaster();
+    raycaster.setFromCamera(pointer,this.camera);
+    const hit=raycaster.intersectObjects(this.clickTargets,false).find(x=>x.object.userData.instId || x.object.userData.wallFeatureId);
+    if(hit?.object?.userData?.wallFeatureId) return {type:"wallFeature",id:hit.object.userData.wallFeatureId};
+    if(hit?.object?.userData?.instId) return {type:"equipment",id:hit.object.userData.instId};
+    return null;
   }
 
   setHoveredInst(instId){
@@ -2267,12 +3104,25 @@ class Gym3DView {
         });
       });
     });
+    this.wallFeatureGroups.forEach((group,id)=>{
+      const selected=id===state.layout.selectedWallFeatureId;
+      group.userData.selected=selected;
+      (group.userData.selectionMaterials||[]).forEach(material=>{
+        if(!material?.emissive?.setHex) return;
+        material.emissive.setHex(selected?0xf97316:(material.userData.baseEmissive||0));
+        material.emissiveIntensity=selected
+          ? Math.max(.2,safeNum(material.userData.baseEmissiveIntensity))
+          : safeNum(material.userData.baseEmissiveIntensity);
+      });
+    });
     this.host.dataset.selectedInstId=state.layout.selectedInstId || "";
+    this.host.dataset.selectedWallFeatureId=state.layout.selectedWallFeatureId || "";
     this.updateLabelVisibility();
   }
 
   updateWarnings(){
-    const warnings=[];
+    const warnings=[...new Set(this.garageDoorWarnings)];
+    warnings.push(...this.builderFallbackWarnings);
     this.roomInstances.forEach(inst=>{
       const item=getItemById(inst.itemId);
       if(!item) return;
@@ -2286,6 +3136,7 @@ class Gym3DView {
     if(this.customAssetErrorCount){
       warnings.push(`${this.customAssetErrorCount} local 3D model${this.customAssetErrorCount===1?"":"s"} unavailable — using measured fallback`);
     }
+    if(this.invalidWallFeatureWarning) warnings.push(this.invalidWallFeatureWarning);
     this.host.querySelectorAll("[data-gym3d-warnings]").forEach(el=>{
       el.innerHTML=warnings.length
         ? `<strong>${warnings.length} warning${warnings.length===1?"":"s"}</strong><span>${escapeHtml(warnings[0])}</span>`
@@ -2295,7 +3146,7 @@ class Gym3DView {
   }
 
   lock(){
-    if(this.mode !== "walkthrough") return;
+    if(this.mode !== "walkthrough"||this.walkthroughEditingState().mode==="edit") return;
     // Pointer lock is unavailable in some embedded/local browser contexts.
     // Activate a fully functional drag-to-look mode first so walking never
     // depends on that permission. WASD works immediately after this call.
@@ -2303,7 +3154,7 @@ class Gym3DView {
   }
 
   activateWalkthrough(){
-    if(this.mode!=="walkthrough") return;
+    if(this.mode!=="walkthrough"||this.walkthroughEditingState().mode==="edit") return;
     this.walkActive=true;
     this.host.classList.add("isActive");
     const start=this.host.querySelector(".walkthroughStart");
@@ -2331,7 +3182,7 @@ class Gym3DView {
   }
 
   moveWalkthrough(dt){
-    if(this.mode!=="walkthrough" || !this.walkActive) return;
+    if(this.mode!=="walkthrough"||this.walkthroughEditingState().mode==="edit"||!this.walkActive) return;
     let forward=0,side=0;
     if(this.keys.has("KeyW")||this.keys.has("ArrowUp")) forward+=1;
     if(this.keys.has("KeyS")||this.keys.has("ArrowDown")) forward-=1;
@@ -2350,6 +3201,44 @@ class Gym3DView {
     p.y=(safeNum(this.settings.eyeHeightFt)||5.67)+this.floorElevationAt(p.x,p.z);
     this.host.dataset.cameraX=p.x.toFixed(3);
     this.host.dataset.cameraZ=p.z.toFixed(3);
+  }
+
+  wallFeatureMinimapLine(group,selectedId=state.layout.selectedWallFeatureId){
+    const feature=group.userData.wallFeature||{};
+    const width=Math.max(0,safeNum(group.userData.worldFootprint?.widthFt));
+    const half=width/2;
+    const rotation=safeNum(group.userData.rotationY);
+    const dx=Math.cos(rotation)*half,dz=-Math.sin(rotation)*half;
+    return {
+      x1:group.position.x-dx,
+      z1:group.position.z-dz,
+      x2:group.position.x+dx,
+      z2:group.position.z+dz,
+      color:feature.kind==="mirror" ? "#dbeafe" : (feature.color||"#8f5f3a"),
+      lineWidth:group.userData.wallFeatureId===selectedId?4:2,
+    };
+  }
+
+  garageDoorMinimapLine(group,selectedId=state.layout.selectedAreaId){
+    const boundary=group?.userData?.garageBoundary;
+    if(!boundary?.ok) return null;
+    return boundary.axis==="x"
+      ? {
+        x1:boundary.start,
+        z1:boundary.fixed,
+        x2:boundary.end,
+        z2:boundary.fixed,
+        color:"#f59e0b",
+        lineWidth:group.userData.areaId===selectedId?4:3,
+      }
+      : {
+        x1:boundary.fixed,
+        z1:boundary.start,
+        x2:boundary.fixed,
+        z2:boundary.end,
+        color:"#f59e0b",
+        lineWidth:group.userData.areaId===selectedId?4:3,
+      };
   }
 
   drawMinimap(time){
@@ -2371,6 +3260,27 @@ class Gym3DView {
       const r=effectiveRectForInst(inst,item).base;
       ctx.fillStyle=inst.id===state.layout.selectedInstId?"#f97316":"#8c99a6";
       ctx.fillRect(ox+r.x*scale,oz+r.y*scale,Math.max(2,r.w*scale),Math.max(2,r.h*scale));
+    });
+    this.wallFeatureGroups.forEach((group,id)=>{
+      const line=this.wallFeatureMinimapLine(group,state.layout.selectedWallFeatureId);
+      ctx.strokeStyle=line.color;
+      ctx.lineWidth=line.lineWidth;
+      ctx.lineCap="round";
+      ctx.beginPath();
+      ctx.moveTo(ox+line.x1*scale,oz+line.z1*scale);
+      ctx.lineTo(ox+line.x2*scale,oz+line.z2*scale);
+      ctx.stroke();
+    });
+    this.garageDoorMinimapSegments.forEach(({group})=>{
+      const line=this.garageDoorMinimapLine(group,state.layout.selectedAreaId);
+      if(!line) return;
+      ctx.strokeStyle=line.color;
+      ctx.lineWidth=line.lineWidth;
+      ctx.lineCap="round";
+      ctx.beginPath();
+      ctx.moveTo(ox+line.x1*scale,oz+line.z1*scale);
+      ctx.lineTo(ox+line.x2*scale,oz+line.z2*scale);
+      ctx.stroke();
     });
     ctx.strokeStyle="#47c48a";
     ctx.lineWidth=3;
@@ -2445,13 +3355,22 @@ class Gym3DView {
     document.removeEventListener("pointerlockchange",this.onLockChange);
     window.removeEventListener("blur",this.onBlur);
     document.removeEventListener("visibilitychange",this.onVisibility);
-    this.scene.traverse(obj=>{
-      if(obj.geometry) obj.geometry.dispose?.();
-    });
-    this.disposables.forEach(item=>item?.dispose?.());
+    const disposed=new Set();
+    const disposeOnce=item=>{
+      if(!item || disposed.has(item)) return;
+      disposed.add(item);
+      item.dispose?.();
+    };
+    this.scene.traverse(obj=>disposeOnce(obj.geometry));
+    this.disposables.forEach(disposeOnce);
     this.scene.environment=null;
     this.environmentTarget?.dispose?.();
     this.environmentTarget=null;
+    this.wallEditPreview?.removeFromParent();
+    this.wallEditPreview?.clear();
+    this.wallEditPreview=null;
+    this.wallEditPreviewPlane=null;
+    this.wallEditSurfaces.length=0;
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }

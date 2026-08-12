@@ -1,5 +1,105 @@
 // Event handlers for Gym Wishlist + Layout Planner
 
+function requestLayoutName(message,suggestedName,requestPrompt){
+  const invoke=requestPrompt || ((text,defaultValue)=>window.prompt(text,defaultValue));
+  try{
+    return invoke(message,suggestedName);
+  }catch(error){
+    const unsupportedPromptMessages=new Set(["prompt() is not supported."]);
+    if(unsupportedPromptMessages.has(String(error?.message||"").trim())) return suggestedName;
+    throw error;
+  }
+}
+
+function availableLayoutName(preferredName,layouts,excludeId=null){
+  const preferred=String(preferredName||"").trim();
+  if(!preferred) return "";
+  const used=new Set((layouts||[])
+    .filter(entry=>entry?.id!==excludeId)
+    .map(entry=>String(entry?.name||"").trim().toLowerCase()));
+  if(!used.has(preferred.toLowerCase())) return preferred;
+  for(let suffix=2;;suffix+=1){
+    const candidate=`${preferred} (${suffix})`;
+    if(!used.has(candidate.toLowerCase())) return candidate;
+  }
+}
+
+function normalizeImportedLayoutPayload(data,settings,items,makeId=()=>uid("ly")){
+  if(Array.isArray(data.layouts)&&data.layouts.length){
+    const layouts=data.layouts.map(entry=>({
+      id:entry.id||makeId(),
+      name:entry.name||"Layout",
+      layout:normalizeNamedLayout(entry.name,entry.layout||entry.data||entry,settings,items),
+    }));
+    const activeLayoutId=data.activeLayoutId&&layouts.some(entry=>entry.id===data.activeLayoutId)?data.activeLayoutId:layouts[0].id;
+    return {layouts,activeLayoutId,layout:layouts.find(entry=>entry.id===activeLayoutId).layout};
+  }
+  if(!data.layout) return null;
+  const name=data.layoutName||data.name||"Layout 1";
+  const id=makeId();
+  const layout=normalizeNamedLayout(name,data.layout,settings,items);
+  return {layouts:[{id,name,layout}],activeLayoutId:id,layout};
+}
+
+function performLayoutLibraryAction(action,appState=state,options={}){
+  const requestName=options.requestName||requestLayoutName;
+  const makeId=options.makeId||(()=>uid("ly"));
+  const layouts=appState.layouts||[];
+  const activeId=appState.activeLayoutId;
+
+  if(action==="rename"){
+    const index=layouts.findIndex(entry=>entry.id===activeId);
+    if(index<0) return false;
+    const requested=requestName("Rename layout:",layouts[index].name||"Layout");
+    if(!String(requested||"").trim()) return false;
+    layouts[index].name=availableLayoutName(requested,layouts,activeId);
+    return true;
+  }
+
+  const current=normalizeLayout(deepCopy(appState.layout),appState.settings);
+  const suggestion=action==="new"
+    ? availableLayoutName(`Layout ${layouts.length+1}`,layouts)
+    : action==="duplicate"
+      ? availableLayoutName(`${layouts.find(entry=>entry.id===activeId)?.name||"Layout"} (copy)`,layouts)
+      : "";
+  if(!suggestion) return false;
+  const promptMessage=action==="new" ? "New layout name:" : "Duplicate layout name:";
+  const requested=requestName(promptMessage,suggestion);
+  if(!String(requested||"").trim()) return false;
+  const name=availableLayoutName(requested,layouts);
+  const id=makeId("ly");
+  const currentIndex=layouts.findIndex(entry=>entry.id===activeId);
+  if(currentIndex>=0) layouts[currentIndex].layout=deepCopy(current);
+  const layout=action==="new"
+    ? normalizeLayout({
+        ...DEFAULT_LAYOUT,
+        wallExtensions:deepCopy(current.wallExtensions||[]),
+        areas:deepCopy(current.areas||[]),
+        outlets:deepCopy(current.outlets||[]),
+        ceilingZones:deepCopy(current.ceilingZones||[]),
+        floorZones:deepCopy(current.floorZones||[]),
+        flooringPieces:deepCopy(current.flooringPieces||[]),
+        wallFeatures:deepCopy(current.wallFeatures||[]),
+        spatial3d:deepCopy(current.spatial3d||{}),
+        instances:[],
+      },appState.settings)
+    : normalizeLayout(deepCopy(current),appState.settings);
+  appState.layouts=[...layouts,{id,name,layout}];
+  appState.activeLayoutId=id;
+  appState.layout=normalizeLayout(deepCopy(layout),appState.settings);
+  appState.layout.selectedInstId=null;
+  appState.layout.selectedAreaId=null;
+  appState.layout.selectedOutletId=null;
+  appState.layout.selectedWallExtId=null;
+  appState.layout.selectedCeilingZoneId=null;
+  appState.layout.selectedFloorZoneId=null;
+  appState.layout.selectedWallFeatureId=null;
+  appState._roomCache=null;
+  appState.tab="layout";
+  if(appState===state) globalThis.GymWalkthroughEditing?.reset?.();
+  return true;
+}
+
 function refreshInstInvalid(id){
   state.layout.instances = (state.layout.instances||[]).map(x=>{
     if(x.id!==id) return x;
@@ -8,6 +108,142 @@ function refreshInstInvalid(id){
     const er = effectiveRectForInst(x, it);
     return {...x, __invalid: isInvalidPlacement(id, er.base, er.eff)};
   });
+}
+
+function setLayoutActionStatus(instId,tone,message){
+  state.layoutActionStatus={instId,tone,message};
+}
+
+let walkthroughReturnFocus=null;
+
+function rememberWalkthroughReturnFocus(){
+  walkthroughReturnFocus=captureFocus()||{focusKey:"walkthrough-launcher"};
+}
+
+function restoreWalkthroughReturnFocus(){
+  const target=walkthroughReturnFocus||{focusKey:"walkthrough-launcher"};
+  walkthroughReturnFocus=null;
+  requestAnimationFrame(()=>restoreFocus(target));
+}
+
+function rotateLayoutInstance90(instId,options={}){
+  const shouldRender=options.render!==false;
+  const inst=(state.layout.instances||[]).find(x=>x.id===instId);
+  const item=inst ? getItemById(inst.itemId) : null;
+  if(!inst || !item){
+    setLayoutActionStatus(instId,"error","That equipment is no longer in this layout.");
+    if(shouldRender) render();
+    return {ok:false,reason:"not-found"};
+  }
+
+  const candidate=rotatedInstanceCandidate(inst,item);
+  const candidateRect=effectiveRectForInst(candidate,item);
+  const conflict=hardPlacementConflict(instId,candidateRect.base);
+  if(conflict){
+    setLayoutActionStatus(instId,"error",conflict.message);
+    if(shouldRender) render();
+    return {ok:false,reason:"hard-invalid",conflict};
+  }
+
+  const invalid=isInvalidPlacement(instId,candidateRect.base,candidateRect.eff);
+  const next={...candidate,__invalid:invalid};
+  state.layout.instances=(state.layout.instances||[]).map(x=>x.id===instId ? next : x);
+  if(invalid){
+    setLayoutActionStatus(instId,"warning","Rotated 90°. Clearance overlaps another item, so it is shown in red.");
+    if(shouldRender) render();
+    return {ok:true,reason:"soft-conflict",instance:next};
+  }
+
+  const name=String(item.name||"").trim() || "equipment";
+  setLayoutActionStatus(instId,"success",`Rotated ${name} 90°.`);
+  if(shouldRender) render();
+  return {ok:true,reason:"rotated",instance:next};
+}
+
+function layoutRotationShortcutAllowed(event,target=document.activeElement){
+  if(event?.repeat || event?.code!=="KeyR") return false;
+  if(event?.altKey || event?.ctrlKey || event?.metaKey || event?.shiftKey) return false;
+  if(state.tab!=="layout" || !state.layout?.selectedInstId) return false;
+  if(state.layout?.spatialViewMode==="3d" || state.layout?.walkthroughOpen) return false;
+  if(state.drag?.active || document.pointerLockElement) return false;
+  if(document.querySelector('dialog[open], .lightbox.open, .modalOverlay[role="dialog"][aria-modal="true"]')) return false;
+
+  const tag=String(target?.tagName||"").toLowerCase();
+  if(["input","textarea","select"].includes(tag) || target?.isContentEditable || target?.closest?.("[contenteditable='true']")) return false;
+  return true;
+}
+
+function wireLayoutRotationShortcut(){
+  if(typeof window==="undefined" || window.__layoutRotationShortcutWired) return;
+  window.__layoutRotationShortcutWired=true;
+  window.addEventListener("keydown",event=>{
+    if(!layoutRotationShortcutAllowed(event,event.target||document.activeElement)) return;
+    event.preventDefault();
+    rotateLayoutInstance90(state.layout.selectedInstId);
+  });
+}
+
+wireLayoutRotationShortcut();
+
+function handleWalkthroughEscape(event){
+  if(event?.key!=="Escape" || !state.layout?.walkthroughOpen || document.pointerLockElement) return false;
+  event.preventDefault?.();
+  event.stopImmediatePropagation?.();
+  event.stopPropagation?.();
+  const editor=GymWalkthroughEditing.state();
+  if(editor.mode==="edit" && editor.wallTool){
+    GymWalkthroughEditing.setWallTool(null);
+    render();
+    return true;
+  }
+  GymWalkthroughEditing.reset();
+  state.layout.walkthroughOpen=false;
+  render();
+  restoreWalkthroughReturnFocus();
+  return true;
+}
+
+function wallFeatureDragPatch(feature, originStartFt, deltaFt, roomData){
+  const maxStart=Math.max(0,GymWallFeatures.wallLength(feature, roomData)-GymWallFeatures.width(feature));
+  const parts=splitTotalFtToFtIn(clamp(safeNum(originStartFt)+safeNum(deltaFt),0,maxStart));
+  return {startFt:parts.ft,startIn:parts.inch};
+}
+
+function resetWallFeatureDrag(){
+  if(!state.drag || state.drag.type!=="wallfeature") return;
+  const handlers=state._wallFeatureDragHandlers;
+  if(handlers){
+    window.removeEventListener("pointermove",handlers.move);
+    window.removeEventListener("pointerup",handlers.finish);
+    window.removeEventListener("pointercancel",handlers.finish);
+    window.removeEventListener("lostpointercapture",handlers.finish,true);
+    state._wallFeatureDragHandlers=null;
+  }
+  state.drag={active:false,type:null,id:null,start:{x:0,y:0},origin:{x:0,y:0},invalid:false};
+  render();
+}
+
+function startWallFeatureDrag(pointerId){
+  const move=(event)=>{
+    if(event.pointerId!==pointerId || !state.drag?.active || state.drag.type!=="wallfeature") return;
+    const svg=$("#layoutSvg");
+    const feature=(state.layout.wallFeatures||[]).find(x=>x.id===state.drag.id);
+    if(!svg || !feature){ resetWallFeatureDrag(); return; }
+    const point=clientToSvgPoint(svg,event.clientX,event.clientY);
+    const delta=(feature.wall==="top" || feature.wall==="bottom")
+      ? point.x-state.drag.start.x
+      : point.y-state.drag.start.y;
+    patchWallFeature(feature.id,wallFeatureDragPatch(feature,state.drag.origin.startFt,delta,wallFeatureRoomData(state.layout,state.settings)));
+  };
+  const finish=(event)=>{
+    if(event.type!=="lostpointercapture" && event.pointerId!==pointerId) return;
+    resetWallFeatureDrag();
+  };
+  state._wallFeatureDragHandlers={move,finish};
+  window.addEventListener("pointermove",move);
+  window.addEventListener("pointerup",finish);
+  window.addEventListener("pointercancel",finish);
+  window.addEventListener("lostpointercapture",finish,true);
 }
 
 /** "+ in" buttons: set a sub-foot inch field to 1 so the inch input appears. */
@@ -38,6 +274,10 @@ function applyLayoutShowIn(dim, id){
   else if(d==="we_start"){ state.layout.wallExtensions = (state.layout.wallExtensions||[]).map(w=> w.id===id ? {...w, startIn:1} : w); state._roomCache = null; }
   else if(d==="we_length"){ state.layout.wallExtensions = (state.layout.wallExtensions||[]).map(w=> w.id===id ? {...w, lengthIn:1} : w); state._roomCache = null; }
   else if(d==="we_depth"){ state.layout.wallExtensions = (state.layout.wallExtensions||[]).map(w=> w.id===id ? {...w, depthIn:1} : w); state._roomCache = null; }
+  else if(d==="wf_start"){ patchWallFeature(id, {startIn:1}); return; }
+  else if(d==="wf_bottom"){ patchWallFeature(id, {bottomIn:1}); return; }
+  else if(d==="wf_width"){ patchWallFeature(id, {widthIn:1}); return; }
+  else if(d==="wf_height"){ patchWallFeature(id, {heightIn:1}); return; }
   render();
 }
 
@@ -692,7 +932,7 @@ function exportPayloadFromState(){
     return {
       filename: `gym-planner-no-layouts-${exportDateTag()}.json`,
       payload: {
-        version: 11,
+        version: 13,
         exportType: "noLayouts",
         exportedAt: new Date().toISOString(),
         tab: state.tab,
@@ -708,7 +948,7 @@ function exportPayloadFromState(){
     return {
       filename: `gym-planner-layouts-${filePart}-${exportDateTag()}.json`,
       payload: {
-        version: 11,
+        version: 13,
         exportType: "layoutsOnly",
         exportedAt: new Date().toISOString(),
         settings: exportSettings,
@@ -725,7 +965,7 @@ function exportPayloadFromState(){
   return {
     filename: `gym-planner-export-${filePart}-${exportDateTag()}.json`,
     payload: {
-      version: 11,
+      version: 13,
       exportType: "full",
       exportedAt: new Date().toISOString(),
       tab: state.tab,
@@ -915,22 +1155,14 @@ function wireTop(){
           if(Array.isArray(data.categories)) state.categories = data.categories;
           if(Array.isArray(data.items)) state.items = data.items.map(normalizeItemRecord);
 
-          if(Array.isArray(data.layouts) && data.layouts.length){
-            state.layouts = data.layouts.map(x=>({
-              id: x.id || uid("ly"),
-              name: x.name || "Layout",
-              layout: normalizeLayout(x.layout || x.data || x, state.settings),
-            }));
-            const importedActiveId = (data.activeLayoutId && state.layouts.some(x=>x.id===data.activeLayoutId)) ? data.activeLayoutId : state.layouts[0].id;
+          const importedLayouts=normalizeImportedLayoutPayload(data,state.settings,state.items);
+          if(importedLayouts){
+            state.layouts=importedLayouts.layouts;
             // setActiveLayout normally saves the current layout before switching.
             // During a full import there is no current entry to save, so clear the
             // pointer first to avoid overwriting the imported active layout.
             state.activeLayoutId = null;
-            state.setActiveLayout(importedActiveId);
-          } else if(data.layout){
-            state.layout = normalizeLayout(data.layout, state.settings);
-            state.layouts = [{ id: uid("ly"), name: "Layout 1", layout: state.layout }];
-            state.activeLayoutId = state.layouts[0].id;
+            state.setActiveLayout(importedLayouts.activeLayoutId);
           }
           state.tab = data.tab==="ingest" ? "wishlist" : (data.tab || state.tab);
           state.editingId = null;
@@ -1011,6 +1243,20 @@ function wireTab(){
       render();
     };
   });
+}
+
+function selectPlanAreaFromKeyboard(event){
+  if(event.key!=="Enter"&&event.key!==" ") return false;
+  const group=event.target?.closest?.('g[data-type="area"][role="button"]');
+  if(!group) return false;
+  const area=(state.layout.areas||[]).find(entry=>entry.id===group.dataset.id);
+  if(!area) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  clearAllSelections();
+  state.layout.selectedAreaId=area.id;
+  render();
+  return true;
 }
 
 function wireMain(){
@@ -1098,14 +1344,17 @@ function wireMain(){
       return;
     }
     if(t.dataset.action==="spatial_walkthrough_open"){
+      rememberWalkthroughReturnFocus();
       state.layout.walkthroughOpen=true;
       render();
       return;
     }
     if(t.dataset.action==="spatial_walkthrough_close"){
       try{ if(document.pointerLockElement) document.exitPointerLock(); }catch{}
+      GymWalkthroughEditing.reset();
       state.layout.walkthroughOpen=false;
       render();
+      restoreWalkthroughReturnFocus();
       return;
     }
     if(t.dataset.action==="spatial_walkthrough_reset"){
@@ -1116,34 +1365,53 @@ function wireMain(){
       if(typeof startGymWalkthrough==="function") startGymWalkthrough();
       return;
     }
+    if(t.dataset.action==="walkthrough_mode"){
+      GymWalkthroughEditing.setMode(t.dataset.mode);
+      if(t.dataset.mode==="edit" && typeof gym3DControllers!=="undefined"){
+        gym3DControllers.find(view=>view.mode==="walkthrough")?.setWalkthroughEditMode("edit");
+      }
+      render();
+      return;
+    }
+    if(t.dataset.action==="walkthrough_step"){
+      GymWalkthroughEditing.setMoveStep(t.dataset.step);
+      render();
+      return;
+    }
+    if(t.dataset.action==="walkthrough_move"){
+      GymWalkthroughEditing.nudgeInstance(t.dataset.id,Number(t.dataset.dx),Number(t.dataset.dy));
+      return;
+    }
+    if(t.dataset.action==="walkthrough_rotate") return void GymWalkthroughEditing.rotateInstance(t.dataset.id);
+    if(t.dataset.action==="walkthrough_clear_selection") return void GymWalkthroughEditing.clearSelection();
+    if(t.dataset.action==="walkthrough_wall_tool"){
+      GymWalkthroughEditing.setWallTool(t.dataset.kind);
+      render();
+      return;
+    }
+    if(t.dataset.action==="walkthrough_cancel_tool"){
+      GymWalkthroughEditing.setWallTool(null);
+      render();
+      return;
+    }
+    if(t.dataset.action==="walkthrough_undo") return void GymWalkthroughEditing.undoLast();
+    if(t.dataset.action==="walkthrough_wf_remove") return void GymWalkthroughEditing.removeFeature(t.dataset.id);
+    if(t.dataset.action==="walkthrough_wf_nudge"){
+      const feature=(state.layout.wallFeatures||[]).find(entry=>entry.id===t.dataset.id);
+      if(!feature) return;
+      const start=GymWallFeatures.start(feature)+Number(t.dataset.inches)/12;
+      const parts=splitTotalFtToFtIn(start);
+      return void GymWalkthroughEditing.patchFeature(feature.id,{startFt:parts.ft,startIn:parts.inch});
+    }
 
     // Layout library actions
     if(t.dataset.action==="layout_new"){
-      const name = prompt("New layout name:", `Layout ${((state.layouts||[]).length||0)+1}`) || "";
-      if(!name.trim()) return;
-      const cur = normalizeLayout(state.layout, state.settings);
-      const newLayout = normalizeLayout({
-        ...DEFAULT_LAYOUT,
-        wallExtensions: deepCopy(cur.wallExtensions||[]),
-        areas: deepCopy(cur.areas||[]),
-        instances: [],
-      }, state.settings);
-      const id = uid("ly");
-      state.layouts = [...(state.layouts||[]), { id, name: name.trim(), layout: newLayout }];
-      if(state.setActiveLayout) state.setActiveLayout(id);
-      state.tab = "layout";
+      if(!performLayoutLibraryAction("new")) return;
       render();
       return;
     }
     if(t.dataset.action==="layout_dup"){
-      const curEntry = (state.layouts||[]).find(x=>x.id===state.activeLayoutId);
-      const baseName = curEntry?.name || "Layout";
-      const name = prompt("Duplicate layout name:", `${baseName} (copy)`) || "";
-      if(!name.trim()) return;
-      const id = uid("ly");
-      state.layouts = [...(state.layouts||[]), { id, name: name.trim(), layout: normalizeLayout(deepCopy(state.layout), state.settings) }];
-      if(state.setActiveLayout) state.setActiveLayout(id);
-      state.tab = "layout";
+      if(!performLayoutLibraryAction("duplicate")) return;
       render();
       return;
     }
@@ -1162,12 +1430,7 @@ function wireMain(){
       return;
     }
     if(t.dataset.action==="layout_rename"){
-      const idx = (state.layouts||[]).findIndex(x=>x.id===state.activeLayoutId);
-      if(idx<0) return;
-      const curName = state.layouts[idx].name || "Layout";
-      const name = prompt("Rename layout:", curName) || "";
-      if(!name.trim()) return;
-      state.layouts[idx].name = name.trim();
+      if(!performLayoutLibraryAction("rename")) return;
       render();
       return;
     }
@@ -1326,7 +1589,7 @@ function wireMain(){
     if(t.dataset.action==="layout_clear_filters"){
       state.layoutWorkspace.search = "";
       state.layoutSelectedCategory = "All";
-      state.layoutSelectedBrand = "All";
+      state.layoutFilterBrand = "All";
       state.layoutFilterUpright = "All";
       state.layoutFilterHole = "All";
       render();
@@ -1334,58 +1597,61 @@ function wireMain(){
     }
     if(t.dataset.action==="layout_clear_selection"){
       clearAllSelections();
-      state.layoutWorkspace.inspectorDrawerOpen=false;
+      state.layoutWorkspace.status = null;
       render();
       return;
     }
-    if(t.dataset.action==="toggleLibraryDrawer" || t.dataset.action==="toggleInspectorDrawer"){
-      Object.assign(state.layoutWorkspace,LayoutEditorCore.toggleDrawer(
-        state.layoutWorkspace,
-        t.dataset.action==="toggleLibraryDrawer" ? "library" : "inspector"
-      ));
+    if(t.dataset.action==="toggleLibraryDrawer"){
+      state.layoutWorkspace = LayoutEditorCore.toggleDrawer(state.layoutWorkspace,"library");
+      render();
+      return;
+    }
+    if(t.dataset.action==="toggleInspectorDrawer"){
+      state.layoutWorkspace = LayoutEditorCore.toggleDrawer(state.layoutWorkspace,"inspector");
       render();
       return;
     }
     if(t.dataset.action==="closeLayoutDrawers"){
-      state.layoutWorkspace.libraryDrawerOpen=false;
-      state.layoutWorkspace.inspectorDrawerOpen=false;
+      state.layoutWorkspace.libraryDrawerOpen = false;
+      state.layoutWorkspace.inspectorDrawerOpen = false;
       render();
       return;
     }
-    if(t.dataset.action==="layout_page_tool"){
-      const next = t.dataset.panel || "layout";
-      state.layoutWorkspace.openPageTool = state.layoutWorkspace.openPageTool === next ? "" : next;
+    if(t.dataset.action==="duplicateInst"){
+      const result=duplicatePlacement(t.dataset.id);
+      state.layoutWorkspace.status={kind:result.ok?"success":"error",message:result.message};
+      if(result.ok) state.layoutWorkspace.inspectorDrawerOpen=true;
       render();
       return;
     }
-    if(t.dataset.action==="duplicateInst" || t.dataset.action==="centerInst"){
-      const result=t.dataset.action==="duplicateInst"
-        ? duplicatePlacement(t.dataset.id)
-        : centerPlacementInRoom(t.dataset.id);
-      state.layoutWorkspace.status={kind:result.ok?"saved":"invalid",message:result.message};
+    if(t.dataset.action==="centerInst"){
+      const result=centerPlacementInRoom(t.dataset.id);
+      state.layoutWorkspace.status={kind:result.ok?"success":"error",message:result.message};
       render();
       return;
     }
     if(t.dataset.action==="openEquipmentDetails"){
-      const item=getItemById(t.dataset.id);
+      const item=state.items.find(x=>x.id===t.dataset.id);
       if(!item) return;
+      discardPendingDraftModelAsset();
       state.editingId=item.id;
-      state.draft={...DEFAULT_ITEM,...deepCopy(item)};
+      state.draft={...DEFAULT_ITEM,...item};
       state.layoutWorkspace.detailsEditorOpen=true;
       state.layoutWorkspace.detailsEditorItemId=item.id;
-      state.layoutWorkspace.detailsEditorBaseline=deepCopy(state.draft);
+      state.layoutWorkspace.detailsEditorBaseline={...state.draft};
       state.layoutWorkspace.discardEditorConfirmOpen=false;
       render();
       return;
     }
     if(t.dataset.action==="closeEquipmentDetails"){
-      const activeDraft={...state.draft,...readDraftFromForm()};
-      state.draft=activeDraft;
-      if(LayoutEditorCore.draftChanged(activeDraft,state.layoutWorkspace.detailsEditorBaseline)){
+      const current={...state.draft,...readDraftFromForm()};
+      state.draft=current;
+      if(LayoutEditorCore.draftChanged(current,state.layoutWorkspace.detailsEditorBaseline)){
         state.layoutWorkspace.discardEditorConfirmOpen=true;
       }else{
         state.layoutWorkspace.detailsEditorOpen=false;
         state.layoutWorkspace.detailsEditorItemId=null;
+        state.layoutWorkspace.detailsEditorBaseline=null;
         state.editingId=null;
         state.draft={...DEFAULT_ITEM};
       }
@@ -1683,11 +1949,12 @@ function wireMain(){
       }
       const pendingRef=pendingDraftModelAssetRef;
       setPendingDraftModelAsset("");
-      if(state.layoutWorkspace?.detailsEditorOpen){
+      if(state.layoutWorkspace.detailsEditorOpen){
         state.layoutWorkspace.detailsEditorOpen=false;
         state.layoutWorkspace.detailsEditorItemId=null;
         state.layoutWorkspace.detailsEditorBaseline=null;
         state.layoutWorkspace.discardEditorConfirmOpen=false;
+        state.layoutWorkspace.status={kind:"success",message:"Equipment details saved."};
       }
       state.editingId = null;
       state.draft = {...DEFAULT_ITEM};
@@ -2026,6 +2293,25 @@ function wireMain(){
       return;
     }
 
+    if(t.dataset.action==="add_wall_feature"){
+      addWallFeature(t.dataset.kind || "mirror");
+      return;
+    }
+    if(t.dataset.action==="remove_wall_feature"){
+      removeWallFeature(t.dataset.id);
+      return;
+    }
+    if(t.dataset.action==="wf_nudge"){
+      const feature=(state.layout.wallFeatures||[]).find(x=>x.id===t.dataset.id);
+      if(!feature) return;
+      const roomData=wallFeatureRoomData(state.layout, state.settings);
+      const wallLength=GymWallFeatures.wallLength(feature, roomData);
+      const start=clamp(GymWallFeatures.start(feature)+safeNum(t.dataset.inches)/12, 0, Math.max(0,wallLength-GymWallFeatures.width(feature)));
+      const parts=splitTotalFtToFtIn(start);
+      patchWallFeature(feature.id, {startFt:parts.ft,startIn:parts.inch});
+      return;
+    }
+
     if(t.dataset.action==="addOutlet"){
       const o = { id: uid("out"), label: "Outlet", xFt: snap(1), xIn: 0, yFt: snap(1), yIn: 0, voltage: "120V" };
       state.layout.outlets = [ ...(state.layout.outlets||[]), o ];
@@ -2045,7 +2331,7 @@ function wireMain(){
     // Layout instance add/remove/rotate
     if(t.dataset.action==="addInst"){
       addInstance(t.dataset.id);
-      state.layoutWorkspace.inspectorDrawerOpen=true;
+      state.layoutWorkspace.inspectorDrawerOpen = true;
       render(); return;
     }
 
@@ -2178,9 +2464,8 @@ function wireMain(){
       render(); return;
     }
     if(t.dataset.action==="rotateInst"){
-      const id = t.dataset.id;
-      state.layout.instances = (state.layout.instances||[]).map(x=> x.id===id ? {...x, rotated: !x.rotated} : x);
-      render(); return;
+      rotateLayoutInstance90(t.dataset.id);
+      return;
     }
     if(t.dataset.action==="toggleInstSide"){
       const id = t.dataset.id;
@@ -2269,6 +2554,21 @@ function wireMain(){
     let t = e.target;
     if(t && t.nodeType === 3 && t.parentElement) t = t.parentElement;
     if(!t || !(t instanceof HTMLElement)) return;
+
+    if(t.dataset.action && t.dataset.action.startsWith("walkthrough_wf_")){
+      const action=t.dataset.action;
+      const value=t.value;
+      let patch=null;
+      if(action==="walkthrough_wf_kind") patch={kind:value};
+      if(action==="walkthrough_wf_label") patch={label:value};
+      if(action==="walkthrough_wf_wall") patch={wall:value};
+      if(action==="walkthrough_wf_color") patch={color:value};
+      if(action==="walkthrough_wf_brightness") patch={brightnessPct:clamp(safeNum(value),0,100)};
+      const measurement=action.match(/^walkthrough_wf_(start|bottom|width|height)_(ft|in)$/);
+      if(measurement) patch={[`${measurement[1]}${measurement[2]==="ft"?"Ft":"In"}`]:Math.max(0,safeNum(value))};
+      if(patch) GymWalkthroughEditing.patchFeature(t.dataset.id,patch);
+      return;
+    }
 
     // Layout selector
     if(t.dataset.action==="layout_select"){
@@ -2409,7 +2709,7 @@ function wireMain(){
       return;
     }
 
-    // Update the shared equipment draft in Wishlist or the Layout details sheet.
+    // Update draft live (only in wishlist tab)
     if(state.tab==="wishlist" || state.layoutWorkspace?.detailsEditorOpen){
       const map = {
         f_name:"name", f_brand:"brand", f_category:"category", f_status:"status", f_priority:"priority",
@@ -2480,6 +2780,45 @@ function wireMain(){
 
     if(t.dataset.action==="area_kind"){
       patchArea(t.dataset.id, {kind: t.value}); return;
+    }
+    if(t.dataset.action==="wf_kind"){
+      patchWallFeature(t.dataset.id, {kind:t.value}); return;
+    }
+    if(t.dataset.action==="wf_label"){
+      patchWallFeature(t.dataset.id, {label:t.value}); return;
+    }
+    if(t.dataset.action==="wf_wall"){
+      patchWallFeature(t.dataset.id, {wall:t.value}); return;
+    }
+    if(t.dataset.action==="wf_color"){
+      patchWallFeature(t.dataset.id, {color:t.value}); return;
+    }
+    if(t.dataset.action==="wf_brightness"){
+      patchWallFeature(t.dataset.id, {brightnessPct:clamp(safeNum(t.value),0,100)}); return;
+    }
+    if(t.dataset.action==="wf_start_ft"){
+      patchWallFeature(t.dataset.id, {startFt:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_start_in"){
+      patchWallFeature(t.dataset.id, {startIn:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_bottom_ft"){
+      patchWallFeature(t.dataset.id, {bottomFt:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_bottom_in"){
+      patchWallFeature(t.dataset.id, {bottomIn:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_width_ft"){
+      patchWallFeature(t.dataset.id, {widthFt:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_width_in"){
+      patchWallFeature(t.dataset.id, {widthIn:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_height_ft"){
+      patchWallFeature(t.dataset.id, {heightFt:Math.max(0,safeNum(t.value))}); return;
+    }
+    if(t.dataset.action==="wf_height_in"){
+      patchWallFeature(t.dataset.id, {heightIn:Math.max(0,safeNum(t.value))}); return;
     }
     if(t.dataset.action==="area_label"){
       patchArea(t.dataset.id, {label: t.value}); return;
@@ -2646,16 +2985,9 @@ function wireMain(){
           return;
         }
         if(actionEl && actionEl.dataset.action==="rotateInst"){
-          const id = actionEl.dataset.id;
-          state.layout.instances = (state.layout.instances||[]).map(x=>{
-            if(x.id!==id) return x;
-            const it = getItemById(x.itemId);
-            const next = {...x, rotated: !x.rotated};
-            if(!it) return next;
-            const er = effectiveRectForInst(next, it);
-            return {...next, __invalid: isInvalidPlacement(id, er.base, er.eff)};
-          });
-          render();
+          // The delegated click route is the sole pointer activation path for
+          // this SVG action. Returning here keeps the gesture out of drag
+          // handling without rotating once on pointerdown and again on click.
           return;
         }
         // Photo-hint shortcut (fires global click handler; we stop here to
@@ -2757,6 +3089,7 @@ function wireMain(){
         if(!g){
           if(LayoutEditorCore.selectionType(state.layout)!=="none"){
             clearAllSelections();
+            state.layoutWorkspace.status=null;
             render();
           }
           return;
@@ -2767,12 +3100,21 @@ function wireMain(){
 
         clearAllSelections();
         state.layoutWorkspace.inspectorDrawerOpen=true;
+        state.layoutWorkspace.status=null;
 
         if(type==="inst"){
           const inst = (state.layout.instances||[]).find(x=>x.id===id);
           if(!inst) return;
           state.layout.selectedInstId = id;
           state.drag = {active:true, type:"inst", id, start:p, origin:{x: instXTotalFt(inst), y: instYTotalFt(inst)}, invalid:false};
+        }else if(type==="wallfeature"){
+          const feature=(state.layout.wallFeatures||[]).find(x=>x.id===id);
+          if(!feature) return;
+          state.layout.selectedWallFeatureId=id;
+          state.drag={active:true,type:"wallfeature",id,start:p,origin:{startFt:GymWallFeatures.start(feature),wall:feature.wall},invalid:false};
+          startWallFeatureDrag(e.pointerId);
+          render();
+          return;
         }else if(type==="area"){
           const area = (state.layout.areas||[]).find(a=>a.id===id);
           if(!area) return;
@@ -2839,6 +3181,7 @@ function wireMain(){
 
       svg.onpointermove = (e)=>{
         if(!state.drag.active) return;
+        if(state.drag.type==="wallfeature") return;
         const p = clientToSvgPoint(svg, e.clientX, e.clientY);
         const dx = p.x - state.drag.start.x;
         const dy = p.y - state.drag.start.y;
@@ -3080,6 +3423,7 @@ function wireMain(){
 
       svg.onpointerup = (e)=>{
         if(!state.drag.active) return;
+        if(state.drag.type==="wallfeature") return;
         const drag = state.drag;
         svg.releasePointerCapture(e.pointerId);
 
@@ -3237,25 +3581,60 @@ function wireMain(){
         render();
       };
 
+      svg.onkeydown=(e)=>{
+        if(selectPlanAreaFromKeyboard(e)) return;
+        if(e.key!=="Enter" && e.key!==" ") return;
+        const rotate=e.target.closest && e.target.closest('[data-action="rotateInst"]');
+        if(rotate){
+          e.preventDefault();
+          e.stopPropagation();
+          rotateLayoutInstance90(rotate.dataset.id);
+          return;
+        }
+        const inst=e.target.closest && e.target.closest('g[data-type="inst"]');
+        if(inst){
+          e.preventDefault();
+          e.stopPropagation();
+          clearAllSelections();
+          state.layout.selectedInstId=inst.dataset.id;
+          state.layoutWorkspace.inspectorDrawerOpen=true;
+          render();
+          return;
+        }
+        const g=e.target.closest && e.target.closest('g[data-type="wallfeature"]');
+        if(!g) return;
+        e.preventDefault();
+        clearAllSelections();
+        state.layout.selectedWallFeatureId=g.dataset.id;
+        state.layoutWorkspace.inspectorDrawerOpen=true;
+        render();
+      };
+
   document.addEventListener("keydown", (e)=>{
     if(e.key !== "Escape") return;
     if(state.layoutWorkspace?.detailsEditorOpen){
-      if(LayoutEditorCore.draftChanged(state.draft,state.layoutWorkspace.detailsEditorBaseline)) state.layoutWorkspace.discardEditorConfirmOpen=true;
-      else state.layoutWorkspace.detailsEditorOpen=false;
+      const current={...state.draft,...readDraftFromForm()};
+      state.draft=current;
+      if(LayoutEditorCore.draftChanged(current,state.layoutWorkspace.detailsEditorBaseline)){
+        state.layoutWorkspace.discardEditorConfirmOpen=true;
+      }else{
+        state.layoutWorkspace.detailsEditorOpen=false;
+        state.layoutWorkspace.detailsEditorItemId=null;
+        state.layoutWorkspace.detailsEditorBaseline=null;
+        state.editingId=null;
+        state.draft={...DEFAULT_ITEM};
+      }
       render();
       return;
     }
+    if(state.layout?.walkthroughOpen && handleWalkthroughEscape(e)) return;
     if(state.layoutWorkspace?.libraryDrawerOpen || state.layoutWorkspace?.inspectorDrawerOpen){
       state.layoutWorkspace.libraryDrawerOpen=false;
       state.layoutWorkspace.inspectorDrawerOpen=false;
       render();
       return;
     }
-    if(state.layout?.walkthroughOpen && !document.pointerLockElement){
-      state.layout.walkthroughOpen = false;
-      render();
-      return;
-    }
+    if(handleWalkthroughEscape(e)) return;
     const box = $("#imgLightbox");
     if(box && box.classList.contains("open")){
       box.classList.remove("open");
@@ -3404,22 +3783,14 @@ function wireEquipmentModelControls(){
 }
 
 function wireWishlistExtras(){
-  $$('[data-action="closeEquipmentDetails"]').forEach(button=>{
-    button.onclick=(event)=>{
-      event.stopPropagation();
-      const activeDraft={...state.draft,...readDraftFromForm()};
-      state.draft=activeDraft;
-      if(LayoutEditorCore.draftChanged(activeDraft,state.layoutWorkspace.detailsEditorBaseline)){
-        state.layoutWorkspace.discardEditorConfirmOpen=true;
-      }else{
-        state.layoutWorkspace.detailsEditorOpen=false;
-        state.layoutWorkspace.detailsEditorItemId=null;
-        state.editingId=null;
-        state.draft={...DEFAULT_ITEM};
-      }
+  const layoutSearch=$("#layoutEquipmentSearch");
+  if(layoutSearch){
+    layoutSearch.oninput=()=>{
+      state.layoutWorkspace.search=layoutSearch.value;
       render();
     };
-  });
+  }
+
   const modelAssetFile=$("#f_model3dAssetFile");
   if(modelAssetFile){
     modelAssetFile.onchange=async()=>{
@@ -3499,14 +3870,6 @@ function wireWishlistExtras(){
   if(brandSel){
     brandSel.onchange = ()=>{
       state.layoutSelectedBrand = String(brandSel.value||"All");
-      render();
-    };
-  }
-
-  const layoutSearch = $("#layoutEquipmentSearch");
-  if(layoutSearch){
-    layoutSearch.oninput = ()=>{
-      state.layoutWorkspace.search = layoutSearch.value;
       render();
     };
   }

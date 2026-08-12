@@ -13,6 +13,215 @@ function layoutFtInRow(label, id, ftVal, inchVal, dataFtAction, dataInAction, di
   return hint ? field(label, row, hint) : field(label, row);
 }
 
+function wallFeatureDisplayName(kind){
+  return ({mirror:"Mirror",slat:"Wood slat panel",led:"LED strip"})[kind] || "Wall feature";
+}
+
+function garageDoorResolution(area,roomData){
+  return GymGarageDoors.resolveOpening(
+    areaRect(area),
+    GymGarageDoors.boundarySegments(Array.isArray(roomData?.rects)?roomData.rects:[]),
+    {areaId:area.id,label:area.label}
+  );
+}
+
+function garageDoorAreaSvg(area,roomData,selected=false){
+  const rect=areaRect(area);
+  const resolution=garageDoorResolution(area,roomData);
+  const vertical=resolution.ok ? resolution.axis==="z" : rect.h>rect.w;
+  const classes=["garageDoorArea","garageDoorArchitectural"];
+  if(selected) classes.push("garageDoorSelected");
+  if(!resolution.ok) classes.push("garageDoorInvalid");
+  const warning=resolution.ok ? "" : resolution.message;
+  const widthFt=resolution.ok ? resolution.widthFt : Math.max(rect.w,rect.h);
+  const accessibleName=`Garage door, ${round1(widthFt)} ft wide, architectural only${warning ? `. Invalid: ${warning}` : ""}`;
+  const title=warning ? `Garage door. Invalid: ${warning}` : "Garage door, architectural only";
+  const panels=[];
+  for(let row=0;row<4;row+=1){
+    for(let column=0;column<4;column+=1){
+      const x=rect.x+(vertical?row:column)*rect.w/4;
+      const y=rect.y+(vertical?column:row)*rect.h/4;
+      panels.push(`<rect x="${x}" y="${y}" width="${rect.w/4}" height="${rect.h/4}" class="garagePanelFace" data-section="${row+1}" data-bay="${column+1}" />`);
+    }
+  }
+  const lines=GymGarageDoors.planPanelLines(rect,{axis:vertical?"z":"x"});
+  const sectionLines=lines.slice(0,3).map(line=>`<line x1="${line.x1}" y1="${line.z1}" x2="${line.x2}" y2="${line.z2}" class="garageSectionLine" />`).join("");
+  const bayLines=lines.slice(3).map(line=>`<line x1="${line.x1}" y1="${line.z1}" x2="${line.x2}" y2="${line.z2}" class="garageBayLine" />`).join("");
+  const openingLine=resolution.ok ? (resolution.axis==="x"
+    ? `<line x1="${resolution.start}" y1="${resolution.fixed}" x2="${resolution.end}" y2="${resolution.fixed}" class="garageOpeningLine" />`
+    : `<line x1="${resolution.fixed}" y1="${resolution.start}" x2="${resolution.fixed}" y2="${resolution.end}" class="garageOpeningLine" />`) : "";
+  return `<g data-type="area" data-id="${escapeAttr(area.id)}" class="${classes.join(" ")}" role="button" tabindex="0" aria-label="${escapeAttr(accessibleName)}" aria-pressed="${selected?"true":"false"}"${warning?' aria-invalid="true"':""}>
+    <title>${escapeSvg(title)}</title>
+    <rect x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}" class="areaGarage" />
+    ${panels.join("")}
+    ${sectionLines}${bayLines}${openingLine}
+    <rect x="${rect.x+0.12}" y="${rect.y+0.12}" width="${Math.max(0,rect.w-0.24)}" height="0.8" class="labelBox" />
+    <text x="${rect.x+0.22}" y="${rect.y+0.68}" class="labelText">${escapeSvg(area.label||"Garage door")}</text>
+    ${selected ? resizeHandles("area",area.id,rect) : ""}
+  </g>`;
+}
+
+function spatialFrameSelectedControl(selection){
+  const hasSelection=!!(selection.selectedInstId || selection.selectedAreaId || selection.selectedWallFeatureId);
+  if(!hasSelection || selection.spatialMode==="plan") return "";
+  const featureOnly=!!selection.selectedWallFeatureId && !selection.selectedInstId && !selection.selectedAreaId;
+  let unavailableReason="";
+  if(featureOnly && selection.wallsVisible===false){
+    unavailableReason="Turn Walls on to frame this wall feature.";
+  }else if(featureOnly && selection.wallFeatureValid===false){
+    unavailableReason=String(selection.wallFeatureReason||"Fix this wall feature before framing it.");
+  }
+  if(unavailableReason){
+    return `<button type="button" class="focusCanvasBtn" data-action="spatial_frame_selected" disabled aria-disabled="true" aria-label="Frame selected unavailable. ${escapeAttr(unavailableReason)}" title="${escapeAttr(unavailableReason)}">Frame selected</button>`;
+  }
+  return `<button type="button" class="focusCanvasBtn" data-action="spatial_frame_selected">Frame selected</button>`;
+}
+
+function walkthroughModeSwitch(){
+  const editor=GymWalkthroughEditing.state();
+  return `<div class="walkthroughModeSwitch" role="radiogroup" aria-label="Walkthrough mode">
+    <button type="button" role="radio" aria-checked="${editor.mode==="walk"?"true":"false"}" data-action="walkthrough_mode" data-mode="walk" data-focus-key="walkthrough-mode-walk">Walk</button>
+    <button type="button" role="radio" aria-checked="${editor.mode==="edit"?"true":"false"}" data-action="walkthrough_mode" data-mode="edit" data-focus-key="walkthrough-mode-edit">Edit</button>
+  </div>`;
+}
+
+function walkthroughCompactField(label,control){
+  return `<label class="walkthroughCompactField"><span>${escapeHtml(label)}</span>${control}</label>`;
+}
+
+function walkthroughMeasurementField(label,feature,name){
+  const id=escapeAttr(feature.id);
+  const ft=escapeAttr(feature[`${name}Ft`]??0);
+  const inch=escapeAttr(feature[`${name}In`]??0);
+  return `<fieldset class="walkthroughMeasureField">
+    <legend>${escapeHtml(label)}</legend>
+    <label><span>Feet</span><input type="number" min="0" step="1" inputmode="numeric" aria-label="${escapeAttr(label)} feet" data-action="walkthrough_wf_${name}_ft" data-id="${id}" data-focus-key="walkthrough-wf-${name}-ft:${id}" value="${ft}"></label>
+    <label><span>Inches</span><input type="number" min="0" max="11" step="1" inputmode="numeric" aria-label="${escapeAttr(label)} inches" data-action="walkthrough_wf_${name}_in" data-id="${id}" data-focus-key="walkthrough-wf-${name}-in:${id}" value="${inch}"></label>
+  </fieldset>`;
+}
+
+function walkthroughEditPanel(includeModeSwitch=true){
+  const editor=GymWalkthroughEditing.state();
+  const selectedFeature=(state.layout.wallFeatures||[]).find(feature=>feature.id===state.layout.selectedWallFeatureId)||null;
+  const selectedInst=(state.layout.instances||[]).find(inst=>inst.id===state.layout.selectedInstId)||null;
+  const selectedItem=selectedInst ? getItemById(selectedInst.itemId) : null;
+  const undoDisabled=!editor.undo;
+  const status=editor.status?.message || (selectedFeature
+    ? "Edit the selected wall feature."
+    : selectedInst
+      ? "Move in room coordinates or rotate 90 degrees."
+      : editor.wallTool
+        ? "Choose a wall surface in the room."
+        : "Select equipment, or choose a wall feature to place.");
+  let body="";
+
+  if(selectedFeature){
+    const id=escapeAttr(selectedFeature.id);
+    const name=wallFeatureDisplayName(selectedFeature.kind);
+    body=`<section class="walkthroughEditorSection walkthroughFeatureEditor" aria-labelledby="walkthrough-feature-heading">
+      <div class="walkthroughEditorHeading">
+        <div><span class="walkthroughEditorKicker">Selected wall feature</span><h2 id="walkthrough-feature-heading">${escapeHtml(selectedFeature.label||name)}</h2></div>
+        <div class="walkthroughEditorHeadingActions">
+          <button type="button" data-action="walkthrough_clear_selection" data-focus-key="walkthrough-clear-selection" aria-label="Clear selected wall feature">Back to wall tools</button>
+          <button type="button" class="walkthroughDangerAction" data-action="walkthrough_wf_remove" data-id="${id}" data-focus-key="walkthrough-wf-remove:${id}">Delete</button>
+        </div>
+      </div>
+      <div class="walkthroughFeatureFields">
+        ${walkthroughCompactField("Type",`<select aria-label="Wall feature type" data-action="walkthrough_wf_kind" data-id="${id}" data-focus-key="walkthrough-wf-kind:${id}">${GymWallFeatures.KINDS.map(kind=>`<option value="${kind}"${selectedFeature.kind===kind?" selected":""}>${wallFeatureDisplayName(kind)}</option>`).join("")}</select>`)}
+        ${walkthroughCompactField("Label",`<input aria-label="Wall feature label" data-action="walkthrough_wf_label" data-id="${id}" data-focus-key="walkthrough-wf-label:${id}" value="${escapeAttr(selectedFeature.label||name)}">`)}
+        ${walkthroughCompactField("Wall",`<select aria-label="Wall" data-action="walkthrough_wf_wall" data-id="${id}" data-focus-key="walkthrough-wf-wall:${id}">${GymWallFeatures.SIDES.map(wall=>`<option value="${wall}"${selectedFeature.wall===wall?" selected":""}>${wall[0].toUpperCase()+wall.slice(1)}</option>`).join("")}</select>`)}
+        ${walkthroughCompactField(selectedFeature.kind==="led"?"LED color":"Color",`<input type="color" aria-label="Wall feature color" data-action="walkthrough_wf_color" data-id="${id}" data-focus-key="walkthrough-wf-color:${id}" value="${escapeAttr(selectedFeature.color||"#cbd5e1")}">`)}
+        ${walkthroughMeasurementField("Along wall",selectedFeature,"start")}
+        ${walkthroughMeasurementField("Mount height",selectedFeature,"bottom")}
+        ${walkthroughMeasurementField("Width",selectedFeature,"width")}
+        ${walkthroughMeasurementField("Height",selectedFeature,"height")}
+        ${selectedFeature.kind==="led" ? walkthroughCompactField("Brightness",`<input type="range" min="0" max="100" step="1" aria-label="Brightness" data-action="walkthrough_wf_brightness" data-id="${id}" data-focus-key="walkthrough-wf-brightness:${id}" value="${escapeAttr(safeNum(selectedFeature.brightnessPct))}">`) : ""}
+      </div>
+      <div class="walkthroughNudgeGroup" role="group" aria-label="Nudge along wall">
+        ${[-6,-1,1,6].map(inches=>`<button type="button" data-action="walkthrough_wf_nudge" data-id="${id}" data-inches="${inches}" data-focus-key="walkthrough-wf-nudge-${inches}:${id}" aria-label="Nudge ${Math.abs(inches)} inches ${inches<0?"back":"forward"}">${inches>0?"+":"−"}${Math.abs(inches)} in</button>`).join("")}
+      </div>
+    </section>`;
+  }else if(selectedInst){
+    const id=escapeAttr(selectedInst.id);
+    const stepLabel=editor.moveStep==="fine" ? "1 inch" : "6 inches";
+    body=`<section class="walkthroughEditorSection walkthroughEquipmentEditor" aria-labelledby="walkthrough-equipment-heading">
+      <div class="walkthroughEditorHeading">
+        <div><span class="walkthroughEditorKicker">Selected equipment</span><h2 id="walkthrough-equipment-heading">${escapeHtml(selectedItem?.name||"Equipment")}</h2></div>
+        <div class="walkthroughEditorHeadingActions">
+          <button type="button" data-action="walkthrough_clear_selection" data-focus-key="walkthrough-clear-selection" aria-label="Clear selected equipment">Back to wall tools</button>
+          <button type="button" class="walkthroughRotateAction" data-action="walkthrough_rotate" data-id="${id}" data-focus-key="walkthrough-rotate:${id}" aria-label="Rotate selected equipment 90 degrees">↻ 90°</button>
+        </div>
+      </div>
+      <div class="walkthroughPosition" aria-label="Current room position and orientation"><span>X <strong>${escapeHtml(formatFtIn(instXTotalFt(selectedInst)))}</strong></span><span>Y <strong>${escapeHtml(formatFtIn(instYTotalFt(selectedInst)))}</strong></span><span>Orientation: <strong>${selectedInst.rotated?"90°":"0°"}</strong></span></div>
+      <div class="walkthroughDirectionalPad" role="group" aria-label="Move selected equipment in room coordinates">
+        <button type="button" data-direction="up" data-action="walkthrough_move" data-id="${id}" data-dx="0" data-dy="-1" data-focus-key="walkthrough-move-up:${id}" aria-label="Move up ${stepLabel}">↑</button>
+        <button type="button" data-direction="left" data-action="walkthrough_move" data-id="${id}" data-dx="-1" data-dy="0" data-focus-key="walkthrough-move-left:${id}" aria-label="Move left ${stepLabel}">←</button>
+        <button type="button" data-direction="right" data-action="walkthrough_move" data-id="${id}" data-dx="1" data-dy="0" data-focus-key="walkthrough-move-right:${id}" aria-label="Move right ${stepLabel}">→</button>
+        <button type="button" data-direction="down" data-action="walkthrough_move" data-id="${id}" data-dx="0" data-dy="1" data-focus-key="walkthrough-move-down:${id}" aria-label="Move down ${stepLabel}">↓</button>
+      </div>
+      <div class="walkthroughStepGroup" role="group" aria-label="Movement step">
+        <button type="button" data-action="walkthrough_step" data-step="coarse" data-focus-key="walkthrough-step-coarse" aria-pressed="${editor.moveStep==="coarse"?"true":"false"}">6 in</button>
+        <button type="button" data-action="walkthrough_step" data-step="fine" data-focus-key="walkthrough-step-fine" aria-pressed="${editor.moveStep==="fine"?"true":"false"}">Fine · 1 in</button>
+      </div>
+    </section>`;
+  }else{
+    body=`<section class="walkthroughEditorSection walkthroughWallTools" aria-labelledby="walkthrough-wall-heading">
+      <span class="walkthroughEditorKicker">Add to a wall</span>
+      <h2 id="walkthrough-wall-heading">Choose a wall feature</h2>
+      <p>Select a tool, then choose a wall surface in the room.</p>
+      <div class="walkthroughWallToolGroup" role="group" aria-label="Wall feature tools">
+        ${GymWallFeatures.KINDS.map(kind=>`<button type="button" data-action="walkthrough_wall_tool" data-kind="${kind}" data-focus-key="walkthrough-wall-tool-${kind}" aria-pressed="${editor.wallTool===kind?"true":"false"}">${wallFeatureDisplayName(kind)}</button>`).join("")}
+      </div>
+      ${editor.wallTool ? `<button type="button" class="walkthroughCancelTool" data-action="walkthrough_cancel_tool" data-focus-key="walkthrough-cancel-tool">Cancel ${escapeHtml(wallFeatureDisplayName(editor.wallTool))}</button>` : ""}
+    </section>`;
+  }
+
+  return `${includeModeSwitch?walkthroughModeSwitch():""}<aside class="walkthroughEditPanel" aria-label="Walkthrough editor">
+    <div class="walkthroughEditPanelTop">
+      <span class="walkthroughGuideKicker">Edit layout</span>
+      <button type="button" class="walkthroughUndoAction" data-action="walkthrough_undo" data-focus-key="walkthrough-undo" aria-disabled="${undoDisabled?"true":"false"}"${undoDisabled?" disabled":""}>Undo</button>
+    </div>
+    ${body}
+    <div class="walkthroughLiveStatus ${escapeAttr(editor.status?.tone||"")}" role="status" aria-live="polite" aria-atomic="true">${escapeHtml(status)}</div>
+  </aside>`;
+}
+
+function wallFeatureSvg(feature, roomData, selected=false, validation={valid:true,reasons:[]}){
+  const rect=GymWallFeatures.planRect(feature, roomData);
+  const kind=feature.kind;
+  const name=wallFeatureDisplayName(kind);
+  const horizontal=feature.wall==="top" || feature.wall==="bottom";
+  const cx=rect.x+rect.w/2, cy=rect.y+rect.h/2;
+  const classes=["wallFeature", `wallFeature${kind[0].toUpperCase()}${kind.slice(1)}`];
+  if(selected) classes.push("wallFeatureSelected");
+  if(!validation?.valid) classes.push("wallFeatureInvalid");
+  const invalidReason=!validation?.valid
+    ? (validation?.reasons||[]).map(reason=>String(reason?.message||"").trim()).filter(Boolean).join(" ") || "Invalid wall feature placement."
+    : "";
+  const accessibleName=invalidReason ? `${name}. Invalid: ${invalidReason}` : name;
+  const title=`${name}: ${feature.wall} wall${invalidReason ? `. Invalid: ${invalidReason}` : ""}`;
+  const hatch=kind==="slat" ? Array.from({length:Math.max(2,Math.floor((horizontal?rect.w:rect.h)/.35))},(_,i)=>{
+    const at=(horizontal?rect.x:rect.y)+.12+i*.35;
+    return horizontal
+      ? `<line x1="${at}" y1="${rect.y+.03}" x2="${at+.13}" y2="${rect.y+rect.h-.03}" class="wallFeatureSlatTick" />`
+      : `<line x1="${rect.x+.03}" y1="${at}" x2="${rect.x+rect.w-.03}" y2="${at+.13}" class="wallFeatureSlatTick" />`;
+  }).join("") : "";
+  const mirror=kind==="mirror" ? (horizontal
+    ? `<line x1="${rect.x}" y1="${cy-.055}" x2="${rect.x+rect.w}" y2="${cy-.055}" class="wallFeatureMirrorLine" /><line x1="${rect.x}" y1="${cy+.055}" x2="${rect.x+rect.w}" y2="${cy+.055}" class="wallFeatureMirrorLine" />`
+    : `<line x1="${cx-.055}" y1="${rect.y}" x2="${cx-.055}" y2="${rect.y+rect.h}" class="wallFeatureMirrorLine" /><line x1="${cx+.055}" y1="${rect.y}" x2="${cx+.055}" y2="${rect.y+rect.h}" class="wallFeatureMirrorLine" />`) : "";
+  const led=kind==="led" ? (horizontal
+    ? `<line x1="${rect.x}" y1="${cy}" x2="${rect.x+rect.w}" y2="${cy}" class="wallFeatureLedGlow" style="stroke:${escapeAttr(feature.color||"#ffb36b")}" /><line x1="${rect.x}" y1="${cy}" x2="${rect.x+rect.w}" y2="${cy}" class="wallFeatureLedLine" style="stroke:${escapeAttr(feature.color||"#ffb36b")}" />`
+    : `<line x1="${cx}" y1="${rect.y}" x2="${cx}" y2="${rect.y+rect.h}" class="wallFeatureLedGlow" style="stroke:${escapeAttr(feature.color||"#ffb36b")}" /><line x1="${cx}" y1="${rect.y}" x2="${cx}" y2="${rect.y+rect.h}" class="wallFeatureLedLine" style="stroke:${escapeAttr(feature.color||"#ffb36b")}" />`) : "";
+  const symbol=kind==="mirror" ? "M" : kind==="slat" ? "SLAT" : "LED";
+  return `<g data-type="wallfeature" data-id="${escapeAttr(feature.id)}" class="${classes.join(" ")}" role="button" tabindex="0" aria-label="${escapeAttr(accessibleName)}" aria-pressed="${selected?"true":"false"}"${invalidReason?' aria-invalid="true"':""}>
+    <title>${escapeSvg(title)}</title>
+    <rect x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}" class="wallFeatureHit" />
+    ${mirror}${kind==="slat" ? `<rect x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}" class="wallFeatureSlatFill" />${hatch}` : ""}${led}
+    <text x="${cx}" y="${cy+.05}" class="wallFeatureMark" text-anchor="middle" dominant-baseline="middle">${symbol}</text>
+    ${selected || !validation?.valid ? `<rect x="${rect.x-.04}" y="${rect.y-.04}" width="${rect.w+.08}" height="${rect.h+.08}" class="wallFeatureOutline" />` : ""}
+  </g>`;
+}
+
 function layoutDimOverlaySvg(){
   if(!state.settings?.layoutDimOverlay) return "";
   const lines = [];
@@ -54,6 +263,11 @@ function layoutDimOverlaySvg(){
   if(fp){
     const pr = flooringPieceRect(fp);
     lines.push(`<g class="layoutDimOverlay">${dimOverlayText(pr.x, pr.y - 0.22, `Pos ${formatFtIn(flooringXTotalFt(fp))} × ${formatFtIn(flooringYTotalFt(fp))} · ${formatFtIn(pr.w)} × ${formatFtIn(pr.h)}`)}</g>`);
+  }
+  const wf = (state.layout.wallFeatures||[]).find(x=>x.id===state.layout.selectedWallFeatureId);
+  if(wf){
+    const roomData=wallFeatureRoomData(state.layout, state.settings);
+    lines.push(`<g class="layoutDimOverlay">${dimOverlayText(GymWallFeatures.planRect(wf, roomData).x, GymWallFeatures.planRect(wf, roomData).y-.28, `${wallFeatureDisplayName(wf.kind)} · ${wf.wall} · ${formatFtIn(GymWallFeatures.start(wf))} · mount ${formatFtIn(GymWallFeatures.bottom(wf))} · ${formatFtIn(GymWallFeatures.width(wf))} × ${formatFtIn(GymWallFeatures.height(wf))}`)}</g>`);
   }
   return lines.join("");
 }
@@ -125,26 +339,6 @@ function roomDimensionsSvg(r){
   });
 
   return parts.join("");
-}
-
-function buildLayoutViewModel(parts){
-  return parts;
-}
-
-function layoutEquipmentLibrary(model){
-  return model.equipmentLibrary;
-}
-
-function layoutCanvasWorkspace(model){
-  return model.canvas;
-}
-
-function layoutContextInspector(model){
-  return model.inspector;
-}
-
-function layoutCoveragePanel(model){
-  return model.coverage;
 }
 
 function layoutPanel(rows, currency){
@@ -338,6 +532,7 @@ function layoutPanel(rows, currency){
     const m = kindMeta(a.kind);
     const rect = areaRect(a);
     const sel = state.layout.selectedAreaId===a.id;
+    if(a.kind==="garagedoor") return garageDoorAreaSvg(a,r,sel);
     const doorPath = (a.kind==="door" && a.doorClearEnabled!==false) ? doorArcPath(a) : "";
     return `
       <g data-type="area" data-id="${a.id}">
@@ -348,6 +543,12 @@ function layoutPanel(rows, currency){
         ${sel ? resizeHandles("area", a.id, rect) : ""}
       </g>
     `;
+  }).join("");
+
+  // Wall features stay below equipment so equipment remains the top selection layer.
+  const wallFeaturesSvg=(state.layout.wallFeatures||[]).map(feature=>{
+    const validation=GymWallFeatures.validate(feature, state.layout, wallFeatureRoomData(state.layout, state.settings));
+    return wallFeatureSvg(feature, r, state.layout.selectedWallFeatureId===feature.id, validation);
   }).join("");
 
   const outletsSvg = (state.layout.outlets||[]).map(o=>{
@@ -488,7 +689,8 @@ function layoutPanel(rows, currency){
     const rotX = base.x + base.w - 0.86;
     const rotY = delY;
     const quickActions = selected ? `
-      <g class="instQuickRotate" data-action="rotateInst" data-id="${inst.id}">
+      <g class="instQuickRotate" data-action="rotateInst" data-id="${inst.id}" role="button" tabindex="0" aria-label="Rotate 90°">
+        <title>Rotate 90°</title>
         <circle cx="${rotX}" cy="${rotY}" r="0.22" class="instQuickActionBg" />
         <text x="${rotX}" y="${rotY+0.02}" text-anchor="middle" dominant-baseline="middle" class="instQuickActionIcon">↻</text>
       </g>
@@ -535,15 +737,17 @@ function layoutPanel(rows, currency){
 
     return `
       <g data-type="inst" data-id="${inst.id}">
-        ${halos.map(h=>`<rect x="${h.x}" y="${h.y}" width="${h.w}" height="${h.h}" class="halo" />`).join("")}
-        <rect x="${base.x}" y="${base.y}" width="${base.w}" height="${base.h}" class="${equipStrokeClass}${useImg ? " equipHasPhoto" : ""}" />
-        ${useImg ? `<svg x="${base.x}" y="${base.y}" width="${base.w}" height="${base.h}" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" overflow="hidden">
-          <image href="${imgHref}" xlink:href="${imgHref}" x="0" y="0" width="100" height="100" preserveAspectRatio="xMidYMid slice" opacity="0.78" />
-        </svg>
-        <rect x="${base.x}" y="${base.y}" width="${base.w}" height="${base.h}" fill="none" class="${equipStrokeClass}" />` : ""}
-        ${partialEdgesSvg}
+        <g class="instSelectControl" role="button" tabindex="0" aria-label="Select ${escapeAttr(name)}" aria-pressed="${selected?"true":"false"}">
+          ${halos.map(h=>`<rect x="${h.x}" y="${h.y}" width="${h.w}" height="${h.h}" class="halo" />`).join("")}
+          <rect x="${base.x}" y="${base.y}" width="${base.w}" height="${base.h}" class="${equipStrokeClass}${useImg ? " equipHasPhoto" : ""}" />
+          ${useImg ? `<svg x="${base.x}" y="${base.y}" width="${base.w}" height="${base.h}" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" overflow="hidden">
+            <image href="${imgHref}" xlink:href="${imgHref}" x="0" y="0" width="100" height="100" preserveAspectRatio="xMidYMid slice" opacity="0.78" />
+          </svg>
+          <rect x="${base.x}" y="${base.y}" width="${base.w}" height="${base.h}" fill="none" class="${equipStrokeClass}" />` : ""}
+          ${partialEdgesSvg}
+          ${labelHtml}
+        </g>
         ${photoHintHtml}
-        ${labelHtml}
         ${quickActions}
       </g>
     `;
@@ -556,6 +760,10 @@ function layoutPanel(rows, currency){
   const selectedCeilZone = (state.layout.ceilingZones||[]).find(x=>x.id===state.layout.selectedCeilingZoneId) || null;
   const selectedFloorZone = (state.layout.floorZones||[]).find(x=>x.id===state.layout.selectedFloorZoneId) || null;
   const selectedFlooring = (state.layout.flooringPieces||[]).find(x=>x.id===state.layout.selectedFlooringId) || null;
+  const selectedWallFeature = (state.layout.wallFeatures||[]).find(x=>x.id===state.layout.selectedWallFeatureId) || null;
+  const selectedWallFeatureValidation=selectedWallFeature
+    ? GymWallFeatures.validate(selectedWallFeature,state.layout,wallFeatureRoomData(state.layout,state.settings))
+    : null;
 
   const opts = (Array.isArray(state.layouts)?state.layouts:[]).map(l=>`<option value="${l.id}" ${l.id===state.activeLayoutId?'selected':''}>${escapeHtml(l.name)}</option>`).join("");
 
@@ -685,16 +893,6 @@ function layoutPanel(rows, currency){
   }
 
   // Left sidebar - Equipment list
-  const selectionInspector = `
-    ${selectedInst ? selectedEquipmentPanel(selectedInst) : ""}
-    ${selectedArea ? selectedAreaPanel(selectedArea) : ""}
-    ${selectedOutlet ? selectedOutletPanel(selectedOutlet) : ""}
-    ${selectedWallExt ? selectedWallExtPanel(selectedWallExt) : ""}
-    ${selectedCeilZone ? selectedCeilingZonePanel(selectedCeilZone) : ""}
-    ${selectedFloorZone ? selectedFloorZonePanel(selectedFloorZone) : ""}
-    ${selectedFlooring ? selectedFlooringPanel(selectedFlooring) : ""}
-  `;
-
   const leftSidebar = `
     <aside class="layoutEquipmentLibrary leftSidebar layoutEquipmentScroll ${state.layoutWorkspace?.libraryDrawerOpen?"isOpen":""}" aria-label="Equipment library">
       <div class="card">
@@ -723,7 +921,7 @@ function layoutPanel(rows, currency){
         <div class="bd" style="padding:0;">
           <label class="layoutSearchField">
             <span class="srOnly">Search equipment</span>
-            <input id="layoutEquipmentSearch" type="search" data-action="layout_search" value="${escapeAttr(searchQuery)}" placeholder="Search equipment…" autocomplete="off" />
+            <input id="layoutEquipmentSearch" type="search" value="${escapeAttr(searchQuery)}" placeholder="Search equipment…" autocomplete="off" />
           </label>
           <!-- Category filter -->
           <div style="padding:0 12px 8px; display:flex; gap:6px; flex-wrap:wrap; border-bottom:1px solid var(--border); padding-top:8px;">
@@ -769,51 +967,53 @@ function layoutPanel(rows, currency){
           <!-- Equipment list -->
           <div class="gymItemList">
             ${filteredRows.map(it=> equipItemCard(it)).join("")}
-            ${!filteredRows.length ? `
-              <div class="layoutLibraryEmpty" role="status">
-                <strong>No equipment matches</strong>
-                <span>Try another search or clear the current filters.</span>
-                <button class="btn" data-action="layout_clear_filters">Clear filters</button>
-              </div>
-            ` : ""}
+            ${!filteredRows.length ? `<div class="layoutLibraryEmpty" role="status"><strong>No equipment matches</strong><span>Try another search or clear the current filters.</span><button class="btn" data-action="layout_clear_filters">Clear filters</button></div>` : ""}
           </div>
         </div>
       </div>
     </aside>
   `;
 
-  const selectionType = LayoutEditorCore.selectionType(state.layout);
-  const hasLayoutSelection = selectionType !== "none";
-  const openPageTool = state.layoutWorkspace?.openPageTool || "layout";
-  const viewOpen = openPageTool === "view";
-  const toolsOpen = openPageTool === "tools";
-  const layoutOpen = openPageTool === "layout";
+  const toolsOpen = !!state.layoutToolsPanelOpen;
   const spatialMode = ["plan", "split", "3d"].includes(state.layout.spatialViewMode)
     ? state.layout.spatialViewMode
     : "plan";
+  const selectedItem = selectedInst ? getItemById(selectedInst.itemId) : null;
+  const selectedStatus = state.layoutActionStatus?.instId===selectedInst?.id
+    ? state.layoutActionStatus
+    : null;
+  const selectedEquipmentToolbar = selectedInst && selectedItem && spatialMode!=="3d" ? `
+    <div class="selectedEquipmentToolbar" role="group" aria-label="Selected equipment actions">
+      <span class="selectedEquipmentToolbarLabel">Selected: ${escapeHtml(selectedItem.name||"Equipment")}</span>
+      <button type="button" class="planRotateBtn" data-action="rotateInst" data-id="${escapeAttr(selectedInst.id)}" data-focus-key="plan-toolbar-rotate:${escapeAttr(selectedInst.id)}" aria-keyshortcuts="R">↻ Rotate 90° <kbd>R</kbd></button>
+      ${selectedStatus ? `<div class="selectedEquipmentStatus ${escapeAttr(selectedStatus.tone||"success")}">${escapeHtml(selectedStatus.message||"")}</div>` : ""}
+    </div>
+  ` : "";
   const activeLayoutName = (state.layouts || []).find(x=>x.id===state.activeLayoutId)?.name || "Current layout";
+  const walkthroughEditor=GymWalkthroughEditing.state();
+  const walkthroughEditing=walkthroughEditor.mode==="edit";
   // Right sidebar - layout tools (collapsible) + layout selector
+  const selectionInspector = `
+    ${selectedInst ? selectedEquipmentPanel(selectedInst) : ""}
+    ${selectedArea ? selectedAreaPanel(selectedArea) : ""}
+    ${selectedOutlet ? selectedOutletPanel(selectedOutlet) : ""}
+    ${selectedWallExt ? selectedWallExtPanel(selectedWallExt) : ""}
+    ${selectedCeilZone ? selectedCeilingZonePanel(selectedCeilZone) : ""}
+    ${selectedFloorZone ? selectedFloorZonePanel(selectedFloorZone) : ""}
+    ${selectedFlooring ? selectedFlooringPanel(selectedFlooring) : ""}
+    ${selectedWallFeature ? selectedWallFeaturePanel(selectedWallFeature,selectedWallFeatureValidation) : ""}
+  `;
+  const hasLayoutSelection=LayoutEditorCore.selectionType(state.layout)!=="none";
   const rightSidebar = `
     <aside class="layoutContextInspector rightSidebar layoutInspectorScroll ${state.layoutWorkspace?.inspectorDrawerOpen?"isOpen":""}" aria-label="Layout inspector">
-      ${hasLayoutSelection ? `
-        <div class="layoutInspectorSelectionHeader">
-          <div>
-            <span class="layoutInspectorEyebrow">Selected</span>
-            <strong>${selectionType === "equipment" ? "Equipment" : selectionType.replace("-", " ")}</strong>
-          </div>
-          <button type="button" class="iconBtn" data-action="layout_clear_selection" aria-label="Clear selection">×</button>
-        </div>
-        ${selectionInspector}
-      ` : `
+      ${hasLayoutSelection ? `<div class="layoutInspectorSelectionHeader"><div><span class="layoutInspectorEyebrow">Selected</span><strong>${escapeHtml(LayoutEditorCore.selectionType(state.layout).replaceAll("-"," "))}</strong></div><button type="button" class="iconBtn" data-action="layout_clear_selection">Clear</button></div>${selectionInspector}` : ""}
       <div class="card spatialSettingsCard">
-        <button type="button" class="hd layoutToolHeading" data-action="layout_page_tool" data-panel="view" aria-expanded="${viewOpen?"true":"false"}">
+        <div class="hd" style="padding:12px 12px 8px;">
           <div>
             <div class="h1">View Settings</div>
             <div class="h2">3D and walkthrough</div>
           </div>
-          <span aria-hidden="true">${viewOpen ? "⌃" : "⌄"}</span>
-        </button>
-        ${viewOpen ? `
+        </div>
         <div class="bd spatialSettingsBody">
           <label class="spatialField" for="spatialWallColor">
             <span>Wall color</span>
@@ -869,11 +1069,10 @@ function layoutPanel(rows, currency){
             </select>
           </label>
         </div>
-        ` : ""}
       </div>
 
       <div class="card">
-        <button type="button" class="hd collapsiblePanelHd layoutToolHeading" data-action="layout_page_tool" data-panel="tools" title="Show or hide layout tools" aria-expanded="${toolsOpen?"true":"false"}">
+        <button type="button" class="hd collapsiblePanelHd" style="padding:12px; cursor:pointer; user-select:none; width:100%; margin:0; font:inherit; color:inherit; text-align:left; background:transparent; border:none; border-radius:0; appearance:none; -webkit-appearance:none;" data-action="toggleLayoutToolsPanel" title="Show or hide layout tools" aria-expanded="${toolsOpen?"true":"false"}">
           <div>
             <div class="h1">Layout Tools</div>
             <div class="h2">${toolsOpen ? "Wall extensions, zones, flooring" : "Tap to expand"}</div>
@@ -909,6 +1108,13 @@ function layoutPanel(rows, currency){
             <button class="btn" style="font-size:11px;" data-action="addWallExt" data-wall="top">↑ Top</button>
             <button class="btn" style="font-size:11px;" data-action="addWallExt" data-wall="bottom">Bottom ↓</button>
           </div>
+
+          <div class="label"><span>Wall finishes &amp; lighting</span></div>
+          <div class="wallFeatureToolGroup">
+            <button type="button" class="btn wallFeatureToolBtn" data-action="add_wall_feature" data-kind="mirror">Mirror</button>
+            <button type="button" class="btn wallFeatureToolBtn" data-action="add_wall_feature" data-kind="slat">Wood slat panel</button>
+            <button type="button" class="btn wallFeatureToolBtn" data-action="add_wall_feature" data-kind="led">LED strip</button>
+          </div>
           
           <div class="label"><span>Reserved Areas</span></div>
           <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
@@ -936,13 +1142,11 @@ function layoutPanel(rows, currency){
       </div>
       
       <div class="card">
-        <button type="button" class="hd layoutToolHeading" data-action="layout_page_tool" data-panel="layout" aria-expanded="${layoutOpen?"true":"false"}">
+        <div class="hd" style="padding:12px;">
           <div>
             <div class="h1">Layout</div>
           </div>
-          <span aria-hidden="true">${layoutOpen ? "⌃" : "⌄"}</span>
-        </button>
-        ${layoutOpen ? `
+        </div>
         <div class="bd" style="padding:12px; padding-top:0;">
           <select data-action="layout_select" style="width:100%; margin-bottom:8px;">
             ${opts}
@@ -954,9 +1158,7 @@ function layoutPanel(rows, currency){
             <button class="btn danger" style="font-size:11px;" data-action="layout_delete">Delete</button>
           </div>
         </div>
-        ` : ""}
       </div>
-      `}
     </aside>
   `;
 
@@ -1004,9 +1206,17 @@ function layoutPanel(rows, currency){
           <button type="button" class="spatialModeBtn ${spatialMode==="3d"?"active":""}" data-action="spatial_mode" data-mode="3d">3D</button>
         </div>
         <div class="spatialTopbarActions">
-          ${(state.layout.selectedInstId || state.layout.selectedAreaId) && spatialMode!=="plan"?`<button type="button" class="focusCanvasBtn" data-action="spatial_frame_selected">Frame selected</button>`:""}
+          ${spatialFrameSelectedControl({
+            spatialMode,
+            selectedInstId:state.layout.selectedInstId,
+            selectedAreaId:state.layout.selectedAreaId,
+            selectedWallFeatureId:state.layout.selectedWallFeatureId,
+            wallFeatureValid:selectedWallFeatureValidation?.valid!==false,
+            wallFeatureReason:selectedWallFeatureValidation?.reasons[0]?.message||"",
+            wallsVisible:spatial.walls!==false,
+          })}
           <button type="button" class="focusCanvasBtn ${state.layoutFocusMode?"active":""}" data-action="toggle_layout_focus" aria-pressed="${state.layoutFocusMode?"true":"false"}">${state.layoutFocusMode?"Show panels":"Focus canvas"}</button>
-          <button type="button" class="walkthroughEnterBtn" data-action="spatial_walkthrough_open">Enter walkthrough</button>
+          <button type="button" class="walkthroughEnterBtn" data-action="spatial_walkthrough_open" data-focus-key="walkthrough-launcher">Enter walkthrough</button>
         </div>
       </div>
       <div class="spatialUtilityBars">
@@ -1016,6 +1226,7 @@ function layoutPanel(rows, currency){
       <div class="spatialCanvasGrid spatialMode-${spatialMode}">
         <div class="spatialPlanPane">
           <div class="spatialPaneLabel"><span>Floor plan</span><span>Drag equipment to reposition</span></div>
+          ${selectedEquipmentToolbar}
           <div class="svgWrap">
             <div class="svgTopTag">
               ${round1(r.W)} × ${round1(r.L)} ft • ${round1(r.area)} sq ft • Ceiling ${round1(settingsCeilingHeightTotalFt())} ft
@@ -1081,6 +1292,7 @@ function layoutPanel(rows, currency){
           ${floorZonesSvg}
           ${areasSvg}
           ${outletsSvg}
+          ${wallFeaturesSvg}
           ${instSvg}
           ${layoutDimOverlaySvg()}
           ${roomDimensionsSvg(r)}
@@ -1098,19 +1310,20 @@ function layoutPanel(rows, currency){
       </div>
     </div>
     ${state.layout.walkthroughOpen ? `
-      <div class="walkthroughOverlay" role="dialog" aria-modal="true" aria-label="First-person gym walkthrough">
+      <dialog class="walkthroughOverlay" aria-modal="true" aria-label="First-person gym walkthrough">
         <div class="walkthroughHeader">
           <div class="walkthroughTitle">
             <span class="walkthroughEyebrow">First-person walkthrough</span>
             <strong>${escapeHtml(activeLayoutName)}</strong>
           </div>
+          ${walkthroughModeSwitch()}
           <div class="walkthroughHeaderActions">
             <button type="button" class="btn walkthroughReset" data-action="spatial_walkthrough_reset">Reset view</button>
-            <button type="button" class="btn walkthroughExit" data-action="spatial_walkthrough_close">Exit walkthrough</button>
+            <button type="button" class="btn walkthroughExit" data-action="spatial_walkthrough_close" autofocus>Exit walkthrough</button>
           </div>
         </div>
-        <div class="walkthroughStage">
-          <div class="gym3dViewport walkthroughViewport" data-gym3d="walkthrough">
+        <div class="walkthroughStage${walkthroughEditing?" isEditing":""}">
+          <div class="gym3dViewport walkthroughViewport${walkthroughEditing?" isEditing":""}" data-gym3d="walkthrough">
             <div class="gym3dLoading">Preparing walkthrough…</div>
             <button type="button" class="walkthroughStart" data-action="gym3d_lock">
               <strong>Click to walk</strong>
@@ -1121,7 +1334,7 @@ function layoutPanel(rows, currency){
             <canvas class="walkthroughMinimap" width="220" height="150" data-gym3d-minimap aria-label="Walkthrough minimap"></canvas>
             <div class="gym3dWarnings" data-gym3d-warnings></div>
           </div>
-          <aside class="walkthroughGuide">
+          ${walkthroughEditing ? walkthroughEditPanel(false) : `<aside class="walkthroughGuide">
             <div>
               <span class="walkthroughGuideKicker">Safety view</span>
               <h2>Move through the real plan</h2>
@@ -1138,9 +1351,9 @@ function layoutPanel(rows, currency){
               <span>In-room equipment</span><strong>${inRoomInstances.length}</strong>
               ${stagedInstanceCount ? `<span>Parked in staging</span><strong>${stagedInstanceCount}</strong>` : ""}
             </div>
-          </aside>
+          </aside>`}
         </div>
-      </div>
+      </dialog>
     ` : ""}
   `;
 
@@ -1248,22 +1461,16 @@ function layoutPanel(rows, currency){
     </div>
   `;
 
-  const model = buildLayoutViewModel({
-    equipmentLibrary:leftSidebar,
-    canvas:centerCanvas,
-    inspector:rightSidebar,
-    coverage:coverageHtml,
-  });
-
   return `
     <div class="layoutWorkspace layout3col ${state.layoutFocusMode?"isFocusMode layoutFocusMode":""}">
-      ${layoutEquipmentLibrary(model)}
-      ${layoutCanvasWorkspace(model)}
-      ${layoutContextInspector(model)}
+      ${leftSidebar}
+      ${centerCanvas}
+      ${rightSidebar}
     </div>
     ${(state.layoutWorkspace?.libraryDrawerOpen||state.layoutWorkspace?.inspectorDrawerOpen)?`<button class="workspaceDrawerBackdrop" data-action="closeLayoutDrawers" aria-label="Close layout panel"></button>`:""}
-    ${state.layoutFocusMode ? "" : layoutCoveragePanel(model)}
+    ${state.layoutFocusMode ? "" : coverageHtml}
     ${equipmentDetailsEditor(currency)}
+    <div class="srOnly" role="status" aria-live="polite" aria-atomic="true">${selectedStatus ? escapeHtml(selectedStatus.message||"") : ""}</div>
   `;
 }
 
@@ -1277,12 +1484,11 @@ function equipmentDetailsEditor(currency){
     <section class="equipmentDetailsSheet" role="dialog" aria-modal="true" aria-labelledby="equipmentDetailsTitle">
       <header class="equipmentDetailsHeader">
         <div><span class="layoutInspectorEyebrow">Equipment details</span><h2 id="equipmentDetailsTitle">${escapeHtml(item.name||"Equipment")}</h2></div>
-        <button type="button" class="iconBtn" data-action="closeEquipmentDetails" aria-label="Close equipment details">×</button>
+        <button type="button" class="iconBtn" data-action="closeEquipmentDetails">Close</button>
       </header>
       ${workspace.discardEditorConfirmOpen ? `
         <div class="equipmentDiscardPrompt" role="alertdialog" aria-modal="true" aria-label="Discard unsaved equipment changes?">
-          <strong>Discard unsaved changes?</strong>
-          <span>Your edits have not been saved.</span>
+          <strong>Discard unsaved changes?</strong><span>Your edits have not been saved.</span>
           <div><button class="btn" data-action="keepEquipmentEditing">Keep editing</button><button class="btn danger" data-action="discardEquipmentDetails">Discard</button></div>
         </div>
       ` : ""}
@@ -1315,15 +1521,22 @@ function selectedEquipmentPanel(inst){
 
   return `
     <div class="card">
-      <div class="hd">
+      <div class="hd selectedEquipmentHeader">
         <div>
           <div class="h1">Selected equipment</div>
           <div class="h2">${escapeHtml(item.name||"Item")}${item.brand?` • ${escapeHtml(item.brand)}`:""}</div>
         </div>
-        <button type="button" class="btn danger" data-action="removeInst" data-id="${inst.id}">Remove</button>
+        <div class="row selectedEquipmentHeaderActions" style="justify-content:flex-end;gap:8px;flex-wrap:wrap;">
+          <button type="button" class="planRotateBtn" data-action="rotateInst" data-id="${escapeAttr(inst.id)}" data-focus-key="inspector-rotate:${escapeAttr(inst.id)}" aria-keyshortcuts="R">↻ Rotate 90° <kbd>R</kbd></button>
+          <button type="button" class="btn danger" data-action="removeInst" data-id="${escapeAttr(inst.id)}">Remove</button>
+        </div>
       </div>
       <div class="bd">
         ${state.layoutWorkspace?.status ? `<div class="layoutInspectorStatus ${state.layoutWorkspace.status.kind}" role="status">${escapeHtml(state.layoutWorkspace.status.message)}</div>` : ""}
+        <div class="layoutPlacementActions" role="group" aria-label="Equipment placement actions">
+          <button type="button" class="btn" data-action="duplicateInst" data-id="${escapeAttr(inst.id)}">Duplicate</button>
+          <button type="button" class="btn" data-action="centerInst" data-id="${escapeAttr(inst.id)}">Center</button>
+        </div>
         <div class="row" style="justify-content:flex-start; gap:8px; flex-wrap:wrap;">
           <span class="pill">${round1(dims.w)}×${round1(dims.h)} ft</span>
           <span class="pill">Default ds: ${round1(r.clearance)} ft</span>
@@ -1332,25 +1545,7 @@ function selectedEquipmentPanel(inst){
           ${powerWarn && isTreadmill(item) ? `<span class="pill" style="border-color:#fecdd3;background:#fff1f2;color:#881337;">Treadmill needs outlet closer</span>` : ``}
         </div>
 
-        <div class="layoutPlacementActions" role="group" aria-label="Equipment placement actions">
-          <button type="button" class="btn" data-action="rotateInst" data-id="${inst.id}">Rotate</button>
-          <button type="button" class="btn" data-action="duplicateInst" data-id="${inst.id}">Duplicate</button>
-          <button type="button" class="btn" data-action="centerInst" data-id="${inst.id}">Center</button>
-        </div>
-
-        <div class="muted" style="font-size:12px;margin-top:6px;line-height:1.45;">
-          <span style="font-weight:700;">Corner</span> ${escapeHtml(formatFtIn(instXTotalFt(inst)))} × ${escapeHtml(formatFtIn(instYTotalFt(inst)))}
-          <span class="muted"> (${round1(instXTotalFt(inst))} ft, ${round1(instYTotalFt(inst))} ft)</span>
-        </div>
-
-        <div class="two" style="margin-top:10px;">
-          ${layoutFtInRow(layoutAxisLabel("X"), inst.id, inst.xFt, inst.xIn ?? 0, "inst_x_ft", "inst_x_in", "inst_x")}
-          ${layoutFtInRow(layoutAxisLabel("Y"), inst.id, inst.yFt, inst.yIn ?? 0, "inst_y_ft", "inst_y_in", "inst_y")}
-        </div>
-
-        <details class="inspectorAdvanced">
-          <summary>3D model & calibration</summary>
-        <div class="kpiBox">
+        <div class="kpiBox" style="margin-top:10px;">
           <div class="label"><span>3D model calibration</span><span>Footprint stays ${round1(dims.w)}×${round1(dims.h)} ft</span></div>
           <div class="two" style="margin-top:8px;">
             ${field("Machine shape", `
@@ -1395,7 +1590,16 @@ function selectedEquipmentPanel(inst){
             <div class="muted" style="font-size:11px;line-height:1.4;">Orientation turns only the visual model inside the same footprint. Stored only in this browser; JSON backups do not include the GLB file.</div>
           `:""}
         </div>
-        </details>
+
+        <div class="muted" style="font-size:12px;margin-top:6px;line-height:1.45;">
+          <span style="font-weight:700;">Corner</span> ${escapeHtml(formatFtIn(instXTotalFt(inst)))} × ${escapeHtml(formatFtIn(instYTotalFt(inst)))}
+          <span class="muted"> (${round1(instXTotalFt(inst))} ft, ${round1(instYTotalFt(inst))} ft)</span>
+        </div>
+
+        <div class="two" style="margin-top:10px;">
+          ${layoutFtInRow(layoutAxisLabel("X"), inst.id, inst.xFt, inst.xIn ?? 0, "inst_x_ft", "inst_x_in", "inst_x")}
+          ${layoutFtInRow(layoutAxisLabel("Y"), inst.id, inst.yFt, inst.yIn ?? 0, "inst_y_ft", "inst_y_in", "inst_y")}
+        </div>
 
         ${safeHttpUrl(item.productLink) ? `<div style="margin-top:10px;">${productLinkAnchorHtml(item.productLink, productLinkLabel(item.productLink) + " ↗")}</div>` : ""}
 
@@ -1415,8 +1619,7 @@ function selectedEquipmentPanel(inst){
             <button class="btn" data-action="instReset" data-id="${inst.id}">Reset</button>
           </div>
         </div>
-
-        <button type="button" class="btn primary layoutEditDetailsBtn" data-action="openEquipmentDetails" data-id="${item.id}">Edit equipment details</button>
+        <button type="button" class="btn primary layoutEditDetailsBtn" data-action="openEquipmentDetails" data-id="${escapeAttr(item.id)}">Edit equipment details</button>
       </div>
     </div>
   `;
@@ -1426,7 +1629,15 @@ function selectedAreaPanel(area){
   const m = kindMeta(area.kind);
 
   const isDoor = area.kind==="door";
+  const isGarage = area.kind==="garagedoor";
   const dc = isDoor ? doorClearanceRect(area) : null;
+  const garageResolution=isGarage ? garageDoorResolution(area,room()) : null;
+  const garageWarning=isGarage&&!garageResolution.ok ? garageResolution.message : "";
+  const areaSqFt=round1(areaWidthTotalFt(area)*areaHeightTotalFt(area));
+  const subtracts=areaSubtractsSpace(area);
+  const blocks=areaBlocksPlacement(area);
+  const areaId=escapeAttr(area.id);
+  const policySummary=`This ${areaSqFt}-square-foot editor footprint ${subtracts?"is subtracted from usable space":"is not subtracted from usable space"} and ${blocks?"blocks equipment":"does not block equipment"}.`;
 
   const stepNote = layoutEditorUnit()==="in"
     ? "Nudge arrows: 12 in (1 ft) per click, or 60 in (5 ft) with Shift."
@@ -1438,7 +1649,7 @@ function selectedAreaPanel(area){
           <div class="h1">Selected area</div>
           <div class="h2">${escapeHtml(m.label)}</div>
         </div>
-        <button class="btn danger" data-action="removeArea" data-id="${area.id}">Remove</button>
+        <button class="btn danger" data-action="removeArea" data-id="${areaId}">Remove</button>
       </div>
       <div class="bd">
         <div class="muted" style="font-size:12px;margin-bottom:8px;line-height:1.45;">
@@ -1447,16 +1658,24 @@ function selectedAreaPanel(area){
         </div>
         <div class="two">
           ${field("Type", `
-            <select data-action="area_kind" data-id="${area.id}">
+            <select data-action="area_kind" data-id="${areaId}">
               ${AREA_KINDS.map(k=>`<option value="${k.value}" ${area.kind===k.value?"selected":""}>${escapeHtml(k.label)}</option>`).join("")}
             </select>
           `)}
-          ${field("Label", `<input data-action="area_label" data-id="${area.id}" value="${escapeAttr(area.label||"")}" />`)}
+          ${field("Label", `<input data-action="area_label" data-id="${areaId}" value="${escapeAttr(area.label||"")}" />`)}
           ${layoutFtInRow(layoutAxisLabel("X"), area.id, area.xFt, area.xIn ?? 0, "area_x_ft", "area_x_in", "area_x")}
           ${layoutFtInRow(layoutAxisLabel("Y"), area.id, area.yFt, area.yIn ?? 0, "area_y_ft", "area_y_in", "area_y")}
           ${layoutFtInRow(layoutAxisLabel("Width"), area.id, area.widthFt, area.widthIn ?? 0, "area_w_ft", "area_w_in", "area_w", "Total min 6 in")}
           ${layoutFtInRow(layoutAxisLabel("Height"), area.id, area.heightFt, area.heightIn ?? 0, "area_h_ft", "area_h_in", "area_h", "Total min 6 in")}
         </div>
+
+        ${isGarage&&area.blocksPlacement===false&&area.subtractsSpace===false ? `
+          <div class="kpiBox garageDoorPolicyNote" style="margin-top:10px;">
+            Architectural door only. It does not reserve operating clearance, so the existing machines against this wall remain valid. Add a No-go area if you want to keep the door path clear.
+          </div>
+        ` : ""}
+
+        ${garageWarning ? `<div class="garageDoorWarning" role="alert">${escapeHtml(garageWarning)}</div>` : ""}
 
         ${isDoor ? `
           <div class="divider"></div>
@@ -1466,20 +1685,20 @@ function selectedAreaPanel(area){
 
             <div class="two" style="margin-top:10px;">
               ${field("Enable swing zone", `
-                <select data-action="area_doorEnabled" data-id="${area.id}">
+                <select data-action="area_doorEnabled" data-id="${areaId}">
                   <option value="true" ${area.doorClearEnabled!==false?"selected":""}>On</option>
                   <option value="false" ${area.doorClearEnabled===false?"selected":""}>Off</option>
                 </select>
               `)}
               ${field("Orientation", `
-                <select data-action="area_doorOrientation" data-id="${area.id}">
+                <select data-action="area_doorOrientation" data-id="${areaId}">
                   <option value="auto" ${(area.doorOrientation||"auto")==="auto"?"selected":""}>Auto</option>
                   <option value="horizontal" ${(area.doorOrientation||"auto")==="horizontal"?"selected":""}>Horizontal</option>
                   <option value="vertical" ${(area.doorOrientation||"auto")==="vertical"?"selected":""}>Vertical</option>
                 </select>
               `)}
               ${field("Swing direction", `
-                <select data-action="area_doorSwing" data-id="${area.id}">
+                <select data-action="area_doorSwing" data-id="${areaId}">
                   <option value="down" ${area.doorSwing==="down"?"selected":""}>Down</option>
                   <option value="up" ${area.doorSwing==="up"?"selected":""}>Up</option>
                   <option value="right" ${area.doorSwing==="right"?"selected":""}>Right</option>
@@ -1487,12 +1706,12 @@ function selectedAreaPanel(area){
                 </select>
               `)}
               ${field("Hinge", `
-                <select data-action="area_doorHinge" data-id="${area.id}">
+                <select data-action="area_doorHinge" data-id="${areaId}">
                   <option value="start" ${(area.doorHinge||"start")==="start"?"selected":""}>Start</option>
                   <option value="end" ${(area.doorHinge||"start")==="end"?"selected":""}>End</option>
                 </select>
               `)}
-              ${field("Swing radius", (()=>{ const drAuto = (area.doorRadiusFt==null || area.doorRadiusFt==="") && safeNum(area.doorRadiusIn)<=0; const inV = drAuto ? 0 : safeNum(area.doorRadiusIn); return `<div class="row" style="gap:8px; align-items:center; flex-wrap:wrap;"><input type="number" min="0" step="1" inputmode="numeric" style="flex:1; min-width:72px;" data-action="area_doorRadius_ft" data-id="${area.id}" value="${drAuto ? "" : escapeAttr(area.doorRadiusFt ?? 0)}" placeholder="ft" /><span class="muted" style="font-size:12px;">ft</span>${layoutInchSuffix(area.id, inV, "area_doorRadius_in", "area_door_r")}</div>`; })(), "(blank = auto)")}
+              ${field("Swing radius", (()=>{ const drAuto = (area.doorRadiusFt==null || area.doorRadiusFt==="") && safeNum(area.doorRadiusIn)<=0; const inV = drAuto ? 0 : safeNum(area.doorRadiusIn); return `<div class="row" style="gap:8px; align-items:center; flex-wrap:wrap;"><input type="number" min="0" step="1" inputmode="numeric" style="flex:1; min-width:72px;" data-action="area_doorRadius_ft" data-id="${areaId}" value="${drAuto ? "" : escapeAttr(area.doorRadiusFt ?? 0)}" placeholder="ft" /><span class="muted" style="font-size:12px;">ft</span>${layoutInchSuffix(area.id, inV, "area_doorRadius_in", "area_door_r")}</div>`; })(), "(blank = auto)")}
             </div>
 
             ${dc ? `<div class="muted" style="font-size:12px;margin-top:10px;">Swing zone: ~${round1(dc.w)}×${round1(dc.h)} ft</div>` : ``}
@@ -1507,23 +1726,23 @@ function selectedAreaPanel(area){
 
           <div class="row" style="justify-content:flex-start; gap:8px; margin-top:10px; flex-wrap:wrap;">
             <span class="pill">Extend</span>
-            <button class="btn" data-action="area_extend" data-id="${area.id}" data-dir="left">←</button>
-            <button class="btn" data-action="area_extend" data-id="${area.id}" data-dir="right">→</button>
-            <button class="btn" data-action="area_extend" data-id="${area.id}" data-dir="up">↑</button>
-            <button class="btn" data-action="area_extend" data-id="${area.id}" data-dir="down">↓</button>
+            <button class="btn" data-action="area_extend" data-id="${areaId}" data-dir="left">←</button>
+            <button class="btn" data-action="area_extend" data-id="${areaId}" data-dir="right">→</button>
+            <button class="btn" data-action="area_extend" data-id="${areaId}" data-dir="up">↑</button>
+            <button class="btn" data-action="area_extend" data-id="${areaId}" data-dir="down">↓</button>
           </div>
 
           <div class="row" style="justify-content:flex-start; gap:8px; margin-top:10px; flex-wrap:wrap;">
             <span class="pill">Shrink</span>
-            <button class="btn" data-action="area_shrink" data-id="${area.id}" data-dir="left">←</button>
-            <button class="btn" data-action="area_shrink" data-id="${area.id}" data-dir="right">→</button>
-            <button class="btn" data-action="area_shrink" data-id="${area.id}" data-dir="up">↑</button>
-            <button class="btn" data-action="area_shrink" data-id="${area.id}" data-dir="down">↓</button>
+            <button class="btn" data-action="area_shrink" data-id="${areaId}" data-dir="left">←</button>
+            <button class="btn" data-action="area_shrink" data-id="${areaId}" data-dir="right">→</button>
+            <button class="btn" data-action="area_shrink" data-id="${areaId}" data-dir="up">↑</button>
+            <button class="btn" data-action="area_shrink" data-id="${areaId}" data-dir="down">↓</button>
           </div>
         </div>
 
         <div class="muted" style="font-size:12px;margin-top:10px;">
-          Area: <b>${round1(areaWidthTotalFt(area)*areaHeightTotalFt(area))}</b> sq ft (counts as reserved)
+          Area: <b>${areaSqFt}</b> sq ft. ${escapeHtml(policySummary)}
         </div>
       </div>
     </div>
@@ -1747,6 +1966,72 @@ function selectedFlooringPanel(fp){
       </div>
     </div>
   `;
+}
+
+function selectedWallFeaturePanel(feature, validation={valid:true,reasons:[]}){
+  const name=wallFeatureDisplayName(feature.kind);
+  const warning=!validation.valid ? `<div class="wallFeatureWarning" role="status">${escapeHtml(validation.reasons.map(reason=>reason.message).join(" ") || "This placement needs attention, but remains editable.")}</div>` : "";
+  return `
+    <div class="card wallFeatureInspector">
+      <div class="hd">
+        <div>
+          <div class="h1">Selected wall feature</div>
+          <div class="h2">${escapeHtml(name)} · ${escapeHtml(feature.wall)} wall</div>
+        </div>
+        <button type="button" class="btn danger" data-action="remove_wall_feature" data-id="${escapeAttr(feature.id)}">Remove</button>
+      </div>
+      <div class="bd">
+        ${warning}
+        <div class="two">
+          ${field("Type", `<select data-action="wf_kind" data-id="${escapeAttr(feature.id)}">${["mirror","slat","led"].map(kind=>`<option value="${kind}" ${feature.kind===kind?"selected":""}>${wallFeatureDisplayName(kind)}</option>`).join("")}</select>`)}
+          ${field("Label", `<input data-action="wf_label" data-id="${escapeAttr(feature.id)}" value="${escapeAttr(feature.label||name)}" />`)}
+          ${field("Wall", `<select data-action="wf_wall" data-id="${escapeAttr(feature.id)}">${WALL_SIDES.map(wall=>`<option value="${wall.value}" ${feature.wall===wall.value?"selected":""}>${escapeHtml(wall.label)}</option>`).join("")}</select>`)}
+          ${field(feature.kind==="led" ? "LED Color" : "Color", `<input type="color" data-action="wf_color" data-id="${escapeAttr(feature.id)}" value="${escapeAttr(feature.color||"#cbd5e1")}" />`)}
+          ${layoutFtInRow("Along wall", feature.id, feature.startFt, feature.startIn??0, "wf_start_ft", "wf_start_in", "wf_start", "Top/bottom measure from the left; left/right measure from the top.")}
+          ${layoutFtInRow("Mounting height", feature.id, feature.bottomFt, feature.bottomIn??0, "wf_bottom_ft", "wf_bottom_in", "wf_bottom", "Height above the finished floor")}
+          ${layoutFtInRow("Width", feature.id, feature.widthFt, feature.widthIn??0, "wf_width_ft", "wf_width_in", "wf_width", "Along-wall length")}
+          ${layoutFtInRow("Height", feature.id, feature.heightFt, feature.heightIn??0, "wf_height_ft", "wf_height_in", "wf_height", "Vertical size")}
+          ${feature.kind==="led" ? field("Brightness", `<div class="row" style="gap:8px;"><input aria-label="Brightness" type="range" min="0" max="100" step="1" data-action="wf_brightness" data-id="${escapeAttr(feature.id)}" value="${safeNum(feature.brightnessPct)}" /><input aria-label="Brightness percent" type="number" min="0" max="100" step="1" data-action="wf_brightness" data-id="${escapeAttr(feature.id)}" value="${safeNum(feature.brightnessPct)}" /></div>`) : ""}
+        </div>
+        <div class="divider"></div>
+        <div class="kpiBox">
+          <div style="font-weight:900;">Nudge along wall</div>
+          <div class="row wallFeatureNudges">
+            <button type="button" class="btn" data-action="wf_nudge" data-id="${escapeAttr(feature.id)}" data-inches="-6">−6 in</button>
+            <button type="button" class="btn" data-action="wf_nudge" data-id="${escapeAttr(feature.id)}" data-inches="-1">−1 in</button>
+            <button type="button" class="btn" data-action="wf_nudge" data-id="${escapeAttr(feature.id)}" data-inches="1">+1 in</button>
+            <button type="button" class="btn" data-action="wf_nudge" data-id="${escapeAttr(feature.id)}" data-inches="6">+6 in</button>
+          </div>
+        </div>
+        <div class="muted" style="font-size:12px;margin-top:10px;">Top/bottom measure from the left; left/right measure from the top.</div>
+      </div>
+    </div>
+  `;
+}
+
+function addWallFeature(kind){
+  if(!GymWallFeatures.KINDS.includes(kind)) return;
+  const id=uid("wf");
+  const feature=GymWallFeatures.normalize({id,kind}, wallFeatureRoomData(state.layout, state.settings), ()=>id, state.layout);
+  state.layout.wallFeatures=[...(state.layout.wallFeatures||[]), feature];
+  clearAllSelections();
+  state.layout.selectedWallFeatureId=id;
+  state.tab="layout";
+  render();
+}
+
+function patchWallFeature(id, patch){
+  state.layout.wallFeatures=(state.layout.wallFeatures||[]).map(feature=>{
+    if(feature.id!==id) return feature;
+    return GymWallFeatures.normalize({...feature,...patch}, wallFeatureRoomData(state.layout, state.settings), ()=>id, state.layout);
+  });
+  render();
+}
+
+function removeWallFeature(id){
+  state.layout.wallFeatures=(state.layout.wallFeatures||[]).filter(feature=>feature.id!==id);
+  if(state.layout.selectedWallFeatureId===id) state.layout.selectedWallFeatureId=null;
+  render();
 }
 
 function addFlooring(typeId){

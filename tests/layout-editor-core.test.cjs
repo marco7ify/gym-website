@@ -27,6 +27,7 @@ test("selectionType routes every existing selection", () => {
     ["selectedOutletId","outlet"], ["selectedWallExtId","wall-extension"],
     ["selectedCeilingZoneId","ceiling-zone"], ["selectedFloorZoneId","floor-zone"],
     ["selectedFlooringId","flooring"],
+    ["selectedWallFeatureId","wall-feature"],
   ];
   for(const [key,type] of cases) assert.equal(core.selectionType({[key]:"id"}),type);
 });

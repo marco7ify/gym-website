@@ -195,6 +195,11 @@ function performRender(){
   wireLayoutGridContrast();
   wireSpatialControls();
   wireEquipmentModelControls();
+  const walkthroughDialog=app.querySelector("dialog.walkthroughOverlay");
+  if(walkthroughDialog&&!walkthroughDialog.open){
+    try{ walkthroughDialog.showModal(); }
+    catch{ walkthroughDialog.setAttribute("open",""); }
+  }
   if(state.tab === "layout" && typeof initGym3DViews === "function") initGym3DViews();
 
   if(shouldRestoreUi){

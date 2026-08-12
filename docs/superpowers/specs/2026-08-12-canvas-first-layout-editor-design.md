@@ -1,6 +1,6 @@
 # Canvas-First Layout Editor Redesign
 
-**Date:** 2026-08-12  
+**Date:** 2026-08-12
 **Status:** Approved visual direction, ready for written-spec review
 
 ## Summary

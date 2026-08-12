@@ -24,6 +24,7 @@
       ["selectedOutletId","outlet"], ["selectedWallExtId","wall-extension"],
       ["selectedCeilingZoneId","ceiling-zone"], ["selectedFloorZoneId","floor-zone"],
       ["selectedFlooringId","flooring"],
+      ["selectedWallFeatureId","wall-feature"],
     ];
     return ordered.find(([key])=>layout[key])?.[1] || "none";
   }

@@ -811,6 +811,7 @@ function tipsPanel(){
           <li>Add <b>ceiling zones</b> for areas with low clearance (garage door rails, beams, HVAC ducts).</li>
           <li>Add <b>floor elevation zones</b> for raised platforms, steps, or concrete slabs.</li>
           <li>Add <b>flooring pieces</b> (stall mats, rolled rubber) to visualize coverage and cost.</li>
+          <li>Add <b>wall finishes and lighting</b> from Layout Tools, then drag each feature along its chosen wall.</li>
           <li>Add a <b>walkway</b> for aisles so usable sq ft matches reality.</li>
           <li>Add <b>doors / garage doors</b> so you don't block openings.</li>
           <li>Use <b>cutouts</b> to remove a corner (e.g. garage compartment).</li>
