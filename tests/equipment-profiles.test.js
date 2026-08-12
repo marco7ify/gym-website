@@ -6,6 +6,7 @@
     "syedee-stair-machine",
     "nordictrack-x16",
     "ritfit-gator-bench",
+    "rogue-echo-rower",
     "brightway-hs08-row",
     "shizhuo-seated-standing-row",
     "wanjia-combo-adductor",
@@ -197,6 +198,12 @@
   function gatorProbeParts(){
     const probe=modelProbe();
     window.GymEquipmentModels.build("ritfit-gator-bench",probe.view,probe.group,{id:"gator-probe"},{w:26/12,h:58/12},53/12);
+    return probe.parts;
+  }
+
+  function echoProbeParts(){
+    const probe=modelProbe();
+    window.GymEquipmentModels.build("rogue-echo-rower",probe.view,probe.group,{id:"echo-probe"},{w:26/12,h:99/12},3.25);
     return probe.parts;
   }
 
@@ -529,6 +536,36 @@
     });
   });
 
+  GymTests.test("builds the Echo Rower at its exact footprint and seat height",()=>{
+    const parts=echoProbeParts();
+    assertRigidEnvelope(parts,{w:26/12,d:99/12,h:3.25});
+    const seat=partsByTag(parts,"echo-seat")[0];
+    GymTests.closeTo(partAabb(seat).max.y,16/12,.02,"Echo seat top must be 16 in");
+    GymTests.assert(modelAabb(parts).max.y>16/12,"Echo monitor/fan must rise above the seat-height datum");
+  });
+
+  GymTests.test("exposes the complete Echo Rower signature",()=>{
+    const parts=echoProbeParts();
+    const exactCounts={
+      "echo-seat":1,"echo-rear-foot":1,"echo-fan-housing":2,
+      "echo-footplate":2,"echo-foot-strap":2,"echo-transport-wheel":2,
+      "echo-turf-tire":2,"echo-monitor-mast":2,"echo-console-screen":1,
+      "echo-phone-holder":1,"echo-rowing-handle":1,
+      "echo-rail-channel":1,"echo-seat-roller":2,"echo-heel-cup":2,
+      "echo-damper":1,"echo-handle-rest":1,"echo-fold-hinge":1,"echo-fold-latch":1,
+    };
+    Object.entries(exactCounts).forEach(([tag,count])=>GymTests.equal(partsByTag(parts,tag).length,count,tag));
+    GymTests.assert(partsByTag(parts,"echo-fan-spoke").length>=12);
+    GymTests.assert(partsByTag(parts,"echo-slide-rail").length>=1);
+    GymTests.assert(partsByTag(parts,"echo-chain").length>=1);
+    const screen=partsByTag(parts,"echo-console-screen")[0];
+    GymTests.closeTo(Math.hypot(screen.size.x,screen.size.y)*12,4.7,.05,"Echo console screen must retain its 4.7 in diagonal");
+    GymTests.assert(parts.every(part=>part.userData.instId==="echo-probe" && part.userData.partTag),"Every visible Echo primitive needs stable semantic metadata");
+    GymTests.assert(parts.length<=48,`Echo must stay within 48 visible primitives; received ${parts.length}`);
+    GymTests.assert(new Set(parts.map(part=>part.material)).size<=5,"Echo must share at most five materials");
+    GymTests.assert(new Set(parts.map(geometrySignature)).size<=25,"Echo must reuse at most 25 distinct geometry signatures");
+  });
+
   // The production changes these checks protect: a Task 3 exact profile can
   // silently remain unregistered, lose its photo-defining open-frame parts,
   // or let any rigid tube/beam escape the saved measured envelope.
@@ -617,6 +654,7 @@
       [{brand:"syedee",name:"Stair Machine",category:"Cardio & Conditioning"},"syedee-stair-machine"],
       [{brand:"NordicTrack",name:"X16 Treadmill",category:"Cardio & Conditioning"},"nordictrack-x16"],
       [{brand:"RitFit",name:"RitFit GATOR 1600LB Adjustable Weight Bench",category:"Benches"},"ritfit-gator-bench"],
+      [{brand:"Rogue Fitness",name:"Rogue Echo Rower",category:"Cardio & Conditioning"},"rogue-echo-rower"],
       [{brand:"Shandong Brightway Fitness",name:"HS08 — Rowing Machine",category:"Selectorized Upper"},"brightway-hs08-row"],
       [{brand:"Dezhou Shizhuo Fitness Technology Co., Ltd.",name:"Seated/standing row",category:"Plate-Loaded Upper"},"shizhuo-seated-standing-row"],
       [{brand:"Shandong Wanjia Fitness Equipment",name:"Combo Adductor & Abductor",category:"Selectorized Lower",unit:"ft",length:4.99,width:2.38,height:4.61},"wanjia-combo-adductor"],
@@ -701,7 +739,7 @@
 
   GymTests.test("maps exact profiles to their matching families",()=>{
     GymTests.deepEqual(exactProfiles.map(profile=>MODEL3D_PROFILE_FAMILY[profile]),[
-      "cold-plunge","stair-climber","treadmill","bench",
+      "cold-plunge","stair-climber","treadmill","bench","rowing-machine",
       "rowing-machine","rowing-machine","adductor","storage-rack",
     ]);
   });
@@ -719,6 +757,7 @@
     ["has","keys","build","createModelKit"].forEach(key=>GymTests.equal(typeof window.GymEquipmentModels[key],"function"));
     GymTests.deepEqual(window.GymEquipmentModels.keys(),[
       "ice-barrel-500","syedee-stair-machine","nordictrack-x16","ritfit-gator-bench",
+      "rogue-echo-rower",
       "brightway-hs08-row","shizhuo-seated-standing-row","wanjia-combo-adductor","yindun-three-tier-rack",
     ]);
   });

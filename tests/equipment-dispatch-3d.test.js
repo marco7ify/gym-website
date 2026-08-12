@@ -3,7 +3,8 @@
 
   const dedicatedProfiles=[
     "brightway-hs08-row","gazelle-pro","ice-barrel-500","maxwell-903bh",
-    "nordictrack-x16","ritfit-gator-bench","rx3-compact-smith",
+    "nordictrack-x16","ritfit-gator-bench","rogue-echo-rower",
+    "rx3-compact-smith",
     "shizhuo-seated-standing-row","syedee-stair-machine",
     "wanjia-combo-adductor","yindun-three-tier-rack",
   ];
@@ -20,6 +21,7 @@
     {id:"rx3",brand:"Get RX'd",name:"RX3 Tornado Compact Smith Machine",category:"Strength",width:6,length:5,height:7.5},
     {id:"maxwell",brand:"SalusHEAT",name:"Maxwell-903BH infrared sauna",category:"Sauna",width:5,length:4,height:7.5},
     {id:"gazelle",brand:"RitFit",name:"Gazelle Pro 3-in-1 Leg Press",category:"Leg Press",width:4,length:5,height:5},
+    {id:"echo",brand:"Rogue Fitness",name:"Rogue Echo Rower",category:"Cardio & Conditioning",width:26/12,length:99/12,height:16/12},
   ];
 
   const savedLayout3Source=exactGarageLayout3Fixture();
@@ -496,12 +498,12 @@
     }
   });
 
-  GymTests.test("publishes successful dedicated placement and host diagnostics for all eleven models",()=>{
+  GymTests.test("publishes successful dedicated placement and host diagnostics for all twelve models",()=>{
     const fixture=createEquipmentDispatchFixture();
     try{
       const {host,view}=fixture;
-      GymTests.equal(view.itemGroups.size,11);
-      GymTests.equal(host.dataset.dedicatedModels,"11");
+      GymTests.equal(view.itemGroups.size,12);
+      GymTests.equal(host.dataset.dedicatedModels,"12");
       GymTests.equal(host.dataset.builderFailures,"0");
       GymTests.equal(host.dataset.modelProfiles,dedicatedProfiles.join(","));
       GymTests.equal(host.dataset.modelBuilders,dedicatedProfiles.join(","));
@@ -516,17 +518,49 @@
   });
 
   GymTests.test("publishes Echo's canonical seat height separately from its visual model height",()=>{
-    const echo={
-      id:"echo",brand:"Rogue Fitness",name:"Rogue Echo Rower",category:"Cardio & Conditioning",
-      unit:"ft",width:26/12,length:99/12,height:16/12,
-    };
-    const fixture=createEquipmentDispatchFixture({items:[echo]});
+    const fixture=createEquipmentDispatchFixture({items:[dedicatedItems[11]]});
     try{
       const group=fixture.view.itemGroups.get("inst_echo");
       GymTests.equal(group.userData.modelProfile,"rogue-echo-rower");
       assertNear(group.userData.canonicalFootprint.heightFt,16/12,"Echo canonical height must remain its saved 16 in seat height");
       GymTests.assert(group.userData.worldFootprint.heightFt>16/12,"Echo world/model height must exceed its saved seat height");
       GymTests.assert(group.userData.visualHeightFt>16/12,"Echo visual height must exceed its saved seat height");
+    }finally{ fixture.destroy(); }
+  });
+
+  GymTests.test("publishes the complete Echo semantic mesh contract through real Three primitives",()=>{
+    const fixture=createEquipmentDispatchFixture({items:[dedicatedItems[11]]});
+    try{
+      const group=fixture.view.itemGroups.get("inst_echo");
+      const tagged=groupMeshes(group).filter(mesh=>String(mesh.userData.partTag||"").startsWith("echo-"));
+      GymTests.equal(group.userData.modelType,"photo-matched Rogue Echo Rower");
+      GymTests.assert(tagged.length>0 && tagged.length<=48,"The dedicated Echo root must expose its bounded tagged assembly");
+      GymTests.assert(tagged.every(mesh=>mesh.userData.instId==="inst_echo"),"Every tagged Echo mesh must preserve its interaction target");
+      [
+        ["echo-seat",1],["echo-rear-foot",1],["echo-fan-housing",2],
+        ["echo-footplate",2],["echo-foot-strap",2],["echo-heel-cup",2],
+        ["echo-transport-wheel",2],["echo-turf-tire",2],["echo-monitor-mast",2],
+        ["echo-console-screen",1],["echo-phone-holder",1],["echo-rowing-handle",1],
+        ["echo-rail-channel",1],["echo-seat-roller",2],["echo-damper",1],
+        ["echo-handle-rest",1],["echo-fold-hinge",1],["echo-fold-latch",1],
+      ].forEach(([tag,count])=>GymTests.equal(tagged.filter(mesh=>mesh.userData.partTag===tag).length,count));
+      GymTests.assert(tagged.filter(mesh=>mesh.userData.partTag==="echo-fan-spoke").length>=12,"Real Echo needs a complete radial fan grille");
+      GymTests.assert(tagged.some(mesh=>mesh.userData.partTag==="echo-slide-rail"),"Real Echo needs its long slide rail");
+      GymTests.assert(tagged.some(mesh=>mesh.userData.partTag==="echo-chain"),"Real Echo needs its chain");
+      GymTests.assert(new Set(tagged.map(mesh=>mesh.material)).size<=5,"Real Echo meshes must reuse at most five material objects");
+      GymTests.assert(new Set(tagged.map(mesh=>mesh.geometry)).size<=24,"Real Echo meshes must reuse at most 24 geometry objects");
+      ["echo-fan-housing","echo-fan-spoke","echo-footplate","echo-foot-strap","echo-heel-cup","echo-transport-wheel","echo-turf-tire","echo-seat-roller","echo-monitor-mast"].forEach(tag=>{
+        const meshes=tagged.filter(mesh=>mesh.userData.partTag===tag);
+        GymTests.equal(new Set(meshes.map(mesh=>mesh.geometry)).size,1,`${tag} meshes must share one geometry resource`);
+      });
+      const screen=tagged.find(mesh=>mesh.userData.partTag==="echo-console-screen");
+      screen.geometry.computeBoundingBox();
+      const screenSize=new THREE.Vector3();
+      screen.geometry.boundingBox.getSize(screenSize);
+      GymTests.closeTo(Math.hypot(screenSize.x,screenSize.y)*12,4.7,.05,"Real Echo console screen diagonal");
+      GymTests.equal(screen.castShadow,false,"Echo screen must not cast shadows");
+      const chain=tagged.find(mesh=>mesh.userData.partTag==="echo-chain");
+      GymTests.equal(chain.castShadow,false,"Echo chain must not cast shadows");
     }finally{ fixture.destroy(); }
   });
 
@@ -937,7 +971,7 @@
           return originalModels.build(profile,view,group,inst,...args);
         },
       };
-      const fixture=createEquipmentDispatchFixture();
+      const fixture=createEquipmentDispatchFixture({items:dedicatedItems.slice(0,11)});
       try{
         const {host,view}=fixture;
         const x16=view.itemGroups.get("inst_x16");
@@ -967,7 +1001,7 @@
     }finally{
       window.GymEquipmentModels=originalModels;
     }
-    const restored=createEquipmentDispatchFixture();
+    const restored=createEquipmentDispatchFixture({items:dedicatedItems.slice(0,11)});
     try{
       GymTests.equal(restored.host.dataset.builderFailures,"0");
       GymTests.equal(restored.host.dataset.dedicatedModels,"11");
@@ -996,7 +1030,7 @@
           return originalModels.build(profile,view,group,inst,...args);
         },
       };
-      const fixture=createEquipmentDispatchFixture();
+      const fixture=createEquipmentDispatchFixture({items:dedicatedItems.slice(0,11)});
       try{
         const {host,view}=fixture;
         const stair=view.itemGroups.get("inst_stair");
@@ -1020,7 +1054,7 @@
     }finally{
       window.GymEquipmentModels=originalModels;
     }
-    const restored=createEquipmentDispatchFixture();
+    const restored=createEquipmentDispatchFixture({items:dedicatedItems.slice(0,11)});
     try{
       GymTests.equal(restored.host.dataset.builderFailures,"0");
       GymTests.equal(restored.host.dataset.dedicatedModels,"11");
@@ -1028,6 +1062,61 @@
       GymTests.equal(restoredStair.userData.dedicatedModel,true);
       GymTests.equal([...restored.view.itemGroups.keys()].filter(id=>id==="inst_stair").length,1,"Recovery must restore one dedicated Stair placement");
       GymTests.assert(groupMeshes(restoredStair).some(mesh=>mesh.userData.partTag==="stair-side-shroud"),"Recovery must restore the dedicated tagged Stair assembly");
+    }finally{ restored.destroy(); }
+  });
+
+  GymTests.test("falls back only the throwing Echo and restores its clean semantic assembly",()=>{
+    const originalModels=window.GymEquipmentModels;
+    const stagedMeshes=[];
+    try{
+      window.GymEquipmentModels={
+        ...originalModels,
+        build(profile,view,group,inst,...args){
+          if(profile==="rogue-echo-rower"){
+            const material=view.material({color:0xffffff});
+            stagedMeshes.push(
+              view.box(group,{x:.2,y:.2,z:.2},{x:0,y:.1,z:0},material,{instId:inst.id,partTag:"echo-test-stage",partIndex:0}),
+              view.tube(group,{x:0,y:.2,z:0},{x:0,y:.4,z:0},.02,material,{instId:inst.id,partTag:"echo-test-chain",partIndex:1,castShadow:false}),
+            );
+            throw new Error("test Echo builder failure");
+          }
+          return originalModels.build(profile,view,group,inst,...args);
+        },
+      };
+      const fixture=createEquipmentDispatchFixture();
+      try{
+        const {host,view}=fixture;
+        const echo=view.itemGroups.get("inst_echo");
+        GymTests.equal(view.itemGroups.size,12);
+        GymTests.equal(host.dataset.builderFailures,"1");
+        GymTests.equal(host.dataset.dedicatedModels,"11");
+        GymTests.equal(echo.userData.dedicatedModel,false);
+        GymTests.equal(echo.userData.modelBuilder,"");
+        GymTests.equal(echo.userData.modelType,"rowing machine");
+        GymTests.equal([...view.itemGroups.keys()].filter(id=>id==="inst_echo").length,1,"Echo failure must create one generic rowing-machine fallback placement");
+        GymTests.assert(!groupMeshes(echo).some(mesh=>String(mesh.userData.partTag||"").startsWith("echo-")),"Generic fallback must retain zero staged Echo semantic meshes");
+        GymTests.assert(!view.clickTargets.some(mesh=>String(mesh.userData.partTag||"").startsWith("echo-")),"Generic fallback must retain zero staged Echo click targets");
+        stagedMeshes.forEach(mesh=>{
+          GymTests.assert(!view.disposables.includes(mesh.geometry),"Generic fallback must retain no staged Echo geometry");
+          GymTests.assert(!view.disposables.includes(mesh.material),"Generic fallback must retain no staged Echo material");
+          GymTests.assert(!mesh.parent,"Generic fallback must retain no staged Echo object");
+        });
+        const warnings=host.querySelector("[data-gym3d-warnings]");
+        GymTests.equal(warnings.querySelector("strong").textContent,"1 warning");
+        GymTests.assert(warnings.textContent.includes("Rogue Echo Rower"),"The published warning must identify the Echo dedicated fallback");
+        GymTests.assert(!host.dataset.modelBuilders.split(",").includes("rogue-echo-rower"),"A failed Echo builder must not appear in successful builder diagnostics");
+      }finally{ fixture.destroy(); }
+    }finally{
+      window.GymEquipmentModels=originalModels;
+    }
+    const restored=createEquipmentDispatchFixture();
+    try{
+      GymTests.equal(restored.host.dataset.builderFailures,"0");
+      GymTests.equal(restored.host.dataset.dedicatedModels,"12");
+      const restoredEcho=restored.view.itemGroups.get("inst_echo");
+      GymTests.equal(restoredEcho.userData.dedicatedModel,true);
+      GymTests.equal([...restored.view.itemGroups.keys()].filter(id=>id==="inst_echo").length,1,"Recovery must restore one dedicated Echo placement");
+      GymTests.assert(groupMeshes(restoredEcho).some(mesh=>mesh.userData.partTag==="echo-fan-housing"),"Recovery must restore the dedicated tagged Echo assembly");
     }finally{ restored.destroy(); }
   });
 
@@ -1041,7 +1130,7 @@
           return originalModels.build(profile,...args);
         },
       };
-      const missing=createEquipmentDispatchFixture();
+      const missing=createEquipmentDispatchFixture({items:dedicatedItems.slice(0,11)});
       try{
         const x16=missing.view.itemGroups.get("inst_x16");
         GymTests.equal(missing.host.dataset.builderFailures,"1");

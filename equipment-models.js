@@ -362,6 +362,48 @@
     return "photo-matched RitFit GATOR bench";
   }
 
+  function buildRogueEchoRowerModel(view,group,inst,base,height){
+    const {w,d,h,material,addBox,addCylinder,addBeam,addTube}=createModelKit(view,group,inst,base,height);
+    const aluminum=material({color:0x171b1f,roughness:.48,metalness:.62,envMapIntensity:.85});
+    const black=material({color:0x06080a,roughness:.83,metalness:.12,envMapIntensity:.24});
+    const rubber=material({color:0x030405,roughness:.96,metalness:0,envMapIntensity:.05});
+    const nickel=material({color:0xbec7cc,roughness:.2,metalness:.94,envMapIntensity:1.2});
+    const screen=material({color:0x0b5367,emissive:0x16a6bd,emissiveIntensity:.55,roughness:.22,metalness:.08});
+
+    addBox({x:w*.22,y:h*.08,z:d*.7},{x:0,y:h*.16,z:d*.12},aluminum,{partTag:"echo-slide-rail"});
+    addBox({x:w*.055,y:h*.025,z:d*.66},{x:0,y:h*.205,z:d*.14},black,{partTag:"echo-rail-channel",castShadow:false});
+    addBox({x:w*.64,y:h*.05,z:d*.055},{x:0,y:h*.045,z:d*.46},aluminum,{partTag:"echo-rear-foot"});
+    addBox({x:w*.42,y:h*.065,z:d*.12},{x:0,y:16/12-h*.032,z:d*.18},black,{partTag:"echo-seat"});
+    [-1,1].forEach((side,index)=>addCylinder(w*.035,w*.16,{x:side*w*.12,y:16/12-h*.10,z:d*.18},rubber,{rotationZ:Math.PI/2,partTag:"echo-seat-roller",side:side<0?"left":"right",partIndex:index,geometryKey:"echo-seat-roller"}));
+    addBox({x:w*.28,y:h*.05,z:d*.025},{x:0,y:h*.22,z:d*.42},rubber,{partTag:"echo-rail-stop"});
+
+    [-1,1].forEach((side,index)=>addCylinder(w*.36,w*.065,{x:side*w*.035,y:h*.35,z:-d*.34},black,{rotationZ:Math.PI/2,segments:28,partTag:"echo-fan-housing",side:side<0?"left":"right",partIndex:index,geometryKey:"echo-fan-shell"}));
+    for(let index=0;index<12;index++){
+      const angle=index*Math.PI/6;
+      addBeam({x:0,y:h*.35,z:-d*.34},{x:Math.cos(angle)*w*.27,y:h*.35+Math.sin(angle)*w*.27,z:-d*.34},w*.012,black,w*.012,{partTag:"echo-fan-spoke",partIndex:index,geometryKey:"echo-fan-spoke",castShadow:false});
+    }
+    addCylinder(w*.055,w*.11,{x:0,y:h*.35,z:-d*.34},nickel,{rotationZ:Math.PI/2,segments:16,partTag:"echo-damper"});
+    addBox({x:w*.82,y:h*.05,z:d*.055},{x:0,y:h*.04,z:-d*.39},aluminum,{partTag:"echo-front-foot"});
+    [-1,1].forEach((side,index)=>{
+      const sideName=side<0?"left":"right";
+      addCylinder(w*.055,w*.08,{x:side*w*.31,y:w*.055,z:-d*.39},rubber,{rotationZ:Math.PI/2,partTag:"echo-transport-wheel",side:sideName,partIndex:index,geometryKey:"echo-wheel"});
+      addCylinder(w*.085,w*.08,{x:side*w*.41,y:w*.085,z:-d*.34},rubber,{rotationZ:Math.PI/2,partTag:"echo-turf-tire",side:sideName,partIndex:index,geometryKey:"echo-tire"});
+      addBox({x:w*.26,y:h*.055,z:d*.12},{x:side*w*.17,y:h*.22,z:-d*.18},black,{rotationX:-.42,partTag:"echo-footplate",side:sideName,partIndex:index,geometryKey:"echo-footplate"});
+      addBox({x:w*.2,y:h*.025,z:d*.035},{x:side*w*.17,y:h*.245,z:-d*.18},rubber,{rotationX:-.42,partTag:"echo-foot-strap",side:sideName,partIndex:index,geometryKey:"echo-strap",castShadow:false});
+      addBox({x:w*.2,y:h*.065,z:d*.025},{x:side*w*.17,y:h*.27,z:-d*.12},rubber,{rotationX:-.42,partTag:"echo-heel-cup",side:sideName,partIndex:index,geometryKey:"echo-heel-cup"});
+    });
+    addTube({x:0,y:h*.35,z:-d*.29},{x:0,y:h*.42,z:-d*.08},w*.009,nickel,10,{partTag:"echo-chain",castShadow:false});
+    addCylinder(w*.022,w*.55,{x:0,y:h*.43,z:-d*.06},black,{rotationZ:Math.PI/2,partTag:"echo-rowing-handle"});
+    addBox({x:w*.2,y:h*.035,z:d*.04},{x:0,y:h*.39,z:-d*.14},black,{partTag:"echo-handle-rest"});
+    addCylinder(w*.04,w*.42,{x:0,y:h*.2,z:-d*.06},aluminum,{rotationZ:Math.PI/2,partTag:"echo-fold-hinge"});
+    addBox({x:w*.12,y:h*.055,z:d*.04},{x:0,y:h*.25,z:-d*.01},black,{partTag:"echo-fold-latch"});
+    [-1,1].forEach((side,index)=>addBeam({x:side*w*.12,y:h*.39,z:-d*.25},{x:side*w*.12,y:h*.78,z:-d*.15},w*.025,aluminum,w*.025,{partTag:"echo-monitor-mast",side:side<0?"left":"right",partIndex:index,geometryKey:"echo-monitor-mast"}));
+    addBox({x:w*.4,y:h*.17,z:d*.045},{x:0,y:h*.82,z:-d*.14},black,{rotationX:-.1,partTag:"echo-console-shell"});
+    addBox({x:3.9/12,y:2.6/12,z:d*.014},{x:0,y:h*.83,z:-d*.17},screen,{rotationX:-.1,partTag:"echo-console-screen",castShadow:false});
+    addBox({x:3.45/12,y:h*.025,z:d*.07},{x:0,y:h*.93,z:-d*.11},black,{partTag:"echo-phone-holder"});
+    return "photo-matched Rogue Echo Rower";
+  }
+
   function buildBrightwayHS08RowModel(view,group,inst,base,height){
     const {w,d,h,material,addBox,addCylinder,addBeam,addTube}=createModelKit(view,group,inst,base,height);
     const frame=material({color:0x14171a,roughness:.5,metalness:.44,envMapIntensity:.72});
@@ -516,6 +558,7 @@
   BUILDERS["syedee-stair-machine"]=buildSyedeeStairMachineModel;
   BUILDERS["nordictrack-x16"]=buildNordicTrackX16Model;
   BUILDERS["ritfit-gator-bench"]=buildRitfitGatorBenchModel;
+  BUILDERS["rogue-echo-rower"]=buildRogueEchoRowerModel;
   BUILDERS["brightway-hs08-row"]=buildBrightwayHS08RowModel;
   BUILDERS["shizhuo-seated-standing-row"]=buildShizhuoSeatedStandingRowModel;
   BUILDERS["wanjia-combo-adductor"]=buildWanjiaComboAdductorModel;
