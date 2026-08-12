@@ -965,12 +965,27 @@
     const echoItemBefore=JSON.stringify(exactSavedEcho);
     exactSavedGatorPlacements.forEach(({layoutName,instance})=>{
       const fixture=createEquipmentDispatchFixture({items:[exactSavedGator],instances:[instance]});
+      const normalizedBeforeView=fixture.instancesBeforeRender.find(candidate=>candidate.id===instance.id);
       try{
         const group=fixture.view.itemGroups.get(instance.id);
+        const normalizedAfterView=state.layout.instances.find(candidate=>candidate.id===instance.id);
+        const renderedInstance=fixture.view.roomInstances.find(candidate=>candidate.id===instance.id);
+        const expectedWidth=58/12;
+        const expectedDepth=26/12;
         GymTests.assert(group,`${layoutName} must render its exact saved GATOR placement`);
+        GymTests.assert(normalizedBeforeView,`${layoutName} must capture its normalized GATOR instance before view construction`);
+        GymTests.equal(JSON.stringify(normalizedAfterView),JSON.stringify(normalizedBeforeView),`${layoutName} normalized GATOR instance must remain byte-equal after view construction`);
         assertNear(group.userData.canonicalFootprint.widthFt,26/12,`${layoutName} GATOR canonical width`);
         assertNear(group.userData.canonicalFootprint.depthFt,58/12,`${layoutName} GATOR canonical depth`);
         assertNear(group.userData.canonicalFootprint.heightFt,53/12,`${layoutName} GATOR canonical height`);
+        assertNear(group.userData.worldFootprint.widthFt,expectedWidth,`${layoutName} rendered GATOR world width`);
+        assertNear(group.userData.worldFootprint.depthFt,expectedDepth,`${layoutName} rendered GATOR world depth`);
+        assertNear(group.position.x,instance.xFt+instance.xIn/12+expectedWidth/2,`${layoutName} rendered GATOR center x`);
+        assertNear(group.position.z,instance.yFt+instance.yIn/12+expectedDepth/2,`${layoutName} rendered GATOR center z`);
+        assertNear(group.rotation.y,Math.PI/2,`${layoutName} rendered GATOR rotation`);
+        assertNear(group.userData.rotationY,Math.PI/2,`${layoutName} published GATOR rotation`);
+        GymTests.equal(normalizedAfterView.__invalid,false,`${layoutName} normalized GATOR validity must remain unchanged`);
+        GymTests.equal(renderedInstance?.__invalid,false,`${layoutName} rendered GATOR validity must remain unchanged`);
       }finally{ fixture.destroy(); }
     });
     const echoFixture=createEquipmentDispatchFixture({
@@ -999,12 +1014,12 @@
         const {view}=fixture;
         const gator=captureDedicatedResources(view,"inst_gator","gator-");
         const echo=captureDedicatedResources(view,"inst_echo","echo-");
-        GymTests.equal(gator.meshes.length<=58,true);
-        GymTests.equal(gator.materials.length<=6,true);
-        GymTests.equal(gator.geometries.length<=26,true);
-        GymTests.equal(echo.meshes.length<=72,true);
-        GymTests.equal(echo.materials.length<=8,true);
-        GymTests.equal(echo.geometries.length<=30,true);
+        GymTests.equal(gator.meshes.length<=58,true,`GATOR must stay within 58 meshes; received ${gator.meshes.length}`);
+        GymTests.equal(gator.materials.length<=6,true,`GATOR must stay within six materials; received ${gator.materials.length}`);
+        GymTests.equal(gator.geometries.length<=26,true,`GATOR must stay within 26 geometries; received ${gator.geometries.length}`);
+        GymTests.equal(echo.meshes.length<=72,true,`Echo must stay within 72 meshes; received ${echo.meshes.length}`);
+        GymTests.equal(echo.materials.length<=8,true,`Echo must stay within eight materials; received ${echo.materials.length}`);
+        GymTests.equal(echo.geometries.length<=30,true,`Echo must stay within 30 geometries; received ${echo.geometries.length}`);
         GymTests.assert([...gator.meshes,...echo.meshes].every(mesh=>mesh.userData.partTag));
         [gator,echo].forEach(capture=>{
           GymTests.equal(new Set(capture.clickTargets).size,capture.clickTargets.length,"Dedicated click targets must remain unique");
@@ -1175,16 +1190,25 @@
   GymTests.test("falls back only the throwing Echo and restores its clean semantic assembly",()=>{
     const originalModels=window.GymEquipmentModels;
     const stagedMeshes=[];
+    const stagedResources=[];
     try{
       window.GymEquipmentModels={
         ...originalModels,
         build(profile,view,group,inst,...args){
           if(profile==="rogue-echo-rower"){
             const material=view.material({color:0xffffff});
-            stagedMeshes.push(
-              view.box(group,{x:.2,y:.2,z:.2},{x:0,y:.1,z:0},material,{instId:inst.id,partTag:"echo-test-stage",partIndex:0}),
-              view.tube(group,{x:0,y:.2,z:0},{x:0,y:.4,z:0},.02,material,{instId:inst.id,partTag:"echo-test-chain",partIndex:1,castShadow:false}),
+            const stage=view.box(group,{x:.2,y:.2,z:.2},{x:0,y:.1,z:0},material,{instId:inst.id,partTag:"echo-test-stage",partIndex:0});
+            const chain=view.tube(group,{x:0,y:.2,z:0},{x:0,y:.4,z:0},.02,material,{instId:inst.id,partTag:"echo-test-chain",partIndex:1,castShadow:false});
+            stagedMeshes.push(stage,chain);
+            stagedResources.push(
+              {kind:"geometry",resource:stage.geometry,count:0},
+              {kind:"geometry",resource:chain.geometry,count:0},
+              {kind:"material",resource:material,count:0},
             );
+            stagedResources.forEach(record=>{
+              const dispose=record.resource.dispose.bind(record.resource);
+              record.resource.dispose=()=>{ record.count++; return dispose(); };
+            });
             throw new Error("test Echo builder failure");
           }
           return originalModels.build(profile,view,group,inst,...args);
@@ -1208,6 +1232,7 @@
           GymTests.assert(!view.disposables.includes(mesh.material),"Generic fallback must retain no staged Echo material");
           GymTests.assert(!mesh.parent,"Generic fallback must retain no staged Echo object");
         });
+        stagedResources.forEach(record=>GymTests.equal(record.count,1,`Staged Echo ${record.kind} must be disposed exactly once; received ${record.count}`));
         const warnings=host.querySelector("[data-gym3d-warnings]");
         GymTests.equal(warnings.querySelector("strong").textContent,"1 warning");
         GymTests.assert(warnings.textContent.includes("Rogue Echo Rower"),"The published warning must identify the Echo dedicated fallback");
