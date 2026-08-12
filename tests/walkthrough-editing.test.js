@@ -104,6 +104,29 @@ GymTests.test("hard movement rejection preserves layout and undo byte-for-byte",
   });
 });
 
+GymTests.test("top and left boundary nudges hard-reject without replacing undo",()=>{
+  [
+    {name:"left",x:0,y:4,dx:-1,dy:0},
+    {name:"top",x:4,y:0,dx:0,dy:-1},
+  ].forEach(boundary=>{
+    const target=walkthroughFixtureItem(`item_${boundary.name}`,`Boundary ${boundary.name}`,2,2);
+    withWalkthroughFixture({
+      items:[target],
+      instances:[walkthroughFixtureInstance("target",target.id,4,4)],
+    },()=>{
+      GymWalkthroughEditing.nudgeInstance("target",1,0);
+      const undo=GymWalkthroughEditing.state().undo;
+      state.layout.instances=[walkthroughFixtureInstance("target",target.id,boundary.x,boundary.y)];
+      const before=deepCopy(state.layout);
+      const result=GymWalkthroughEditing.nudgeInstance("target",boundary.dx,boundary.dy);
+      GymTests.equal(result.ok,false,`${boundary.name} boundary nudge must reject`);
+      GymTests.equal(result.reason,"hard-invalid");
+      GymTests.deepEqual(state.layout,before);
+      GymTests.equal(GymWalkthroughEditing.state().undo,undo);
+    });
+  });
+});
+
 GymTests.test("clearance-only movement is accepted with a warning",()=>{
   const target=walkthroughFixtureItem("item_target","Target",2,2);
   const blocker=walkthroughFixtureItem("item_blocker","Blocker",2,2);
@@ -190,6 +213,24 @@ GymTests.test("feature patch validates before commit and rejected edits preserve
     GymTests.equal(patched.ok,true);
     GymTests.equal(patched.feature.label,"Training mirror");
     GymTests.equal(patched.feature.color,"#abcdef");
+  });
+});
+
+GymTests.test("feature patch rejects unsupported wall and kind before normalization",()=>{
+  [
+    {patch:{wall:"ceiling"},reason:"invalid-wall"},
+    {patch:{kind:"poster"},reason:"invalid-kind"},
+  ].forEach(({patch,reason})=>{
+    withWalkthroughFixture({},()=>{
+      const added=GymWalkthroughEditing.addFeatureFromWallHit("mirror",{wall:"bottom",alongFt:10,mountFt:4});
+      const before=deepCopy(state.layout);
+      const undo=GymWalkthroughEditing.state().undo;
+      const result=GymWalkthroughEditing.patchFeature(added.feature.id,patch);
+      GymTests.equal(result.ok,false);
+      GymTests.equal(result.reason,reason);
+      GymTests.deepEqual(state.layout,before);
+      GymTests.equal(GymWalkthroughEditing.state().undo,undo);
+    });
   });
 });
 

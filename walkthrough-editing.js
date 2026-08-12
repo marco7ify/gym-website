@@ -47,14 +47,19 @@
 
     const before=snapshot();
     const step=editor.moveStep==="fine" ? 1/12 : .5;
-    const x=splitTotalFtToFtIn(instXTotalFt(inst)+Math.sign(dxSign)*step);
-    const y=splitTotalFtToFtIn(instYTotalFt(inst)+Math.sign(dySign)*step);
-    const candidate={...inst,xFt:x.ft,xIn:x.inch,yFt:y.ft,yIn:y.inch};
-    const rects=effectiveRectForInst(candidate,item);
-    const conflict=hardPlacementConflict(instId,rects.base);
+    const rawX=instXTotalFt(inst)+Math.sign(dxSign)*step;
+    const rawY=instYTotalFt(inst)+Math.sign(dySign)*step;
+    const rawCandidate={...inst,xFt:rawX,xIn:0,yFt:rawY,yIn:0};
+    const rawRects=effectiveRectForInst(rawCandidate,item);
+    const conflict=hardPlacementConflict(instId,rawRects.base);
     if(conflict){
       return finish("error",conflict.message,{ok:false,reason:"hard-invalid",conflict});
     }
+
+    const x=splitTotalFtToFtIn(rawX);
+    const y=splitTotalFtToFtIn(rawY);
+    const candidate={...inst,xFt:x.ft,xIn:x.inch,yFt:y.ft,yIn:y.inch};
+    const rects=effectiveRectForInst(candidate,item);
 
     candidate.__invalid=isInvalidPlacement(instId,rects.base,rects.eff);
     state.layout.instances=state.layout.instances.map(entry=>entry.id===instId ? candidate : entry);
@@ -111,6 +116,12 @@
     const current=(state.layout.wallFeatures||[]).find(feature=>feature.id===id);
     if(!current){
       return finish("error","That wall feature no longer exists.",{ok:false,reason:"not-found"});
+    }
+    if(patch&&Object.prototype.hasOwnProperty.call(patch,"kind")&&!GymWallFeatures.KINDS.includes(patch.kind)){
+      return finish("error","Choose a supported wall feature type.",{ok:false,reason:"invalid-kind"});
+    }
+    if(patch&&Object.prototype.hasOwnProperty.call(patch,"wall")&&!GymWallFeatures.SIDES.includes(patch.wall)){
+      return finish("error","Choose a base-room wall.",{ok:false,reason:"invalid-wall"});
     }
     const room=wallFeatureRoomData(state.layout,state.settings);
     const candidate=GymWallFeatures.normalize({...current,...patch},room,()=>id,state.layout);
