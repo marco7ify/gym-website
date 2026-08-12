@@ -1,0 +1,70 @@
+<style>
+  .stage{margin-top:18px;border:1px solid #dfe4ea;border-radius:18px;overflow:hidden;background:#f3f5f7;box-shadow:0 16px 38px rgba(15,23,42,.1);color:#172033;font-family:Inter,system-ui,sans-serif}
+  .topnav{height:56px;background:#fff;border-bottom:1px solid #dfe4ea;display:flex;align-items:center;gap:22px;padding:0 18px;font-size:12px;font-weight:760}
+  .brandmark{width:30px;height:30px;border-radius:8px;background:#172033;color:#fff;display:grid;place-items:center;font-size:9px}.topnav .on{height:56px;display:flex;align-items:center;border-bottom:3px solid #e96836}
+  .summary{height:56px;background:#fff;border-bottom:1px solid #dfe4ea;display:grid;grid-template-columns:repeat(4,1fr)}
+  .metric{padding:10px 15px;border-right:1px solid #e8ebef}.metric:last-child{border-right:0}.metric small{display:block;color:#7e8796;font-size:8px;text-transform:uppercase;letter-spacing:.05em}.metric strong{font-size:13px}
+  .workspace{height:540px;display:grid;grid-template-columns:220px minmax(420px,1fr) 286px;gap:10px;padding:10px;min-width:940px}
+  .panel,.canvas{background:#fff;border:1px solid #dfe4ea;border-radius:12px;overflow:hidden;min-width:0}
+  .library{display:flex;flex-direction:column}.panelhead{padding:13px 14px;border-bottom:1px solid #e7ebef}.panelhead strong{font-size:13px}.panelhead span{display:block;margin-top:2px;color:#7d8796;font-size:9px}
+  .search{margin:10px 11px 7px;border:1px solid #d7dde5;border-radius:8px;padding:8px;color:#8a93a1;font-size:9px}.chips{display:flex;gap:5px;padding:0 11px 9px}.chip{padding:5px 8px;border:1px solid #d9dee6;border-radius:99px;font-size:8px;font-weight:750}.chip.on{border-color:#ef9d79;background:#fff4ef;color:#9a3b17}
+  .items{overflow:auto;padding:0 10px 10px;display:grid;gap:7px}.item{border:1px solid #e1e6ec;border-radius:9px;padding:9px;display:grid;grid-template-columns:1fr auto;gap:5px}.item.selected{border-color:#eb946d;background:#fff6f1}.item strong{font-size:10px}.item span{grid-column:1;color:#7d8796;font-size:8px}.add{grid-column:2;grid-row:1/3;width:25px;border:0;border-radius:7px;background:#2463eb;color:#fff;font-weight:900}
+  .canvas{display:flex;flex-direction:column}.toolbar{min-height:48px;border-bottom:1px solid #e1e5eb;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px}.toolgroup{display:flex;gap:5px}.tool{border:1px solid #d9dee6;border-radius:7px;background:#fff;padding:7px 9px;font-size:8px;font-weight:800}.tool.on{background:#172033;color:#fff;border-color:#172033}.tool.accent{background:#e96836;color:#fff;border-color:#e96836}
+  .selectedbar{height:34px;border-bottom:1px solid #e5e9ee;background:#fffbf8;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:9px}.selectedbar strong{color:#9a3b17}.autosaved{color:#5d7b68}
+  .plan{position:relative;flex:1;margin:13px;background-color:#fbfcfd;background-image:linear-gradient(#e9edf2 1px,transparent 1px),linear-gradient(90deg,#e9edf2 1px,transparent 1px);background-size:24px 24px;border:2px solid #747e8b;overflow:hidden}.machine{position:absolute;left:16%;top:19%;width:72px;height:56px;border:3px solid #e96836;background:#fff1ea;border-radius:5px;display:grid;place-items:center;font-size:9px;font-weight:900;color:#8a3515;box-shadow:0 0 0 7px rgba(233,104,54,.11)}.machine.bench{left:55%;top:58%;width:95px;height:44px;border:2px solid #6684bd;background:#edf3ff;color:#365489;box-shadow:none}.staging{position:absolute;right:0;top:0;bottom:0;width:82px;background:#edf4ff;border-left:2px dashed #9bb9ea;padding:8px;color:#375a93;font-size:8px;font-weight:800}
+  .inspector{display:flex;flex-direction:column}.inspectorTitle{padding:12px 13px;background:#fff6f1;border-bottom:1px solid #f2c1ab;display:flex;justify-content:space-between;gap:8px}.inspectorTitle strong{font-size:12px}.inspectorTitle span{display:block;color:#8f604d;font-size:8px;margin-top:2px}.status{font-size:8px;color:#4e765d;background:#edf8f0;border:1px solid #c9e8d1;border-radius:99px;padding:4px 7px;height:max-content}
+  .inspectorScroll{overflow:auto;padding:10px 12px;display:grid;gap:10px}.section{border-bottom:1px solid #e8ecf0;padding-bottom:10px}.section:last-child{border:0}.section h4{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:#667183;margin:0 0 7px}.buttonrow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px}.ibtn{border:1px solid #d7dde5;border-radius:7px;padding:7px 3px;text-align:center;font-size:8px;font-weight:820;background:#fff}.ibtn.primary{background:#172033;color:#fff;border-color:#172033}.ibtn.danger{color:#b84022;border-color:#efc0b3}.fields{display:grid;grid-template-columns:1fr 1fr;gap:6px}.field label{font-size:8px;color:#6d7786}.input{margin-top:3px;border:1px solid #d7dde5;border-radius:7px;padding:7px;font-size:9px;background:#fff}.toggleRow{display:flex;justify-content:space-between;align-items:center;font-size:9px;padding:5px 0}.toggle{width:28px;height:16px;border-radius:99px;background:#e96836;position:relative}.toggle:after{content:"";position:absolute;width:12px;height:12px;border-radius:50%;background:#fff;right:2px;top:2px}
+  .details{border:1px solid #f0a887;background:#fff6f1;color:#913b1a;border-radius:8px;padding:9px;text-align:center;font-size:9px;font-weight:850}.inspectorFoot{margin-top:auto;padding:10px 12px;border-top:1px solid #e0e5ea;background:#fff;display:grid;grid-template-columns:1fr;gap:5px}.hint{font-size:8px;color:#788292;text-align:center}
+  .flow{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}.flowstep{border:1px solid #dfe4ea;border-radius:12px;padding:13px;background:#fff}.flowstep b{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:7px;background:#172033;color:#fff;margin-right:7px;font-size:10px}.flowstep strong{font-size:13px}.flowstep p{margin:8px 0 0;color:#667183;font-size:12px;line-height:1.45}
+  .decision{display:flex;gap:10px;margin-top:18px}.decision .option{flex:1}
+  @media(max-width:1000px){.stage{overflow-x:auto}.flow{grid-template-columns:1fr}.decision{flex-direction:column}}
+</style>
+
+<h2>Selected direction: canvas-first workspace</h2>
+<p class="subtitle">The editor becomes a stable three-part workspace. Selecting equipment changes only the right inspector—nothing jumps down the page.</p>
+
+<div class="stage">
+  <div class="topnav"><div class="brandmark">GP</div><span>Wishlist</span><span>Ready to Buy</span><span class="on">Layout</span><span>Settings</span></div>
+  <div class="summary"><div class="metric"><small>Ready to buy</small><strong>4 items</strong></div><div class="metric"><small>Planned total</small><strong>$18,450</strong></div><div class="metric"><small>Room</small><strong>20 × 20 ft</strong></div><div class="metric"><small>Space remaining</small><strong>62%</strong></div></div>
+  <div class="workspace">
+    <div class="panel library">
+      <div class="panelhead"><strong>Equipment library</strong><span>12 items · independent scroll</span></div>
+      <div class="search">Search equipment…</div><div class="chips"><div class="chip on">All</div><div class="chip">Strength</div><div class="chip">Cardio</div></div>
+      <div class="items">
+        <div class="item selected"><strong>Functional trainer</strong><span>1 placed · 5 × 4 ft</span><button class="add">+</button></div>
+        <div class="item"><strong>Power rack</strong><span>1 placed · 4 × 4 ft</span><button class="add">+</button></div>
+        <div class="item"><strong>Adjustable bench</strong><span>1 placed · 4.5 × 2 ft</span><button class="add">+</button></div>
+        <div class="item"><strong>Leg press</strong><span>0 placed · 7 × 4 ft</span><button class="add">+</button></div>
+        <div class="item"><strong>Treadmill</strong><span>0 placed · 6.5 × 3 ft</span><button class="add">+</button></div>
+      </div>
+    </div>
+    <div class="canvas">
+      <div class="toolbar"><div class="toolgroup"><div class="tool on">Plan</div><div class="tool">Split 2D + 3D</div><div class="tool">3D</div></div><div class="toolgroup"><div class="tool">Layout 3</div><div class="tool accent">Focus canvas</div></div></div>
+      <div class="selectedbar"><strong>Functional trainer selected</strong><span class="autosaved">Changes save automatically</span></div>
+      <div class="plan"><div class="machine">Functional trainer</div><div class="machine bench">Adjustable bench</div><div class="staging">STAGING<br><br>Park equipment while rearranging</div></div>
+    </div>
+    <div class="panel inspector">
+      <div class="inspectorTitle"><div><strong>Functional trainer</strong><span>Selected equipment placement</span></div><div class="status">Saved</div></div>
+      <div class="inspectorScroll">
+        <div class="section"><h4>Quick actions</h4><div class="buttonrow"><div class="ibtn primary">Rotate</div><div class="ibtn">Duplicate</div><div class="ibtn">Center</div></div></div>
+        <div class="section"><h4>Position</h4><div class="fields"><div class="field"><label>X position</label><div class="input">6 ft 0 in</div></div><div class="field"><label>Y position</label><div class="input">4 ft 0 in</div></div></div></div>
+        <div class="section"><h4>Footprint & clearance</h4><div class="fields"><div class="field"><label>Footprint</label><div class="input">5 × 4 ft</div></div><div class="field"><label>Clearance</label><div class="input">2 ft 6 in</div></div></div><div class="toggleRow"><span>Show clearance on plan</span><div class="toggle"></div></div></div>
+        <div class="section"><h4>Placement checks</h4><div class="toggleRow"><span>Ceiling clearance</span><span class="status">OK</span></div><div class="toggleRow"><span>Power outlet distance</span><span class="status">OK</span></div></div>
+        <div class="details">Edit equipment details</div>
+        <div class="ibtn danger">Remove from this layout</div>
+      </div>
+      <div class="inspectorFoot"><div class="hint">Placement edits save automatically</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="flow">
+  <div class="flowstep"><b>1</b><strong>Find or add</strong><p>Search, filter, and add equipment without leaving the canvas. The library has its own scroll area.</p></div>
+  <div class="flowstep"><b>2</b><strong>Select and adjust</strong><p>Canvas selection instantly fills the sticky inspector with position, rotation, clearance, duplicate, and remove controls.</p></div>
+  <div class="flowstep"><b>3</b><strong>Edit deeper details</strong><p>“Edit equipment details” opens the full item form with grouped sections and sticky Save/Cancel actions.</p></div>
+</div>
+
+<div class="decision options">
+  <div class="option" data-choice="approve-structure" onclick="toggleSelect(this)"><div class="letter">✓</div><div class="content"><h3>Approve this structure</h3><p>Continue into interaction behavior and responsive rules.</p></div></div>
+  <div class="option" data-choice="revise-structure" onclick="toggleSelect(this)"><div class="letter">↺</div><div class="content"><h3>Revise it</h3><p>I want to change the library, canvas, or inspector arrangement.</p></div></div>
+</div>

@@ -20,3 +20,8 @@ npm-debug.log*
 # Local env
 .env
 .env.local
+
+# Local Superpowers preview runtime metadata
+.superpowers/brainstorm/.last-token
+.superpowers/brainstorm/.last-port
+.superpowers/brainstorm/*/state/

@@ -708,6 +708,141 @@ const BODY_PART_TAG_MAP = {
   "Full Body":   ["Chest", "Back", "Shoulders", "Biceps", "Triceps", "Quads", "Hamstrings", "Glutes", "Calves", "Core", "Cardio"],
 };
 
+const MODEL3D_FAMILIES = [
+  {value:"auto", label:"Auto-detect from equipment"},
+  {value:"smith-cable", label:"Smith / cable machine"},
+  {value:"pulley-tower", label:"Pulley tower"},
+  {value:"leg-press", label:"Leg press / hack squat"},
+  {value:"rowing-machine", label:"Row / rowing machine"},
+  {value:"adductor", label:"Adductor / abductor"},
+  {value:"treadmill", label:"Treadmill"},
+  {value:"stair-climber", label:"Stair climber"},
+  {value:"bike", label:"Exercise bike"},
+  {value:"bench", label:"Adjustable bench"},
+  {value:"storage-rack", label:"Dumbbell / storage rack"},
+  {value:"strength-rack", label:"Strength rack / cage"},
+  {value:"cold-plunge", label:"Cold plunge"},
+  {value:"sauna", label:"Sauna"},
+  {value:"general", label:"General selectorized machine"},
+];
+
+const MODEL3D_PROFILES = [
+  {value:"auto", label:"Auto-match saved equipment"},
+  {value:"standard", label:"Standard family model"},
+  {value:"rx3-compact-smith", label:"Get RX'd RX3 Tornado Compact Smith"},
+  {value:"compact-smith", label:"Compact dual-stack Smith"},
+  {value:"commercial-stair", label:"Enclosed commercial stairmill"},
+  {value:"selectorized-seated-row", label:"Selectorized seated row"},
+  {value:"seated-standing-row", label:"Seated / standing row"},
+  {value:"gazelle-pro", label:"RitFit Gazelle Pro 3-in-1"},
+  {value:"sled-leg-press", label:"Incline leg press / hack squat"},
+  {value:"incline-bench", label:"Adjustable incline bench"},
+  {value:"step-in-plunge", label:"Step-in cold plunge"},
+  {value:"maxwell-903bh", label:"Maxwell 903BH 3-person sauna"},
+  {value:"infrared-sauna", label:"Glass-front infrared sauna"},
+  {value:"three-tier-rack", label:"Three-tier dumbbell rack"},
+  {value:"adductor-combo", label:"Combo adductor / abductor"},
+  {value:"incline-treadmill", label:"Incline treadmill"},
+];
+
+const MODEL3D_PROFILE_FAMILY = {
+  "rx3-compact-smith":"smith-cable",
+  "compact-smith":"smith-cable",
+  "commercial-stair":"stair-climber",
+  "selectorized-seated-row":"rowing-machine",
+  "seated-standing-row":"rowing-machine",
+  "gazelle-pro":"leg-press",
+  "sled-leg-press":"leg-press",
+  "incline-bench":"bench",
+  "step-in-plunge":"cold-plunge",
+  "maxwell-903bh":"sauna",
+  "infrared-sauna":"sauna",
+  "three-tier-rack":"storage-rack",
+  "adductor-combo":"adductor",
+  "incline-treadmill":"treadmill",
+};
+
+function inferEquipmentModelFamily(item){
+  const text = `${item?.category||""} ${item?.name||""} ${item?.equipmentTypes||""}`.toLowerCase();
+  if(/sauna/.test(text)) return "sauna";
+  if(/ice barrel|cold plunge|plunge tub/.test(text)) return "cold-plunge";
+  if(/stair|stepper|stairmill/.test(text)) return "stair-climber";
+  if(/smith|functional trainer|cable crossover/.test(text)) return "smith-cable";
+  if(/pulley tower|weight stack.*tower|single tower/.test(text)) return "pulley-tower";
+  if(/leg press|hack squat/.test(text)) return "leg-press";
+  if(/adductor|abductor/.test(text)) return "adductor";
+  if(/rower|rowing|seated.?standing row|seated row|t.?bar.*row|linear row/.test(text)) return "rowing-machine";
+  if(/treadmill/.test(text)) return "treadmill";
+  if(/bike|cycle/.test(text)) return "bike";
+  if(/bench/.test(text)) return "bench";
+  if(/dumbbell|kettlebell|plate|storage|tree/.test(text)) return "storage-rack";
+  if(/rack|rig|cage/.test(text)) return "strength-rack";
+  return "general";
+}
+
+function equipmentModelFamily(item){
+  const requested = String(item?.model3dFamily||"auto");
+  return MODEL3D_FAMILIES.some(x=>x.value===requested && requested!=="auto")
+    ? requested
+    : inferEquipmentModelFamily(item);
+}
+
+function equipmentModelFamilyLabel(value){
+  return MODEL3D_FAMILIES.find(x=>x.value===value)?.label || "General selectorized machine";
+}
+
+function inferEquipmentModelProfile(item){
+  const text = `${item?.brand||""} ${item?.name||""} ${item?.category||""}`.toLowerCase();
+  if(/rx3 tornado compact smith/.test(text)) return "rx3-compact-smith";
+  if(/stair machine|stairmill|stair climber/.test(text)) return "commercial-stair";
+  if(/hs08/.test(text)) return "selectorized-seated-row";
+  if(/seated.?standing row/.test(text)) return "seated-standing-row";
+  if(/gazelle pro/.test(text)) return "gazelle-pro";
+  if(/leg press|hack squat/.test(text)) return "sled-leg-press";
+  if(/gator.*bench|adjustable.*bench/.test(text)) return "incline-bench";
+  if(/ice barrel 500|step.?in.*plunge/.test(text)) return "step-in-plunge";
+  if(/maxwell.?903bh/.test(text)) return "maxwell-903bh";
+  if(/maxwell.*sauna|infrared sauna/.test(text)) return "infrared-sauna";
+  if(/three.?tier.*dumbbell/.test(text)) return "three-tier-rack";
+  if(/combo adductor|adductor.*abductor|abductor.*adductor/.test(text)) return "adductor-combo";
+  if(/x16 treadmill|incline treadmill/.test(text)) return "incline-treadmill";
+  return "standard";
+}
+
+function equipmentModelProfile(item){
+  const requested = String(item?.model3dProfile||"auto");
+  const raw = MODEL3D_PROFILES.some(x=>x.value===requested && requested!=="auto")
+    ? requested
+    : inferEquipmentModelProfile(item);
+  if(raw==="standard") return raw;
+  return MODEL3D_PROFILE_FAMILY[raw]===equipmentModelFamily(item) ? raw : "standard";
+}
+
+function equipmentModelProfileLabel(value){
+  return MODEL3D_PROFILES.find(x=>x.value===value)?.label || "Standard family model";
+}
+
+function itemUsesPhotoMatched3d(item){
+  return !itemHasLocal3dModel(item) && equipmentModelProfile(item)!=="standard";
+}
+
+function equipmentModelProfilesForItem(item){
+  const family=equipmentModelFamily(item);
+  return MODEL3D_PROFILES.filter(x=>x.value==="auto" || x.value==="standard" || MODEL3D_PROFILE_FAMILY[x.value]===family);
+}
+
+function itemHasLocal3dModel(item){
+  return String(item?.model3dAssetRef||"").startsWith("local:");
+}
+
+function formatFileSize(bytes){
+  const value=Math.max(0,safeNum(bytes));
+  if(!value) return "";
+  if(value<1024) return `${Math.round(value)} B`;
+  if(value<1024*1024) return `${round1(value/1024)} KB`;
+  return `${round1(value/(1024*1024))} MB`;
+}
+
 const DEFAULT_ITEM = {
   id:"",
   name:"",
@@ -755,7 +890,43 @@ const DEFAULT_ITEM = {
   layoutImageDataUrl: "",
   /** When true and layoutImageDataUrl is set, layout SVG shows the photo inside the footprint. */
   layoutUseImage: false,
+  /** Parametric 3D shape. "auto" infers the closest family from the item name/category. */
+  model3dFamily: "auto",
+  /** Item-specific detail profile tuned from references and inferred from the saved item name. */
+  model3dProfile: "auto",
+  /** Reverse turns only the visual model 180°; the measured footprint and plan rotation stay unchanged. */
+  model3dFacing: "default",
+  /** IndexedDB reference to an optional user-supplied binary GLB model. */
+  model3dAssetRef: "",
+  model3dAssetName: "",
+  model3dAssetSize: 0,
+  model3dAssetUpdatedAt: 0,
+  /** Quarter-turn applied to a custom GLB before it is fitted to the measured envelope. */
+  model3dAssetRotation: 0,
 };
+
+function normalizeItemRecord(value){
+  const source=value && typeof value==="object" ? value : {};
+  const image=normalizeDataImageUrl(source.layoutImageDataUrl);
+  const ref=/^local:[a-z0-9_-]+$/i.test(String(source.model3dAssetRef||""))
+    ? String(source.model3dAssetRef)
+    : "";
+  const rotation=Number(source.model3dAssetRotation);
+  return {
+    ...DEFAULT_ITEM,
+    ...source,
+    layoutImageDataUrl:image,
+    layoutUseImage:!!image || !!source.layoutUseImage,
+    model3dFamily:MODEL3D_FAMILIES.some(x=>x.value===source.model3dFamily) ? source.model3dFamily : "auto",
+    model3dProfile:MODEL3D_PROFILES.some(x=>x.value===source.model3dProfile) ? source.model3dProfile : "auto",
+    model3dFacing:source.model3dFacing==="reverse" ? "reverse" : "default",
+    model3dAssetRef:ref,
+    model3dAssetName:ref ? String(source.model3dAssetName||"Local GLB").slice(0,180) : "",
+    model3dAssetSize:ref ? Math.max(0,Number(source.model3dAssetSize)||0) : 0,
+    model3dAssetUpdatedAt:ref ? Math.max(0,Number(source.model3dAssetUpdatedAt)||0) : 0,
+    model3dAssetRotation:[0,90,180,270].includes(rotation) ? rotation : 0,
+  };
+}
 
 const DEFAULT_LAYOUT = {
   instances: [],
@@ -784,6 +955,23 @@ const DEFAULT_LAYOUT = {
   selectedCeilingZoneId: null,
   selectedFloorZoneId: null,
   selectedFlooringId: null,
+  // A single spatial state powers the plan, split, 3D, and walkthrough views.
+  // Keeping these preferences with each saved layout makes switching layouts
+  // feel predictable without changing the underlying placement data.
+  spatialViewMode: "plan",
+  spatial3d: {
+    walls: true,
+    ceiling: false,
+    clearances: true,
+    collisions: true,
+    labels: false,
+    labelMode: "selected",
+    eyeHeightFt: 5.67,
+    wallColor: "white",
+    floorType: "rolled-rubber",
+    fovDeg: 80,
+  },
+  walkthroughOpen: false,
 };
 
 function loadJSON(key, fallback){
@@ -926,6 +1114,25 @@ function normalizeLayout(l, settingsForRoomMigration){
   base.ceilingZones = Array.isArray(base.ceilingZones) ? base.ceilingZones : [];
   base.floorZones = Array.isArray(base.floorZones) ? base.floorZones : [];
   base.flooringPieces = Array.isArray(base.flooringPieces) ? base.flooringPieces : [];
+  base.spatialViewMode = ["plan", "split", "3d"].includes(base.spatialViewMode) ? base.spatialViewMode : "plan";
+  const sourceSpatial3d = base.spatial3d && typeof base.spatial3d === "object" ? base.spatial3d : {};
+  base.spatial3d = {
+    ...DEFAULT_LAYOUT.spatial3d,
+    ...sourceSpatial3d,
+  };
+  base.spatial3d.labelMode = ["selected", "hover", "always", "off"].includes(sourceSpatial3d.labelMode)
+    ? sourceSpatial3d.labelMode
+    : (Object.prototype.hasOwnProperty.call(sourceSpatial3d, "labels") && sourceSpatial3d.labels === false ? "off" : "selected");
+  base.spatial3d.labels = base.spatial3d.labelMode !== "off";
+  base.spatial3d.eyeHeightFt = clamp(safeNum(base.spatial3d.eyeHeightFt) || 5.67, 4, 7);
+  base.spatial3d.wallColor = ["white", "black"].includes(base.spatial3d.wallColor)
+    ? base.spatial3d.wallColor
+    : DEFAULT_LAYOUT.spatial3d.wallColor;
+  base.spatial3d.floorType = ["rolled-rubber", "rubber-tiles", "concrete"].includes(base.spatial3d.floorType)
+    ? base.spatial3d.floorType
+    : DEFAULT_LAYOUT.spatial3d.floorType;
+  base.spatial3d.fovDeg = clamp(Math.round(safeNum(base.spatial3d.fovDeg) || DEFAULT_LAYOUT.spatial3d.fovDeg), 55, 100);
+  base.walkthroughOpen = false;
   base.compareItems = Array.isArray(base.compareItems)
     ? base.compareItems.map(x=> String(x)).filter(Boolean)
     : [];
@@ -1186,10 +1393,7 @@ const state = {
   items: (()=>{
     const it = loadJSON(LS.items, null);
     if(Array.isArray(it) && it.length){
-      return it.map(x=>{
-        const img = normalizeDataImageUrl(x.layoutImageDataUrl);
-        return {...DEFAULT_ITEM, ...x, layoutImageDataUrl: img, layoutUseImage: !!img || !!x.layoutUseImage};
-      });
+      return it.map(normalizeItemRecord);
     }
     return [{
       ...DEFAULT_ITEM,
@@ -1224,6 +1428,8 @@ const state = {
   layoutExpandedItemId: null,
   layoutExpandedTab: "general",
   layoutToolsPanelOpen: false,
+  layoutFocusMode: false,
+  layoutWorkspace: LayoutEditorCore.workspaceDefaults(),
   wishlistCategoriesOpen: false,
   exportDialogOpen: false,
   exportMode: "full",
@@ -1951,6 +2157,20 @@ function effectiveRectForInst(inst, item){
   return {base, eff:{x:minX,y:minY,w:maxX-minX,h:maxY-minY}, halos, cfg};
 }
 
+// The 2D editor includes a parking strip beside the physical room. Items in
+// that strip remain part of the layout library, but they are not physically in
+// the room and must not leak into the orbit view, walkthrough, collisions, or
+// minimap.
+function layoutRoomInstances(layout=state.layout, roomData=room()){
+  const staging = roomData && roomData.staging;
+  return (Array.isArray(layout?.instances) ? layout.instances : []).filter(inst=>{
+    const item = getItemById(inst.itemId);
+    if(!item) return false;
+    const base = effectiveRectForInst(inst, item).base;
+    return !(staging && rectInsideRect(base, staging));
+  });
+}
+
 function areaRect(a){
   return {x: areaXTotalFt(a), y: areaYTotalFt(a), w: areaWidthTotalFt(a), h: areaHeightTotalFt(a)};
 }
@@ -2366,6 +2586,56 @@ function clearAllSelections(){
   state.layout.selectedCeilingZoneId = null;
   state.layout.selectedFloorZoneId = null;
   state.layout.selectedFlooringId = null;
+}
+
+function placementPoint(inst,x,y){
+  const sx=LayoutEditorCore.splitFeet(snap(x));
+  const sy=LayoutEditorCore.splitFeet(snap(y));
+  return {...inst,xFt:sx.ft,xIn:sx.inch,yFt:sy.ft,yIn:sy.inch};
+}
+
+function placementHardInvalid(inst){
+  const item=getItemById(inst.itemId);
+  if(!item) return true;
+  return isHardInvalidPlacement(inst.id,effectiveRectForInst(inst,item).base);
+}
+
+function findValidPlacementNear(source,offsetX=1,offsetY=1){
+  const startX=instXTotalFt(source)+offsetX;
+  const startY=instYTotalFt(source)+offsetY;
+  const offsets=[[0,0],[1,0],[0,1],[-1,0],[0,-1],[2,0],[0,2],[-2,0],[0,-2]];
+  for(const [dx,dy] of offsets){
+    const candidate=placementPoint(source,startX+dx,startY+dy);
+    if(!placementHardInvalid(candidate)) return {xFt:candidate.xFt,xIn:candidate.xIn,yFt:candidate.yFt,yIn:candidate.yIn};
+  }
+  return null;
+}
+
+function duplicatePlacement(instId){
+  const source=(state.layout.instances||[]).find(x=>x.id===instId);
+  if(!source) return {ok:false,message:"The selected equipment is no longer available."};
+  const candidate=LayoutEditorCore.clonePlacement(source,uid("inst"));
+  const point=findValidPlacementNear(candidate,1,1);
+  if(!point) return {ok:false,message:"No valid nearby space is available for a duplicate."};
+  Object.assign(candidate,point,{__invalid:false});
+  state.layout.instances=[...(state.layout.instances||[]),candidate];
+  clearAllSelections();
+  state.layout.selectedInstId=candidate.id;
+  return {ok:true,instance:candidate,message:"Duplicate added."};
+}
+
+function centerPlacementInRoom(instId){
+  const source=(state.layout.instances||[]).find(x=>x.id===instId);
+  const item=source&&getItemById(source.itemId);
+  if(!source||!item) return {ok:false,message:"The selected equipment is no longer available."};
+  const r=room();
+  const point=LayoutEditorCore.centerPlacement({x:0,y:0,w:r.W,h:r.L},instanceDims(source,item));
+  const candidate={...source,...point};
+  if(placementHardInvalid(candidate)) return {ok:false,message:"The center position is blocked."};
+  const er=effectiveRectForInst(candidate,item);
+  candidate.__invalid=isInvalidPlacement(candidate.id,er.base,er.eff);
+  state.layout.instances=(state.layout.instances||[]).map(x=>x.id===instId?candidate:x);
+  return {ok:true,message:candidate.__invalid?"Centered with a clearance warning.":"Centered in the room."};
 }
 
 function getFlooringType(typeId){

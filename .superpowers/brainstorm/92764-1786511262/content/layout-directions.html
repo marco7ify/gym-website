@@ -1,0 +1,125 @@
+<style>
+  .direction-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-top:22px}
+  .direction-card{border:2px solid #e2e8f0;border-radius:18px;background:#fff;overflow:hidden;cursor:pointer;transition:.18s ease;box-shadow:0 8px 24px rgba(15,23,42,.06)}
+  .direction-card:hover{transform:translateY(-2px);border-color:#f6a27f;box-shadow:0 14px 30px rgba(15,23,42,.1)}
+  .direction-card.selected{border-color:#e96836;box-shadow:0 0 0 3px rgba(233,104,54,.14),0 14px 30px rgba(15,23,42,.1)}
+  .mini-app{height:410px;background:#f5f6f8;color:#172033;font:11px/1.3 Inter,system-ui,sans-serif;display:flex;flex-direction:column}
+  .mini-nav{height:38px;background:#fff;border-bottom:1px solid #dde3ea;display:flex;align-items:center;gap:14px;padding:0 12px;font-weight:750}
+  .mini-logo{width:24px;height:24px;border-radius:7px;background:#172033;color:#fff;display:grid;place-items:center;font-size:8px}
+  .mini-nav .active{height:38px;display:flex;align-items:center;border-bottom:2px solid #e96836}
+  .mini-workspace{display:grid;grid-template-columns:112px minmax(0,1fr) 132px;gap:8px;padding:8px;min-height:0;flex:1}
+  .mini-panel,.mini-canvas{background:#fff;border:1px solid #dde3ea;border-radius:10px;min-width:0;overflow:hidden}
+  .mini-panel-title{font-size:10px;font-weight:850;padding:10px;border-bottom:1px solid #e7ebf0}
+  .mini-search{height:25px;margin:8px;border:1px solid #d9dee6;border-radius:7px;color:#8791a1;display:flex;align-items:center;padding:0 7px}
+  .mini-item{margin:6px 8px;padding:8px;border:1px solid #e4e8ee;border-radius:8px;background:#fff}
+  .mini-item.selected-item{border-color:#ef9d79;background:#fff5f0}
+  .mini-item strong{display:block;color:#182235;font-size:9px}
+  .mini-item span{color:#7b8493;font-size:8px}
+  .mini-add{float:right;width:17px;height:17px;border-radius:5px;border:0;background:#2463eb;color:#fff;font-weight:900}
+  .mini-canvas{display:flex;flex-direction:column}
+  .mini-toolbar{height:34px;border-bottom:1px solid #e0e5eb;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-weight:800}
+  .mini-toolbar small{font-size:7px;color:#70798a}
+  .room{position:relative;flex:1;margin:10px;background-color:#fbfcfd;background-image:linear-gradient(#e9edf2 1px,transparent 1px),linear-gradient(90deg,#e9edf2 1px,transparent 1px);background-size:18px 18px;border:2px solid #788190;border-radius:2px}
+  .machine{position:absolute;left:18%;top:21%;width:44px;height:38px;background:#fff2ec;border:2px solid #e96836;border-radius:4px;display:grid;place-items:center;font-size:7px;font-weight:850;color:#843714}
+  .machine.two{left:57%;top:54%;width:55px;height:32px;background:#eef4ff;border-color:#6a89c9;color:#2d477b}
+  .inspector-head{padding:9px 10px;background:#fff7f3;border-bottom:1px solid #f4c9b6}
+  .inspector-head strong{display:block;font-size:10px}
+  .inspector-head span{font-size:8px;color:#8a5b47}
+  .inspector-body{padding:8px;display:grid;gap:7px}
+  .action-row{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+  .mini-btn{border:1px solid #d7dde5;border-radius:7px;padding:6px 4px;background:#fff;font-size:8px;font-weight:800;text-align:center}
+  .mini-btn.primary{background:#172033;color:#fff;border-color:#172033}
+  .mini-btn.danger{color:#b7391c;border-color:#efc1b5}
+  .mini-field{border-top:1px solid #edf0f3;padding-top:6px;color:#6d7685;font-size:8px}
+  .mini-input{margin-top:3px;border:1px solid #d7dde5;border-radius:6px;padding:5px;color:#1b2535;background:#fff}
+  .sticky-actions{margin-top:auto;display:grid;grid-template-columns:1fr 1.6fr;gap:5px;padding:8px;border-top:1px solid #e3e7ec;background:#fff}
+  .card-copy{padding:16px 17px 18px}
+  .card-copy h3{margin:0 0 6px;font-size:17px;color:#172033}
+  .card-copy p{margin:0;color:#647084;font-size:13px;line-height:1.5}
+  .recommend{display:inline-flex;margin-bottom:8px;padding:4px 8px;border-radius:999px;background:#fff0e8;color:#a43c15;font-size:10px;font-weight:850;text-transform:uppercase;letter-spacing:.06em}
+  .bottom-layout{grid-template-columns:112px minmax(0,1fr)}
+  .bottom-layout .mini-canvas{position:relative}
+  .bottom-drawer{position:absolute;left:8px;right:8px;bottom:8px;height:105px;background:#fff;border:1px solid #d8dee7;border-radius:10px;box-shadow:0 -8px 20px rgba(15,23,42,.14);display:grid;grid-template-columns:1.2fr repeat(3,1fr);gap:7px;padding:9px;align-items:start}
+  .bottom-drawer strong{font-size:9px}.bottom-drawer span{font-size:7px;color:#7b8493;display:block;margin-top:2px}
+  .float-layout{grid-template-columns:112px minmax(0,1fr)}
+  .float-card{position:absolute;right:12px;top:40px;width:115px;background:#fff;border:1px solid #ef9d79;border-radius:10px;box-shadow:0 14px 28px rgba(15,23,42,.2);padding:9px}
+  .float-card strong{font-size:9px}.float-card p{font-size:7px;color:#7b8493;margin:3px 0 7px}
+  .callout{margin-top:18px;padding:13px 15px;border:1px solid #fed7c6;background:#fff8f4;border-radius:12px;color:#71351e;font-size:13px}
+  @media(max-width:980px){.direction-grid{grid-template-columns:1fr}.mini-app{height:430px}}
+</style>
+
+<h2>Which layout editor feels easiest to work in?</h2>
+<p class="subtitle">All three keep the canvas visible and remove the “scroll all the way down” problem. Click the direction you prefer.</p>
+
+<div class="direction-grid">
+  <div class="direction-card" data-choice="a-sticky-inspector" onclick="toggleSelect(this)">
+    <div class="mini-app">
+      <div class="mini-nav"><div class="mini-logo">GP</div><span>Wishlist</span><span class="active">Layout</span><span>Settings</span></div>
+      <div class="mini-workspace">
+        <div class="mini-panel">
+          <div class="mini-panel-title">Equipment library</div>
+          <div class="mini-search">Search equipment</div>
+          <div class="mini-item selected-item"><button class="mini-add">+</button><strong>Target machine</strong><span>1 placed</span></div>
+          <div class="mini-item"><button class="mini-add">+</button><strong>Power rack</strong><span>0 placed</span></div>
+          <div class="mini-item"><button class="mini-add">+</button><strong>Adjustable bench</strong><span>1 placed</span></div>
+        </div>
+        <div class="mini-canvas">
+          <div class="mini-toolbar"><span>Layout 3</span><small>Plan · Split · 3D</small></div>
+          <div class="room"><div class="machine">Selected</div><div class="machine two">Bench</div></div>
+        </div>
+        <div class="mini-panel" style="display:flex;flex-direction:column">
+          <div class="inspector-head"><strong>Target machine</strong><span>Selected on canvas</span></div>
+          <div class="inspector-body">
+            <div class="action-row"><div class="mini-btn primary">Rotate 90°</div><div class="mini-btn">Duplicate</div></div>
+            <div class="mini-field">Position<div class="mini-input">X 6 ft · Y 4 ft</div></div>
+            <div class="mini-field">Clearance<div class="mini-input">2.5 ft · Front</div></div>
+            <div class="mini-btn">More equipment details</div>
+            <div class="mini-btn danger">Remove from layout</div>
+          </div>
+          <div class="sticky-actions"><div class="mini-btn">Cancel</div><div class="mini-btn primary">Save changes</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-copy"><span class="recommend">Recommended</span><h3>A. Sticky side inspector</h3><p>The equipment library, canvas, and selected-item editor each stay in a predictable column. Fast layout controls remain visible; deeper equipment details open only when needed.</p></div>
+  </div>
+
+  <div class="direction-card" data-choice="b-bottom-drawer" onclick="toggleSelect(this)">
+    <div class="mini-app">
+      <div class="mini-nav"><div class="mini-logo">GP</div><span>Wishlist</span><span class="active">Layout</span><span>Settings</span></div>
+      <div class="mini-workspace bottom-layout">
+        <div class="mini-panel">
+          <div class="mini-panel-title">Equipment</div><div class="mini-search">Search</div>
+          <div class="mini-item selected-item"><button class="mini-add">+</button><strong>Target</strong><span>1 placed</span></div>
+          <div class="mini-item"><button class="mini-add">+</button><strong>Power rack</strong><span>0 placed</span></div>
+        </div>
+        <div class="mini-canvas">
+          <div class="mini-toolbar"><span>Layout 3</span><small>Plan · Split · 3D</small></div>
+          <div class="room"><div class="machine">Selected</div><div class="machine two">Bench</div>
+            <div class="bottom-drawer"><div><strong>Target machine</strong><span>Selected on canvas</span></div><div class="mini-btn primary">Rotate 90°</div><div class="mini-input">X 6 · Y 4</div><div class="mini-btn">Details</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-copy"><h3>B. Bottom editing drawer</h3><p>The canvas gets more width and selection controls rise from the bottom. It is good for wide screens, but the drawer covers part of the floor plan and leaves less room for detailed fields.</p></div>
+  </div>
+
+  <div class="direction-card" data-choice="c-floating-inspector" onclick="toggleSelect(this)">
+    <div class="mini-app">
+      <div class="mini-nav"><div class="mini-logo">GP</div><span>Wishlist</span><span class="active">Layout</span><span>Settings</span></div>
+      <div class="mini-workspace float-layout">
+        <div class="mini-panel">
+          <div class="mini-panel-title">Equipment</div><div class="mini-search">Search</div>
+          <div class="mini-item selected-item"><button class="mini-add">+</button><strong>Target</strong><span>1 placed</span></div>
+          <div class="mini-item"><button class="mini-add">+</button><strong>Power rack</strong><span>0 placed</span></div>
+        </div>
+        <div class="mini-canvas">
+          <div class="mini-toolbar"><span>Layout 3</span><small>Plan · Split · 3D</small></div>
+          <div class="room"><div class="machine">Selected</div><div class="machine two">Bench</div><div class="float-card"><strong>Target machine</strong><p>6 ft, 4 ft · 2 × 2 ft</p><div class="action-row"><div class="mini-btn primary">Rotate</div><div class="mini-btn">Move</div></div><div class="mini-btn" style="margin-top:6px">Open details</div></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-copy"><h3>C. Floating canvas inspector</h3><p>Controls appear closest to the selected equipment. This is quick for simple actions, but the panel can obscure nearby machines and becomes awkward for longer forms.</p></div>
+  </div>
+</div>
+
+<div class="callout"><strong>My recommendation:</strong> A gives the best balance of speed, visibility, and room for the detailed controls your planner already has.</div>

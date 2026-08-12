@@ -127,15 +127,47 @@ function roomDimensionsSvg(r){
   return parts.join("");
 }
 
+function buildLayoutViewModel(parts){
+  return parts;
+}
+
+function layoutEquipmentLibrary(model){
+  return model.equipmentLibrary;
+}
+
+function layoutCanvasWorkspace(model){
+  return model.canvas;
+}
+
+function layoutContextInspector(model){
+  return model.inspector;
+}
+
+function layoutCoveragePanel(model){
+  return model.coverage;
+}
+
 function layoutPanel(rows, currency){
   const r = room();
   const reserved = reservedSqFt();
   const usable = usableSqFt();
   const b = r.bounds;
+  const spatial = {
+    ...DEFAULT_LAYOUT.spatial3d,
+    ...(state.layout.spatial3d || {}),
+  };
+  const labelMode = ["selected", "hover", "always", "off"].includes(spatial.labelMode)
+    ? spatial.labelMode
+    : (spatial.labels === false ? "off" : "selected");
   // Include a staging/parking strip on the right for rearranging, plus an
   // optional Compare zone to the right of staging (same SVG coord space so
   // equipment shows at real-world scale for visual size comparison).
   const staging = layoutStagingRect(r);
+  const inRoomInstances = typeof layoutRoomInstances === "function"
+    ? layoutRoomInstances(state.layout, r)
+    : (state.layout.instances || []);
+  const resolvedInstanceCount = (state.layout.instances || []).filter(inst=>getItemById(inst.itemId)).length;
+  const stagedInstanceCount = Math.max(0, resolvedInstanceCount - inRoomInstances.length);
   const activeCompareSet = getActiveCompareSet();
   // compareSet.items is an array of {itemId, xFt?, yFt?}. Resolve each to a
   // full item record and pass to the layout helper with its entry so saved
@@ -192,22 +224,14 @@ function layoutPanel(rows, currency){
   const allUprights = [...new Set(catsForRack.map(it=> rackPatternInfo(it)?.uprightSize).filter(Boolean))].sort();
   const allHoles    = [...new Set(catsForRack.map(it=> rackPatternInfo(it)?.holeSize).filter(Boolean))].sort();
 
-  let filteredRows = selectedCat === "All" ? rows : rows.filter(it=> it.category === selectedCat);
-  if(selectedBrand !== "All"){
-    if(selectedBrand === "__noBrand__"){
-      filteredRows = filteredRows.filter(it=> !String(it.brand||"").trim());
-    } else {
-      filteredRows = filteredRows.filter(it=> String(it.brand||"").trim() === selectedBrand);
-    }
-  }
-  if(showRackFilters){
-    if(filterUpright !== "All") filteredRows = filteredRows.filter(it=>{
-      const p = rackPatternInfo(it); return p ? p.uprightSize === filterUpright : false;
-    });
-    if(filterHole !== "All") filteredRows = filteredRows.filter(it=>{
-      const p = rackPatternInfo(it); return p ? p.holeSize === filterHole : false;
-    });
-  }
+  const searchQuery = state.layoutWorkspace?.search || "";
+  const filteredRows = LayoutEditorCore.filterEquipment(rows, {
+    query:searchQuery,
+    category:selectedCat,
+    brand:selectedBrand,
+    upright:showRackFilters ? filterUpright : "All",
+    hole:showRackFilters ? filterHole : "All",
+  }, {rackPatternInfo});
 
   const expandedItemId = state.layoutExpandedItemId || null;
   const expandedTab    = state.layoutExpandedTab || "general";
@@ -482,7 +506,9 @@ function layoutPanel(rows, currency){
     // can spot which items need one and upload a photo in one click (opens
     // the item editor for that item).
     const labelBoxH = Math.min(0.92, Math.max(0.55, base.h - 0.18));
-    const dimsStr = `${escapeSvg(formatDimsDual(dims.h, dims.w))}${zoneCeilWarn ? " CEIL!" : ""}${brandStr ? " • " + escapeSvg(String(brandStr).slice(0,24)) : ""}`;
+    const dimsStr = `${escapeSvg(formatDimsDual(dims.h, dims.w))}${zoneCeilWarn ? " CEIL!" : ""}${labelMode === "always" && brandStr ? " • " + escapeSvg(String(brandStr).slice(0,16)) : ""}`;
+    const planLabelChars = Math.max(8, Math.floor(Math.max(0.8, base.w - (selected ? 1.15 : 0.35)) / 0.18));
+    const planLabelName = name.length > planLabelChars ? `${name.slice(0, Math.max(4, planLabelChars-1))}…` : name;
 
     // Center point of the area below the label strip where we show the
     // "add photo" hint when no image is attached.
@@ -495,6 +521,17 @@ function layoutPanel(rows, currency){
         <text x="${photoHintCx}" y="${photoHintCy + 0.05}" text-anchor="middle" class="instPhotoHintText">📷 Add photo</text>
       </g>
     ` : "";
+    const labelClass = labelMode === "hover" && !selected
+      ? "equipLabel equipLabelHover"
+      : "equipLabel";
+    const labelHtml = labelMode === "off" || (labelMode === "selected" && !selected) ? "" : `
+      <g class="${labelClass}">
+        <title>${escapeSvg(name)}</title>
+        <rect x="${base.x+0.08}" y="${base.y+0.08}" width="${Math.max(0.1, base.w - 0.16)}" height="${labelBoxH}" class="labelBox" rx="0.06" />
+        <text x="${base.x+0.2}" y="${base.y+0.42}" class="labelText" style="font-size:0.32px;">${escapeSvg(planLabelName)}</text>
+        <text x="${base.x+0.2}" y="${base.y+0.72}" class="labelSub" style="font-size:0.26px;">${dimsStr}</text>
+      </g>
+    `;
 
     return `
       <g data-type="inst" data-id="${inst.id}">
@@ -506,9 +543,7 @@ function layoutPanel(rows, currency){
         <rect x="${base.x}" y="${base.y}" width="${base.w}" height="${base.h}" fill="none" class="${equipStrokeClass}" />` : ""}
         ${partialEdgesSvg}
         ${photoHintHtml}
-        <rect x="${base.x+0.08}" y="${base.y+0.08}" width="${Math.max(0.1, base.w - 0.16)}" height="${labelBoxH}" class="labelBox" rx="0.06" />
-        <text x="${base.x+0.2}" y="${base.y+0.42}" class="labelText" style="font-size:0.32px;">${escapeSvg(name)}</text>
-        <text x="${base.x+0.2}" y="${base.y+0.72}" class="labelSub" style="font-size:0.26px;">${dimsStr}</text>
+        ${labelHtml}
         ${quickActions}
       </g>
     `;
@@ -650,8 +685,18 @@ function layoutPanel(rows, currency){
   }
 
   // Left sidebar - Equipment list
+  const selectionInspector = `
+    ${selectedInst ? selectedEquipmentPanel(selectedInst) : ""}
+    ${selectedArea ? selectedAreaPanel(selectedArea) : ""}
+    ${selectedOutlet ? selectedOutletPanel(selectedOutlet) : ""}
+    ${selectedWallExt ? selectedWallExtPanel(selectedWallExt) : ""}
+    ${selectedCeilZone ? selectedCeilingZonePanel(selectedCeilZone) : ""}
+    ${selectedFloorZone ? selectedFloorZonePanel(selectedFloorZone) : ""}
+    ${selectedFlooring ? selectedFlooringPanel(selectedFlooring) : ""}
+  `;
+
   const leftSidebar = `
-    <div class="leftSidebar">
+    <aside class="layoutEquipmentLibrary leftSidebar layoutEquipmentScroll ${state.layoutWorkspace?.libraryDrawerOpen?"isOpen":""}" aria-label="Equipment library">
       <div class="card">
         <div class="hd" style="padding:12px;">
           <div>
@@ -676,6 +721,10 @@ function layoutPanel(rows, currency){
           </div>
         </div>
         <div class="bd" style="padding:0;">
+          <label class="layoutSearchField">
+            <span class="srOnly">Search equipment</span>
+            <input id="layoutEquipmentSearch" type="search" data-action="layout_search" value="${escapeAttr(searchQuery)}" placeholder="Search equipment…" autocomplete="off" />
+          </label>
           <!-- Category filter -->
           <div style="padding:0 12px 8px; display:flex; gap:6px; flex-wrap:wrap; border-bottom:1px solid var(--border); padding-top:8px;">
             ${categories.map(cat=>`
@@ -720,27 +769,111 @@ function layoutPanel(rows, currency){
           <!-- Equipment list -->
           <div class="gymItemList">
             ${filteredRows.map(it=> equipItemCard(it)).join("")}
-            ${!filteredRows.length ? `<div class="muted" style="padding:16px;text-align:center;font-size:13px;">No items match the current filters.</div>` : ""}
+            ${!filteredRows.length ? `
+              <div class="layoutLibraryEmpty" role="status">
+                <strong>No equipment matches</strong>
+                <span>Try another search or clear the current filters.</span>
+                <button class="btn" data-action="layout_clear_filters">Clear filters</button>
+              </div>
+            ` : ""}
           </div>
         </div>
       </div>
-
-      ${selectedInst ? selectedEquipmentPanel(selectedInst) : ""}
-      ${selectedArea ? selectedAreaPanel(selectedArea) : ""}
-      ${selectedOutlet ? selectedOutletPanel(selectedOutlet) : ""}
-      ${selectedWallExt ? selectedWallExtPanel(selectedWallExt) : ""}
-      ${selectedCeilZone ? selectedCeilingZonePanel(selectedCeilZone) : ""}
-      ${selectedFloorZone ? selectedFloorZonePanel(selectedFloorZone) : ""}
-      ${selectedFlooring ? selectedFlooringPanel(selectedFlooring) : ""}
-    </div>
+    </aside>
   `;
 
-  const toolsOpen = !!state.layoutToolsPanelOpen;
+  const selectionType = LayoutEditorCore.selectionType(state.layout);
+  const hasLayoutSelection = selectionType !== "none";
+  const openPageTool = state.layoutWorkspace?.openPageTool || "layout";
+  const viewOpen = openPageTool === "view";
+  const toolsOpen = openPageTool === "tools";
+  const layoutOpen = openPageTool === "layout";
+  const spatialMode = ["plan", "split", "3d"].includes(state.layout.spatialViewMode)
+    ? state.layout.spatialViewMode
+    : "plan";
+  const activeLayoutName = (state.layouts || []).find(x=>x.id===state.activeLayoutId)?.name || "Current layout";
   // Right sidebar - layout tools (collapsible) + layout selector
   const rightSidebar = `
-    <div class="rightSidebar">
+    <aside class="layoutContextInspector rightSidebar layoutInspectorScroll ${state.layoutWorkspace?.inspectorDrawerOpen?"isOpen":""}" aria-label="Layout inspector">
+      ${hasLayoutSelection ? `
+        <div class="layoutInspectorSelectionHeader">
+          <div>
+            <span class="layoutInspectorEyebrow">Selected</span>
+            <strong>${selectionType === "equipment" ? "Equipment" : selectionType.replace("-", " ")}</strong>
+          </div>
+          <button type="button" class="iconBtn" data-action="layout_clear_selection" aria-label="Clear selection">×</button>
+        </div>
+        ${selectionInspector}
+      ` : `
+      <div class="card spatialSettingsCard">
+        <button type="button" class="hd layoutToolHeading" data-action="layout_page_tool" data-panel="view" aria-expanded="${viewOpen?"true":"false"}">
+          <div>
+            <div class="h1">View Settings</div>
+            <div class="h2">3D and walkthrough</div>
+          </div>
+          <span aria-hidden="true">${viewOpen ? "⌃" : "⌄"}</span>
+        </button>
+        ${viewOpen ? `
+        <div class="bd spatialSettingsBody">
+          <label class="spatialField" for="spatialWallColor">
+            <span>Wall color</span>
+            <select id="spatialWallColor">
+              <option value="white"${spatial.wallColor==="white"?" selected":""}>White</option>
+              <option value="black"${spatial.wallColor==="black"?" selected":""}>Black</option>
+            </select>
+          </label>
+          <label class="spatialField" for="spatialFloorType">
+            <span>Floor</span>
+            <select id="spatialFloorType">
+              <option value="rolled-rubber"${spatial.floorType==="rolled-rubber"?" selected":""}>Rolled rubber</option>
+              <option value="rubber-tiles"${spatial.floorType==="rubber-tiles"?" selected":""}>Rubber tiles</option>
+              <option value="concrete"${spatial.floorType==="concrete"?" selected":""}>Concrete</option>
+            </select>
+          </label>
+          <label class="spatialField" for="spatialFov">
+            <span>Field of view</span>
+            <select id="spatialFov">
+              ${[
+                [60, "Standard"],
+                [70, "Wide"],
+                [80, "Wider"],
+                [90, "Widest"],
+              ].map(([value,label])=>`<option value="${value}"${Math.round(safeNum(spatial.fovDeg))===value?" selected":""}>${label} · ${value}°</option>`).join("")}
+            </select>
+          </label>
+          <label class="spatialField" for="spatialEyeHeight">
+            <span>Eye height</span>
+            <select id="spatialEyeHeight">
+              ${[4.5,5,5.25,5.5,5.67,6,6.5].map(v=>`<option value="${v}"${Math.abs(safeNum(spatial.eyeHeightFt)-v)<0.02?" selected":""}>${v===5.67?"5 ft 8 in":v===5.25?"5 ft 3 in":`${v} ft`}</option>`).join("")}
+            </select>
+          </label>
+          ${[
+            ["walls", "Walls"],
+            ["ceiling", "Ceiling"],
+            ["clearances", "Clearances"],
+            ["collisions", "Walkthrough collisions"],
+          ].map(([key,label])=>`
+            <label class="spatialToggle">
+              <span>${label}</span>
+              <input type="checkbox" data-action="spatial_toggle" data-key="${key}" ${spatial[key] ? "checked" : ""} />
+              <span class="spatialToggleTrack" aria-hidden="true"></span>
+            </label>
+          `).join("")}
+          <label class="spatialField" for="spatialLabelMode">
+            <span>Equipment labels</span>
+            <select id="spatialLabelMode">
+              <option value="selected"${labelMode==="selected"?" selected":""}>Selected only</option>
+              <option value="hover"${labelMode==="hover"?" selected":""}>Hover or selected</option>
+              <option value="always"${labelMode==="always"?" selected":""}>Always</option>
+              <option value="off"${labelMode==="off"?" selected":""}>Off</option>
+            </select>
+          </label>
+        </div>
+        ` : ""}
+      </div>
+
       <div class="card">
-        <button type="button" class="hd collapsiblePanelHd" style="padding:12px; cursor:pointer; user-select:none; width:100%; margin:0; font:inherit; color:inherit; text-align:left; background:transparent; border:none; border-radius:0; appearance:none; -webkit-appearance:none;" data-action="toggleLayoutToolsPanel" title="Show or hide layout tools" aria-expanded="${toolsOpen?"true":"false"}">
+        <button type="button" class="hd collapsiblePanelHd layoutToolHeading" data-action="layout_page_tool" data-panel="tools" title="Show or hide layout tools" aria-expanded="${toolsOpen?"true":"false"}">
           <div>
             <div class="h1">Layout Tools</div>
             <div class="h2">${toolsOpen ? "Wall extensions, zones, flooring" : "Tap to expand"}</div>
@@ -803,11 +936,13 @@ function layoutPanel(rows, currency){
       </div>
       
       <div class="card">
-        <div class="hd" style="padding:12px;">
+        <button type="button" class="hd layoutToolHeading" data-action="layout_page_tool" data-panel="layout" aria-expanded="${layoutOpen?"true":"false"}">
           <div>
             <div class="h1">Layout</div>
           </div>
-        </div>
+          <span aria-hidden="true">${layoutOpen ? "⌃" : "⌄"}</span>
+        </button>
+        ${layoutOpen ? `
         <div class="bd" style="padding:12px; padding-top:0;">
           <select data-action="layout_select" style="width:100%; margin-bottom:8px;">
             ${opts}
@@ -819,8 +954,10 @@ function layoutPanel(rows, currency){
             <button class="btn danger" style="font-size:11px;" data-action="layout_delete">Delete</button>
           </div>
         </div>
+        ` : ""}
       </div>
-    </div>
+      `}
+    </aside>
   `;
 
   // Center - Canvas
@@ -855,27 +992,48 @@ function layoutPanel(rows, currency){
     </div>
   `;
   const centerCanvas = `
-    <div class="canvasCard card" style="margin:0;">
-      ${stagingBar}
-      ${compareSetsBar}
-      <div class="svgWrap" style="height:75vh;">
-        <div class="svgTopTag">
-          ${round1(r.W)} × ${round1(r.L)} ft • ${round1(r.area)} sq ft • Ceiling ${round1(settingsCeilingHeightTotalFt())} ft
+    <div class="layoutCanvasCard canvasCard card" aria-label="Layout canvas">
+      <div class="spatialTopbar">
+        <div class="workspaceDrawerActions">
+          <button type="button" class="workspaceDrawerBtn" data-action="toggleLibraryDrawer" aria-expanded="${state.layoutWorkspace?.libraryDrawerOpen?"true":"false"}">Equipment</button>
+          <button type="button" class="workspaceDrawerBtn" data-action="toggleInspectorDrawer" aria-expanded="${state.layoutWorkspace?.inspectorDrawerOpen?"true":"false"}">Inspector</button>
         </div>
-        <svg id="layoutSvg" class="svg" data-grid="${clamp(Math.round(safeNum(state.settings.layoutGridContrast)||1),1,3)}" viewBox="${vb}" preserveAspectRatio="xMinYMin meet">
-          <defs>
-            <clipPath id="roomGridClip" clipPathUnits="userSpaceOnUse">
-              ${gridClipRects}
-            </clipPath>
-          </defs>
-          <g clip-path="url(#roomGridClip)">
-            ${grid.join("")}
-          </g>
-          <g class="stagingZone" data-type="staging">
-            <rect x="${staging.x}" y="${staging.y}" width="${staging.w}" height="${staging.h}" fill="rgba(59, 130, 246, 0.06)" stroke="rgba(59, 130, 246, 0.35)" stroke-width="0.08" stroke-dasharray="0.22 0.18" rx="0.18" />
-            <text x="${staging.x+0.28}" y="${staging.y+0.55}" style="font-size:0.5px; font-weight:800; fill:rgba(30, 64, 175, 0.9);">Staging / Parking</text>
-            <text x="${staging.x+0.28}" y="${staging.y+0.92}" style="font-size:0.38px; font-weight:600; fill:rgba(30, 64, 175, 0.75);">Drag equipment here while rearranging</text>
-          </g>
+        <div class="spatialModeGroup" role="group" aria-label="Layout view">
+          <button type="button" class="spatialModeBtn ${spatialMode==="plan"?"active":""}" data-action="spatial_mode" data-mode="plan">Plan</button>
+          <button type="button" class="spatialModeBtn ${spatialMode==="split"?"active":""}" data-action="spatial_mode" data-mode="split">Split 2D + 3D</button>
+          <button type="button" class="spatialModeBtn ${spatialMode==="3d"?"active":""}" data-action="spatial_mode" data-mode="3d">3D</button>
+        </div>
+        <div class="spatialTopbarActions">
+          ${(state.layout.selectedInstId || state.layout.selectedAreaId) && spatialMode!=="plan"?`<button type="button" class="focusCanvasBtn" data-action="spatial_frame_selected">Frame selected</button>`:""}
+          <button type="button" class="focusCanvasBtn ${state.layoutFocusMode?"active":""}" data-action="toggle_layout_focus" aria-pressed="${state.layoutFocusMode?"true":"false"}">${state.layoutFocusMode?"Show panels":"Focus canvas"}</button>
+          <button type="button" class="walkthroughEnterBtn" data-action="spatial_walkthrough_open">Enter walkthrough</button>
+        </div>
+      </div>
+      <div class="spatialUtilityBars">
+        ${stagingBar}
+        ${compareSetsBar}
+      </div>
+      <div class="spatialCanvasGrid spatialMode-${spatialMode}">
+        <div class="spatialPlanPane">
+          <div class="spatialPaneLabel"><span>Floor plan</span><span>Drag equipment to reposition</span></div>
+          <div class="svgWrap">
+            <div class="svgTopTag">
+              ${round1(r.W)} × ${round1(r.L)} ft • ${round1(r.area)} sq ft • Ceiling ${round1(settingsCeilingHeightTotalFt())} ft
+            </div>
+            <svg id="layoutSvg" class="svg" data-grid="${clamp(Math.round(safeNum(state.settings.layoutGridContrast)||1),1,3)}" viewBox="${vb}" preserveAspectRatio="xMinYMin meet">
+              <defs>
+                <clipPath id="roomGridClip" clipPathUnits="userSpaceOnUse">
+                  ${gridClipRects}
+                </clipPath>
+              </defs>
+              <g clip-path="url(#roomGridClip)">
+                ${grid.join("")}
+              </g>
+              <g class="stagingZone" data-type="staging">
+                <rect x="${staging.x}" y="${staging.y}" width="${staging.w}" height="${staging.h}" fill="rgba(59, 130, 246, 0.06)" stroke="rgba(59, 130, 246, 0.35)" stroke-width="0.08" stroke-dasharray="0.22 0.18" rx="0.18" />
+                <text x="${staging.x+0.28}" y="${staging.y+0.55}" style="font-size:0.5px; font-weight:800; fill:rgba(30, 64, 175, 0.9);">Staging / Parking</text>
+                <text x="${staging.x+0.28}" y="${staging.y+0.92}" style="font-size:0.38px; font-weight:600; fill:rgba(30, 64, 175, 0.75);">Drag equipment here while rearranging</text>
+              </g>
           ${hasCompare ? `
           <g class="compareZone" data-type="compare">
             <rect x="${compare.zone.x}" y="${compare.zone.y}" width="${compare.zone.w}" height="${compare.zone.h}" fill="rgba(124, 58, 237, 0.06)" stroke="rgba(124, 58, 237, 0.4)" stroke-width="0.08" stroke-dasharray="0.22 0.18" rx="0.18" />
@@ -926,9 +1084,64 @@ function layoutPanel(rows, currency){
           ${instSvg}
           ${layoutDimOverlaySvg()}
           ${roomDimensionsSvg(r)}
-        </svg>
+            </svg>
+          </div>
+        </div>
+        <div class="spatial3dPane">
+          <div class="spatialPaneLabel"><span>Live 3D</span><span>${inRoomInstances.length} in room${stagedInstanceCount ? ` · ${stagedInstanceCount} parked in staging` : ""} · drag to orbit</span></div>
+          <div class="gym3dViewport" data-gym3d="preview">
+            <div class="gym3dLoading">Building your room…</div>
+            <div class="gym3dCornerNote">Perspective preview</div>
+            <div class="gym3dWarnings" data-gym3d-warnings></div>
+          </div>
+        </div>
       </div>
     </div>
+    ${state.layout.walkthroughOpen ? `
+      <div class="walkthroughOverlay" role="dialog" aria-modal="true" aria-label="First-person gym walkthrough">
+        <div class="walkthroughHeader">
+          <div class="walkthroughTitle">
+            <span class="walkthroughEyebrow">First-person walkthrough</span>
+            <strong>${escapeHtml(activeLayoutName)}</strong>
+          </div>
+          <div class="walkthroughHeaderActions">
+            <button type="button" class="btn walkthroughReset" data-action="spatial_walkthrough_reset">Reset view</button>
+            <button type="button" class="btn walkthroughExit" data-action="spatial_walkthrough_close">Exit walkthrough</button>
+          </div>
+        </div>
+        <div class="walkthroughStage">
+          <div class="gym3dViewport walkthroughViewport" data-gym3d="walkthrough">
+            <div class="gym3dLoading">Preparing walkthrough…</div>
+            <button type="button" class="walkthroughStart" data-action="gym3d_lock">
+              <strong>Click to walk</strong>
+              <span>W A S D to move · drag in the room to look</span>
+            </button>
+            <div class="walkthroughStatus" data-walkthrough-status>Click to activate walking controls</div>
+            <div class="walkthroughControls"><b>W A S D</b><span>Move</span><b>Mouse drag</b><span>Look</span></div>
+            <canvas class="walkthroughMinimap" width="220" height="150" data-gym3d-minimap aria-label="Walkthrough minimap"></canvas>
+            <div class="gym3dWarnings" data-gym3d-warnings></div>
+          </div>
+          <aside class="walkthroughGuide">
+            <div>
+              <span class="walkthroughGuideKicker">Safety view</span>
+              <h2>Move through the real plan</h2>
+              <p>The camera uses the same room, equipment, doors, and clearance zones as the floor plan.</p>
+            </div>
+            <div class="walkthroughLegend">
+              <span><i class="legendSwatch clearance"></i>Working clearance</span>
+              <span><i class="legendSwatch warning"></i>Placement warning</span>
+              <span><i class="legendSwatch selection"></i>Selected equipment</span>
+            </div>
+            <div class="walkthroughGuideStatus">
+              <span>Eye height</span><strong>${round1(spatial.eyeHeightFt)} ft</strong>
+              <span>Collision check</span><strong>${spatial.collisions ? "On" : "Off"}</strong>
+              <span>In-room equipment</span><strong>${inRoomInstances.length}</strong>
+              ${stagedInstanceCount ? `<span>Parked in staging</span><strong>${stagedInstanceCount}</strong>` : ""}
+            </div>
+          </aside>
+        </div>
+      </div>
+    ` : ""}
   `;
 
   // Exercise coverage analysis (based on placed items only)
@@ -1035,13 +1248,46 @@ function layoutPanel(rows, currency){
     </div>
   `;
 
+  const model = buildLayoutViewModel({
+    equipmentLibrary:leftSidebar,
+    canvas:centerCanvas,
+    inspector:rightSidebar,
+    coverage:coverageHtml,
+  });
+
   return `
-    <div class="layout3col">
-      ${leftSidebar}
-      ${centerCanvas}
-      ${rightSidebar}
+    <div class="layoutWorkspace layout3col ${state.layoutFocusMode?"isFocusMode layoutFocusMode":""}">
+      ${layoutEquipmentLibrary(model)}
+      ${layoutCanvasWorkspace(model)}
+      ${layoutContextInspector(model)}
     </div>
-    ${coverageHtml}
+    ${(state.layoutWorkspace?.libraryDrawerOpen||state.layoutWorkspace?.inspectorDrawerOpen)?`<button class="workspaceDrawerBackdrop" data-action="closeLayoutDrawers" aria-label="Close layout panel"></button>`:""}
+    ${state.layoutFocusMode ? "" : layoutCoveragePanel(model)}
+    ${equipmentDetailsEditor(currency)}
+  `;
+}
+
+function equipmentDetailsEditor(currency){
+  const workspace=state.layoutWorkspace;
+  if(!workspace?.detailsEditorOpen) return "";
+  const item=getItemById(workspace.detailsEditorItemId);
+  if(!item) return "";
+  return `
+    <div class="equipmentDetailsBackdrop" data-action="closeEquipmentDetails" aria-hidden="true"></div>
+    <section class="equipmentDetailsSheet" role="dialog" aria-modal="true" aria-labelledby="equipmentDetailsTitle">
+      <header class="equipmentDetailsHeader">
+        <div><span class="layoutInspectorEyebrow">Equipment details</span><h2 id="equipmentDetailsTitle">${escapeHtml(item.name||"Equipment")}</h2></div>
+        <button type="button" class="iconBtn" data-action="closeEquipmentDetails" aria-label="Close equipment details">×</button>
+      </header>
+      ${workspace.discardEditorConfirmOpen ? `
+        <div class="equipmentDiscardPrompt" role="alertdialog" aria-modal="true" aria-label="Discard unsaved equipment changes?">
+          <strong>Discard unsaved changes?</strong>
+          <span>Your edits have not been saved.</span>
+          <div><button class="btn" data-action="keepEquipmentEditing">Keep editing</button><button class="btn danger" data-action="discardEquipmentDetails">Discard</button></div>
+        </div>
+      ` : ""}
+      <div class="equipmentDetailsBody">${itemForm(currency)}</div>
+    </section>
   `;
 }
 
@@ -1077,12 +1323,19 @@ function selectedEquipmentPanel(inst){
         <button type="button" class="btn danger" data-action="removeInst" data-id="${inst.id}">Remove</button>
       </div>
       <div class="bd">
+        ${state.layoutWorkspace?.status ? `<div class="layoutInspectorStatus ${state.layoutWorkspace.status.kind}" role="status">${escapeHtml(state.layoutWorkspace.status.message)}</div>` : ""}
         <div class="row" style="justify-content:flex-start; gap:8px; flex-wrap:wrap;">
           <span class="pill">${round1(dims.w)}×${round1(dims.h)} ft</span>
           <span class="pill">Default ds: ${round1(r.clearance)} ft</span>
           ${ceilingWarn ? `<span class="pill" style="border-color:#fecdd3;background:#fff1f2;color:#881337;">Ceiling: need ${round1(reqCeil)}ft (available ${round1(localCeiling)}ft${inZone?" in zone":""})</span>` : (localCeiling>0 ? `<span class="pill">Ceiling OK: ${round1(reqCeil)}ft${inZone?` (zone: ${round1(localCeiling)}ft)`:""}</span>` : ``)}
           ${voltage ? (powerWarn ? `<span class="pill" style="border-color:#fecdd3;background:#fff1f2;color:#881337;">Power: ${escapeHtml(voltage)} ${near.has?`• ${round1(near.dist)}ft from outlet`:"• no matching outlet"}</span>` : `<span class="pill">Power: ${escapeHtml(voltage)} ${near.has?`• ${round1(near.dist)}ft`:""}</span>`) : ``}
           ${powerWarn && isTreadmill(item) ? `<span class="pill" style="border-color:#fecdd3;background:#fff1f2;color:#881337;">Treadmill needs outlet closer</span>` : ``}
+        </div>
+
+        <div class="layoutPlacementActions" role="group" aria-label="Equipment placement actions">
+          <button type="button" class="btn" data-action="rotateInst" data-id="${inst.id}">Rotate</button>
+          <button type="button" class="btn" data-action="duplicateInst" data-id="${inst.id}">Duplicate</button>
+          <button type="button" class="btn" data-action="centerInst" data-id="${inst.id}">Center</button>
         </div>
 
         <div class="muted" style="font-size:12px;margin-top:6px;line-height:1.45;">
@@ -1095,10 +1348,54 @@ function selectedEquipmentPanel(inst){
           ${layoutFtInRow(layoutAxisLabel("Y"), inst.id, inst.yFt, inst.yIn ?? 0, "inst_y_ft", "inst_y_in", "inst_y")}
         </div>
 
-        <div class="row" style="justify-content:flex-start;margin-top:10px;">
-          <button type="button" class="btn" data-action="rotateInst" data-id="${inst.id}">Rotate</button>
-          <span class="muted" style="font-size:12px;">Red border = invalid placement.</span>
+        <details class="inspectorAdvanced">
+          <summary>3D model & calibration</summary>
+        <div class="kpiBox">
+          <div class="label"><span>3D model calibration</span><span>Footprint stays ${round1(dims.w)}×${round1(dims.h)} ft</span></div>
+          <div class="two" style="margin-top:8px;">
+            ${field("Machine shape", `
+              <select data-model-family-item="${escapeAttr(item.id)}" aria-label="3D machine shape for ${escapeAttr(item.name||"equipment")}">
+                ${MODEL3D_FAMILIES.map(x=>`<option value="${escapeAttr(x.value)}" ${String(item.model3dFamily||"auto")===x.value?"selected":""}>${escapeHtml(x.value==="auto"?`Auto — ${equipmentModelFamilyLabel(equipmentModelFamily(item))}`:x.label)}</option>`).join("")}
+              </select>
+            `)}
+            ${field("Front direction", `
+              <select data-model-facing-item="${escapeAttr(item.id)}" aria-label="3D front direction for ${escapeAttr(item.name||"equipment")}">
+                <option value="default" ${String(item.model3dFacing||"default")==="default"?"selected":""}>As placed</option>
+                <option value="reverse" ${String(item.model3dFacing||"")==="reverse"?"selected":""}>Reverse 180°</option>
+              </select>
+            `)}
+          </div>
+          <div style="margin-top:8px;">
+            ${field("Reference detail", `
+              <select data-model-profile-item="${escapeAttr(item.id)}" aria-label="3D reference detail for ${escapeAttr(item.name||"equipment")}">
+                ${equipmentModelProfilesForItem(item).map(x=>`<option value="${escapeAttr(x.value)}" ${String(item.model3dProfile||"auto")===x.value?"selected":""}>${escapeHtml(x.value==="auto"?`Auto — ${equipmentModelProfileLabel(equipmentModelProfile(item))}`:x.label)}</option>`).join("")}
+              </select>
+            `)}
+          </div>
+          <div class="muted" style="font-size:12px;line-height:1.4;">Reference details were tuned against the saved equipment photos; Auto matches by item name. The exact measured footprint stays locked.</div>
+          <div class="divider"></div>
+          <div class="label"><span>Real 3D model (.glb)</span><span>${itemHasLocal3dModel(item)?"Local model":itemUsesPhotoMatched3d(item)?"Photo-matched reconstruction":"Procedural model"}</span></div>
+          <div class="muted" style="font-size:12px;line-height:1.4;">Upload an optional GLB (25 MB max) for this machine. It will be uniformly scaled inside the saved width, length, and height; the plan footprint never changes.</div>
+          <div class="row" style="justify-content:flex-start;gap:8px;align-items:center;flex-wrap:wrap;margin-top:9px;">
+            <label class="btn" style="cursor:pointer;">
+              <span data-model-asset-label aria-live="polite">${itemHasLocal3dModel(item)?"Replace .glb":"Upload .glb"}</span>
+              <input type="file" accept=".glb,model/gltf-binary" data-model-asset-file-item="${escapeAttr(item.id)}" style="display:none;" />
+            </label>
+            ${itemHasLocal3dModel(item)?`<button type="button" class="btn danger" data-remove-model-asset-item="${escapeAttr(item.id)}">Remove model</button>`:""}
+            ${itemHasLocal3dModel(item)?`<span class="pill">${escapeHtml(item.model3dAssetName||"Local GLB")}${item.model3dAssetSize?` • ${escapeHtml(formatFileSize(item.model3dAssetSize))}`:""}</span>`:""}
+          </div>
+          ${itemHasLocal3dModel(item)?`
+            <div style="margin-top:8px;">
+              ${field("GLB orientation", `
+                <select data-model-asset-rotation-item="${escapeAttr(item.id)}" aria-label="GLB orientation for ${escapeAttr(item.name||"equipment")}">
+                  ${[0,90,180,270].map(angle=>`<option value="${angle}" ${safeNum(item.model3dAssetRotation)===angle?"selected":""}>${angle}°${angle===0?" (as uploaded)":""}</option>`).join("")}
+                </select>
+              `)}
+            </div>
+            <div class="muted" style="font-size:11px;line-height:1.4;">Orientation turns only the visual model inside the same footprint. Stored only in this browser; JSON backups do not include the GLB file.</div>
+          `:""}
         </div>
+        </details>
 
         ${safeHttpUrl(item.productLink) ? `<div style="margin-top:10px;">${productLinkAnchorHtml(item.productLink, productLinkLabel(item.productLink) + " ↗")}</div>` : ""}
 
@@ -1118,6 +1415,8 @@ function selectedEquipmentPanel(inst){
             <button class="btn" data-action="instReset" data-id="${inst.id}">Reset</button>
           </div>
         </div>
+
+        <button type="button" class="btn primary layoutEditDetailsBtn" data-action="openEquipmentDetails" data-id="${item.id}">Edit equipment details</button>
       </div>
     </div>
   `;

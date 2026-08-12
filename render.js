@@ -19,6 +19,8 @@ const SCROLL_PRESERVE_SELECTORS = [
   ".equipList",
   ".leftSidebar",
   ".rightSidebar",
+  ".layoutEquipmentScroll",
+  ".layoutInspectorScroll",
   ".svgWrap",
 ];
 
@@ -66,6 +68,7 @@ if(typeof window !== "undefined" && !window.__scrollSnapshotWired){
 }
 
 function performRender(){
+  if(typeof destroyGym3DViews === "function") destroyGym3DViews();
   const shouldRestoreUi = !state.drag?.active;
   const __focus = shouldRestoreUi ? captureFocus() : null;
   // Prefer the scroll snapshot taken at pointerdown (before any handler
@@ -91,36 +94,38 @@ function performRender(){
   const planTotal = plannedTotal(rows);
   const usedEst = usedAreaEstimate(rows);
   const remainEst = usable - usedEst;
+  const freePercent = usable > 0 ? clamp((remainEst / usable) * 100, 0, 100) : 0;
   const currency = state.settings.currency || "USD";
 
   const app = $("#app");
   app.innerHTML = `
     <div class="container">
-      <div class="row">
-        <div>
-          <div class="title">Gym Wishlist + Layout Planner</div>
-          <div class="subtitle">Offline planner. Tracks totals, dimensions, layout with outlets, ceiling zones, and floor zones.</div>
+      <header class="appHeader">
+        <div class="brand" aria-label="Gym Planner home">
+          <span class="brandMark" aria-hidden="true">GP</span>
+          <span class="title">Gym Planner</span>
         </div>
-        <div class="row" style="justify-content:flex-end;">
-          <div class="tabs" role="tablist">
-            ${tabBtn("wishlist","Wishlist")}
-            ${tabBtn("ready","Ready to Buy")}
-            ${tabBtn("layout","Layout")}
-            ${tabBtn("settings","Settings")}
+        <div class="headerNav">
+          <div class="tabs" role="tablist" aria-label="Planner sections">
+            ${tabBtn("wishlist","Wishlist", "list")}
+            ${tabBtn("ready","Ready to Buy", "cart")}
+            ${tabBtn("layout","Layout", "layout")}
+            ${tabBtn("settings","Settings", "settings")}
           </div>
-          <button class="btn" id="exportBtn">Export</button>
-          <label class="btn" style="cursor:pointer;">
-            Import <input type="file" id="importFile" accept="application/json,.json,text/html,.html,.htm" style="display:none;" />
+        </div>
+        <div class="headerActions">
+          <button class="btn headerAction" id="exportBtn">${appIcon("export")}<span>Export</span></button>
+          <label class="btn headerAction" id="importLabel" role="button" tabindex="0" style="cursor:pointer;">
+            ${appIcon("import")}<span>Import</span><input type="file" id="importFile" accept="application/json,.json,text/html,.html,.htm" style="display:none;" />
           </label>
         </div>
-      </div>
+      </header>
 
       <div class="gridcards">
-        ${kpiCard("Ready-to-buy total","Sum of items with Status = Ready to Buy", `<div class="big">${money(readyTotal,currency)}</div>`, `<span class="pill">${rows.filter(x=>x.status==="Ready to Buy").length} items</span>`)}
-        ${kpiCard("Planned total","All items (Price×Qty + Fees)", `<div class="big">${money(planTotal,currency)}</div>`)}
-        ${kpiCard("Room", `${round1(r.L)} ft × ${round1(r.W)} ft`, `<div class="big">${round1(r.area)} sq ft</div><div class="muted" style="font-size:12px;margin-top:6px;">Default deadspace: ${round1(r.clearance)} ft</div>`)}
-        ${kpiCard("Reserved","Walkways / doors / no-go / cutouts", `<div class="big">${round1(reserved)} sq ft</div><div class="muted" style="font-size:12px;margin-top:6px;">Usable: ${round1(usable)} sq ft</div>`)}
-        ${kpiCard("Area estimate","Effective footprints × qty (rough)", `<div style="font-size:13px;"><div>Used: <b>${round1(usedEst)}</b> sq ft</div><div style="margin-top:6px;">Remaining: <b style="${remainEst<0?'color:#be123c;':''}">${round1(remainEst)}</b> sq ft</div></div>`, `<span class="pill">${remainEst<0?'Over':'OK'}</span>`)}
+        ${kpiCard("cart", "Ready to buy", `${money(readyTotal,currency)} committed`, `<div class="big">${rows.filter(x=>x.status==="Ready to Buy").length} <span>item${rows.filter(x=>x.status==="Ready to Buy").length===1?"":"s"}</span></div>`)}
+        ${kpiCard("tag", "Planned total", `${rows.length} item${rows.length===1?"":"s"} in wishlist`, `<div class="big">${money(planTotal,currency)}</div>`)}
+        ${kpiCard("layout", "Room", `${round1(r.area)} sq ft total`, `<div class="big">${round1(r.L)} × ${round1(r.W)} <span>ft</span></div>`)}
+        ${kpiCard("space", "Space remaining", `${round1(freePercent)}% of usable area free`, `<div class="big ${remainEst<0?'isNegative':''}">${round1(remainEst)} <span>sq ft</span></div>`)}
       </div>
 
       ${mainPanel(state.tab, rows, groups, currency)}
@@ -146,11 +151,11 @@ function performRender(){
         <button class="lightbox-close" type="button" data-action="closeExportDialog" aria-label="Close">×</button>
         <div style="background:#fff;border:1px solid var(--border);border-radius:18px;padding:18px;box-shadow:0 20px 50px rgba(0,0,0,.3);">
           <div style="font-size:22px;font-weight:900;color:#0f172a;">Export options</div>
-          <div class="muted" style="margin-top:6px;font-size:13px;">Choose what you want to download.</div>
+          <div class="muted" style="margin-top:6px;font-size:13px;">Choose what you want to download. API keys are never included in downloaded files.</div>
 
           <div style="display:grid;grid-template-columns:1fr;gap:10px;margin-top:14px;">
             ${[
-              { id: "full", title: "Full backup", desc: "Everything in one file, including all wishlist items and layouts." },
+              { id: "full", title: "Full backup", desc: "Wishlist items and layouts. Local GLB model files stay in this browser." },
               { id: "noLayouts", title: "Everything except layouts", desc: "Wishlist, categories, settings, and items only." },
               { id: "layoutsOnly", title: "Layouts only", desc: "Only layout data, with the equipment records needed to reopen it." },
             ].map(opt=>`
@@ -188,6 +193,9 @@ function performRender(){
   wireMain();
   wireWishlistExtras();
   wireLayoutGridContrast();
+  wireSpatialControls();
+  wireEquipmentModelControls();
+  if(state.tab === "layout" && typeof initGym3DViews === "function") initGym3DViews();
 
   if(shouldRestoreUi){
     // Restore inner scrollbars AND window scroll synchronously (same tick as
@@ -223,24 +231,37 @@ function render(options={}){
   });
 }
 
-function tabBtn(value,label){
+function tabBtn(value,label,icon){
   const active = state.tab===value ? "active" : "";
-  return `<button class="tab ${active}" data-tab="${value}">${label}</button>`;
+  return `<button class="tab ${active}" data-tab="${value}" role="tab" aria-selected="${state.tab===value}">${appIcon(icon)}<span>${label}</span></button>`;
 }
 
-function kpiCard(title,subtitle,body,right=""){
+function kpiCard(icon,title,subtitle,body){
   return `
-    <div class="card">
-      <div class="hd">
-        <div>
-          <div class="h1">${escapeHtml(title)}</div>
-          <div class="h2">${escapeHtml(subtitle)}</div>
-        </div>
-        <div>${right||""}</div>
+    <div class="kpiCard kpi-${escapeAttr(icon)}">
+      <div class="kpiIcon" aria-hidden="true">${appIcon(icon)}</div>
+      <div class="kpiContent">
+        <div class="kpiLabel">${escapeHtml(title)}</div>
+        ${body}
+        <div class="kpiMeta">${escapeHtml(subtitle)}</div>
       </div>
-      <div class="bd">${body}</div>
     </div>
   `;
+}
+
+function appIcon(name){
+  const common = `width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"`;
+  const paths = {
+    list: `<path d="M8 6h12M8 12h12M8 18h12"/><path d="M4 6h.01M4 12h.01M4 18h.01"/>`,
+    cart: `<circle cx="9" cy="20" r="1"/><circle cx="19" cy="20" r="1"/><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 2-1.6L21 8H6"/>`,
+    layout: `<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M9 10h12"/>`,
+    settings: `<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/>`,
+    export: `<path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 14v6h14v-6"/>`,
+    import: `<path d="M12 15V3M7 10l5 5 5-5"/><path d="M5 20h14"/>`,
+    tag: `<path d="M20 13 13 20l-9-9V4h7Z"/><circle cx="8.5" cy="8.5" r="1"/>`,
+    space: `<path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>`,
+  };
+  return `<svg ${common}>${paths[name] || paths.list}</svg>`;
 }
 
 function mainPanel(tab, rows, groups, currency){
@@ -298,6 +319,8 @@ function selectedOutletPanel(outlet){
   `;
 }
 
-document.addEventListener('DOMContentLoaded', function() {
+if(document.readyState==="loading"){
+  document.addEventListener("DOMContentLoaded",()=>render({immediate:true}),{once:true});
+}else{
   render({immediate:true});
-});
+}
