@@ -655,6 +655,17 @@ GymTests.test("layout rotation shortcut rejects unsafe keyboard contexts",()=>{
   });
 });
 
+GymTests.test("Walkthrough leaves the R shortcut unhandled and equipment unchanged",()=>{
+  const fixture=rotationUiFixture();
+  withRotationUiFixture({...fixture,walkthroughOpen:true},()=>withRotationRender(()=>{
+    const before=deepCopy(state.layout.instances[0]);
+    const event=new KeyboardEvent("keydown",{code:"KeyR",key:"r",bubbles:true,cancelable:true});
+    window.dispatchEvent(event);
+    GymTests.deepEqual(state.layout.instances[0],before);
+    GymTests.equal(event.defaultPrevented,false);
+  }));
+});
+
 GymTests.test("layout rotation shortcut rejects editing targets, dialogs, and pointer lock",()=>{
   const targets=["input","textarea","select","div"];
   withRotationShortcutState({},()=>{

@@ -670,6 +670,37 @@ GymTests.test("shows editable wall feature controls including LED brightness", (
   GymTests.assert(panel.includes('Top/bottom measure from the left; left/right measure from the top.'));
 });
 
+GymTests.test("Walkthrough renders compact selected-feature fields, nudges, and Delete",()=>{
+  const feature={
+    id:"wf_walkthrough",kind:"led",label:"Mirror wash",wall:"bottom",
+    startFt:2,startIn:6,bottomFt:7,bottomIn:3,widthFt:5,widthIn:0,heightFt:0,heightIn:1,
+    color:"#ffd7aa",brightnessPct:65,
+  };
+  const previousLayout=state.layout;
+  try{
+    state.layout={
+      ...deepCopy(DEFAULT_LAYOUT),
+      wallFeatures:[feature],
+      selectedWallFeatureId:feature.id,
+    };
+    GymWalkthroughEditing.reset();
+    GymWalkthroughEditing.setMode("edit");
+    const panel=walkthroughEditPanel();
+    [
+      "walkthrough_wf_kind","walkthrough_wf_label","walkthrough_wf_wall","walkthrough_wf_color",
+      "walkthrough_wf_start_ft","walkthrough_wf_start_in","walkthrough_wf_bottom_ft","walkthrough_wf_bottom_in",
+      "walkthrough_wf_width_ft","walkthrough_wf_width_in","walkthrough_wf_height_ft","walkthrough_wf_height_in",
+      "walkthrough_wf_brightness","walkthrough_wf_nudge","walkthrough_wf_remove",
+    ].forEach(action=>GymTests.assert(panel.includes(`data-action="${action}"`),action));
+    GymTests.assert(panel.includes(">Delete</button>"));
+    GymTests.equal((panel.match(/data-action="walkthrough_wf_nudge"/g)||[]).length,4);
+    GymTests.equal(panel.includes('data-action="walkthrough_wall_tool"'),false);
+  }finally{
+    GymWalkthroughEditing.reset();
+    state.layout=previousLayout;
+  }
+});
+
 GymTests.test("clamps a wall feature drag to its selected wall without changing its wall or mount", () => {
   const feature={wall:"bottom",startFt:1,widthFt:5,bottomFt:2,bottomIn:6};
   GymTests.deepEqual(

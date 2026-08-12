@@ -171,6 +171,23 @@ function wireLayoutRotationShortcut(){
 
 wireLayoutRotationShortcut();
 
+function handleWalkthroughEscape(event){
+  if(event?.key!=="Escape" || !state.layout?.walkthroughOpen || document.pointerLockElement) return false;
+  event.preventDefault?.();
+  event.stopImmediatePropagation?.();
+  event.stopPropagation?.();
+  const editor=GymWalkthroughEditing.state();
+  if(editor.mode==="edit" && editor.wallTool){
+    GymWalkthroughEditing.setWallTool(null);
+    render();
+    return true;
+  }
+  GymWalkthroughEditing.reset();
+  state.layout.walkthroughOpen=false;
+  render();
+  return true;
+}
+
 function wallFeatureDragPatch(feature, originStartFt, deltaFt, roomData){
   const maxStart=Math.max(0,GymWallFeatures.wallLength(feature, roomData)-GymWallFeatures.width(feature));
   const parts=splitTotalFtToFtIn(clamp(safeNum(originStartFt)+safeNum(deltaFt),0,maxStart));
@@ -1318,6 +1335,7 @@ function wireMain(){
     }
     if(t.dataset.action==="spatial_walkthrough_close"){
       try{ if(document.pointerLockElement) document.exitPointerLock(); }catch{}
+      GymWalkthroughEditing.reset();
       state.layout.walkthroughOpen=false;
       render();
       return;
@@ -1329,6 +1347,43 @@ function wireMain(){
     if(t.dataset.action==="gym3d_lock"){
       if(typeof startGymWalkthrough==="function") startGymWalkthrough();
       return;
+    }
+    if(t.dataset.action==="walkthrough_mode"){
+      GymWalkthroughEditing.setMode(t.dataset.mode);
+      if(t.dataset.mode==="edit" && typeof gym3DControllers!=="undefined"){
+        gym3DControllers.find(view=>view.mode==="walkthrough")?.setWalkthroughEditMode("edit");
+      }
+      render();
+      return;
+    }
+    if(t.dataset.action==="walkthrough_step"){
+      GymWalkthroughEditing.setMoveStep(t.dataset.step);
+      render();
+      return;
+    }
+    if(t.dataset.action==="walkthrough_move"){
+      GymWalkthroughEditing.nudgeInstance(t.dataset.id,Number(t.dataset.dx),Number(t.dataset.dy));
+      return;
+    }
+    if(t.dataset.action==="walkthrough_rotate") return void GymWalkthroughEditing.rotateInstance(t.dataset.id);
+    if(t.dataset.action==="walkthrough_wall_tool"){
+      GymWalkthroughEditing.setWallTool(t.dataset.kind);
+      render();
+      return;
+    }
+    if(t.dataset.action==="walkthrough_cancel_tool"){
+      GymWalkthroughEditing.setWallTool(null);
+      render();
+      return;
+    }
+    if(t.dataset.action==="walkthrough_undo") return void GymWalkthroughEditing.undoLast();
+    if(t.dataset.action==="walkthrough_wf_remove") return void GymWalkthroughEditing.removeFeature(t.dataset.id);
+    if(t.dataset.action==="walkthrough_wf_nudge"){
+      const feature=(state.layout.wallFeatures||[]).find(entry=>entry.id===t.dataset.id);
+      if(!feature) return;
+      const start=GymWallFeatures.start(feature)+Number(t.dataset.inches)/12;
+      const parts=splitTotalFtToFtIn(start);
+      return void GymWalkthroughEditing.patchFeature(feature.id,{startFt:parts.ft,startIn:parts.inch});
     }
 
     // Layout library actions
@@ -2386,6 +2441,21 @@ function wireMain(){
     if(t && t.nodeType === 3 && t.parentElement) t = t.parentElement;
     if(!t || !(t instanceof HTMLElement)) return;
 
+    if(t.dataset.action && t.dataset.action.startsWith("walkthrough_wf_")){
+      const action=t.dataset.action;
+      const value=t.value;
+      let patch=null;
+      if(action==="walkthrough_wf_kind") patch={kind:value};
+      if(action==="walkthrough_wf_label") patch={label:value};
+      if(action==="walkthrough_wf_wall") patch={wall:value};
+      if(action==="walkthrough_wf_color") patch={color:value};
+      if(action==="walkthrough_wf_brightness") patch={brightnessPct:clamp(safeNum(value),0,100)};
+      const measurement=action.match(/^walkthrough_wf_(start|bottom|width|height)_(ft|in)$/);
+      if(measurement) patch={[`${measurement[1]}${measurement[2]==="ft"?"Ft":"In"}`]:Math.max(0,safeNum(value))};
+      if(patch) GymWalkthroughEditing.patchFeature(t.dataset.id,patch);
+      return;
+    }
+
     // Layout selector
     if(t.dataset.action==="layout_select"){
       const id = t.value;
@@ -3417,11 +3487,7 @@ function wireMain(){
 
   document.addEventListener("keydown", (e)=>{
     if(e.key !== "Escape") return;
-    if(state.layout?.walkthroughOpen && !document.pointerLockElement){
-      state.layout.walkthroughOpen = false;
-      render();
-      return;
-    }
+    if(handleWalkthroughEscape(e)) return;
     const box = $("#imgLightbox");
     if(box && box.classList.contains("open")){
       box.classList.remove("open");

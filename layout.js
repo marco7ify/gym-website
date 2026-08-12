@@ -77,6 +77,108 @@ function spatialFrameSelectedControl(selection){
   return `<button type="button" class="focusCanvasBtn" data-action="spatial_frame_selected">Frame selected</button>`;
 }
 
+function walkthroughModeSwitch(){
+  const editor=GymWalkthroughEditing.state();
+  return `<div class="walkthroughModeSwitch" role="radiogroup" aria-label="Walkthrough mode">
+    <button type="button" role="radio" aria-checked="${editor.mode==="walk"?"true":"false"}" data-action="walkthrough_mode" data-mode="walk" data-focus-key="walkthrough-mode-walk">Walk</button>
+    <button type="button" role="radio" aria-checked="${editor.mode==="edit"?"true":"false"}" data-action="walkthrough_mode" data-mode="edit" data-focus-key="walkthrough-mode-edit">Edit</button>
+  </div>`;
+}
+
+function walkthroughCompactField(label,control){
+  return `<label class="walkthroughCompactField"><span>${escapeHtml(label)}</span>${control}</label>`;
+}
+
+function walkthroughMeasurementField(label,feature,name){
+  const id=escapeAttr(feature.id);
+  const ft=escapeAttr(feature[`${name}Ft`]??0);
+  const inch=escapeAttr(feature[`${name}In`]??0);
+  return `<fieldset class="walkthroughMeasureField">
+    <legend>${escapeHtml(label)}</legend>
+    <label><span>Feet</span><input type="number" min="0" step="1" inputmode="numeric" aria-label="${escapeAttr(label)} feet" data-action="walkthrough_wf_${name}_ft" data-id="${id}" data-focus-key="walkthrough-wf-${name}-ft:${id}" value="${ft}"></label>
+    <label><span>Inches</span><input type="number" min="0" max="11" step="1" inputmode="numeric" aria-label="${escapeAttr(label)} inches" data-action="walkthrough_wf_${name}_in" data-id="${id}" data-focus-key="walkthrough-wf-${name}-in:${id}" value="${inch}"></label>
+  </fieldset>`;
+}
+
+function walkthroughEditPanel(includeModeSwitch=true){
+  const editor=GymWalkthroughEditing.state();
+  const selectedFeature=(state.layout.wallFeatures||[]).find(feature=>feature.id===state.layout.selectedWallFeatureId)||null;
+  const selectedInst=(state.layout.instances||[]).find(inst=>inst.id===state.layout.selectedInstId)||null;
+  const selectedItem=selectedInst ? getItemById(selectedInst.itemId) : null;
+  const undoDisabled=!editor.undo;
+  const status=editor.status?.message || (selectedFeature
+    ? "Edit the selected wall feature."
+    : selectedInst
+      ? "Move in room coordinates or rotate 90 degrees."
+      : editor.wallTool
+        ? "Choose a wall surface in the room."
+        : "Select equipment, or choose a wall feature to place.");
+  let body="";
+
+  if(selectedFeature){
+    const id=escapeAttr(selectedFeature.id);
+    const name=wallFeatureDisplayName(selectedFeature.kind);
+    body=`<section class="walkthroughEditorSection walkthroughFeatureEditor" aria-labelledby="walkthrough-feature-heading">
+      <div class="walkthroughEditorHeading">
+        <div><span class="walkthroughEditorKicker">Selected wall feature</span><h2 id="walkthrough-feature-heading">${escapeHtml(selectedFeature.label||name)}</h2></div>
+        <button type="button" class="walkthroughDangerAction" data-action="walkthrough_wf_remove" data-id="${id}" data-focus-key="walkthrough-wf-remove:${id}">Delete</button>
+      </div>
+      <div class="walkthroughFeatureFields">
+        ${walkthroughCompactField("Type",`<select aria-label="Wall feature type" data-action="walkthrough_wf_kind" data-id="${id}" data-focus-key="walkthrough-wf-kind:${id}">${GymWallFeatures.KINDS.map(kind=>`<option value="${kind}"${selectedFeature.kind===kind?" selected":""}>${wallFeatureDisplayName(kind)}</option>`).join("")}</select>`)}
+        ${walkthroughCompactField("Label",`<input aria-label="Wall feature label" data-action="walkthrough_wf_label" data-id="${id}" data-focus-key="walkthrough-wf-label:${id}" value="${escapeAttr(selectedFeature.label||name)}">`)}
+        ${walkthroughCompactField("Wall",`<select aria-label="Wall" data-action="walkthrough_wf_wall" data-id="${id}" data-focus-key="walkthrough-wf-wall:${id}">${GymWallFeatures.SIDES.map(wall=>`<option value="${wall}"${selectedFeature.wall===wall?" selected":""}>${wall[0].toUpperCase()+wall.slice(1)}</option>`).join("")}</select>`)}
+        ${walkthroughCompactField(selectedFeature.kind==="led"?"LED color":"Color",`<input type="color" aria-label="Wall feature color" data-action="walkthrough_wf_color" data-id="${id}" data-focus-key="walkthrough-wf-color:${id}" value="${escapeAttr(selectedFeature.color||"#cbd5e1")}">`)}
+        ${walkthroughMeasurementField("Along wall",selectedFeature,"start")}
+        ${walkthroughMeasurementField("Mount height",selectedFeature,"bottom")}
+        ${walkthroughMeasurementField("Width",selectedFeature,"width")}
+        ${walkthroughMeasurementField("Height",selectedFeature,"height")}
+        ${selectedFeature.kind==="led" ? walkthroughCompactField("Brightness",`<input type="range" min="0" max="100" step="1" aria-label="Brightness" data-action="walkthrough_wf_brightness" data-id="${id}" data-focus-key="walkthrough-wf-brightness:${id}" value="${escapeAttr(safeNum(selectedFeature.brightnessPct))}">`) : ""}
+      </div>
+      <div class="walkthroughNudgeGroup" role="group" aria-label="Nudge along wall">
+        ${[-6,-1,1,6].map(inches=>`<button type="button" data-action="walkthrough_wf_nudge" data-id="${id}" data-inches="${inches}" data-focus-key="walkthrough-wf-nudge-${inches}:${id}" aria-label="Nudge ${Math.abs(inches)} inches ${inches<0?"back":"forward"}">${inches>0?"+":"−"}${Math.abs(inches)} in</button>`).join("")}
+      </div>
+    </section>`;
+  }else if(selectedInst){
+    const id=escapeAttr(selectedInst.id);
+    body=`<section class="walkthroughEditorSection walkthroughEquipmentEditor" aria-labelledby="walkthrough-equipment-heading">
+      <div class="walkthroughEditorHeading">
+        <div><span class="walkthroughEditorKicker">Selected equipment</span><h2 id="walkthrough-equipment-heading">${escapeHtml(selectedItem?.name||"Equipment")}</h2></div>
+        <button type="button" class="walkthroughRotateAction" data-action="walkthrough_rotate" data-id="${id}" data-focus-key="walkthrough-rotate:${id}" aria-label="Rotate selected equipment 90 degrees">↻ 90°</button>
+      </div>
+      <div class="walkthroughPosition" aria-label="Current room coordinates"><span>X <strong>${escapeHtml(formatFtIn(instXTotalFt(selectedInst)))}</strong></span><span>Y <strong>${escapeHtml(formatFtIn(instYTotalFt(selectedInst)))}</strong></span></div>
+      <div class="walkthroughDirectionalPad" role="group" aria-label="Move selected equipment in room coordinates">
+        <button type="button" data-direction="up" data-action="walkthrough_move" data-id="${id}" data-dx="0" data-dy="-1" data-focus-key="walkthrough-move-up:${id}" aria-label="Move up">↑</button>
+        <button type="button" data-direction="left" data-action="walkthrough_move" data-id="${id}" data-dx="-1" data-dy="0" data-focus-key="walkthrough-move-left:${id}" aria-label="Move left">←</button>
+        <button type="button" data-direction="right" data-action="walkthrough_move" data-id="${id}" data-dx="1" data-dy="0" data-focus-key="walkthrough-move-right:${id}" aria-label="Move right">→</button>
+        <button type="button" data-direction="down" data-action="walkthrough_move" data-id="${id}" data-dx="0" data-dy="1" data-focus-key="walkthrough-move-down:${id}" aria-label="Move down">↓</button>
+      </div>
+      <div class="walkthroughStepGroup" role="group" aria-label="Movement step">
+        <button type="button" data-action="walkthrough_step" data-step="coarse" data-focus-key="walkthrough-step-coarse" aria-pressed="${editor.moveStep==="coarse"?"true":"false"}">6 in</button>
+        <button type="button" data-action="walkthrough_step" data-step="fine" data-focus-key="walkthrough-step-fine" aria-pressed="${editor.moveStep==="fine"?"true":"false"}">Fine · 1 in</button>
+      </div>
+    </section>`;
+  }else{
+    body=`<section class="walkthroughEditorSection walkthroughWallTools" aria-labelledby="walkthrough-wall-heading">
+      <span class="walkthroughEditorKicker">Add to a wall</span>
+      <h2 id="walkthrough-wall-heading">Choose a wall feature</h2>
+      <p>Select a tool, then choose a wall surface in the room.</p>
+      <div class="walkthroughWallToolGroup" role="group" aria-label="Wall feature tools">
+        ${GymWallFeatures.KINDS.map(kind=>`<button type="button" data-action="walkthrough_wall_tool" data-kind="${kind}" data-focus-key="walkthrough-wall-tool-${kind}" aria-pressed="${editor.wallTool===kind?"true":"false"}">${wallFeatureDisplayName(kind)}</button>`).join("")}
+      </div>
+      ${editor.wallTool ? `<button type="button" class="walkthroughCancelTool" data-action="walkthrough_cancel_tool" data-focus-key="walkthrough-cancel-tool">Cancel ${escapeHtml(wallFeatureDisplayName(editor.wallTool))}</button>` : ""}
+    </section>`;
+  }
+
+  return `${includeModeSwitch?walkthroughModeSwitch():""}<aside class="walkthroughEditPanel" aria-label="Walkthrough editor">
+    <div class="walkthroughEditPanelTop">
+      <span class="walkthroughGuideKicker">Edit layout</span>
+      <button type="button" class="walkthroughUndoAction" data-action="walkthrough_undo" data-focus-key="walkthrough-undo" aria-disabled="${undoDisabled?"true":"false"}"${undoDisabled?" disabled":""}>Undo</button>
+    </div>
+    ${body}
+    <div class="walkthroughLiveStatus ${escapeAttr(editor.status?.tone||"")}" role="status" aria-live="polite" aria-atomic="true">${escapeHtml(status)}</div>
+  </aside>`;
+}
+
 function wallFeatureSvg(feature, roomData, selected=false, validation={valid:true,reasons:[]}){
   const rect=GymWallFeatures.planRect(feature, roomData);
   const kind=feature.kind;
@@ -894,6 +996,8 @@ function layoutPanel(rows, currency){
     </div>
   ` : "";
   const activeLayoutName = (state.layouts || []).find(x=>x.id===state.activeLayoutId)?.name || "Current layout";
+  const walkthroughEditor=GymWalkthroughEditing.state();
+  const walkthroughEditing=walkthroughEditor.mode==="edit";
   // Right sidebar - layout tools (collapsible) + layout selector
   const rightSidebar = `
     <div class="rightSidebar">
@@ -1202,13 +1306,14 @@ function layoutPanel(rows, currency){
             <span class="walkthroughEyebrow">First-person walkthrough</span>
             <strong>${escapeHtml(activeLayoutName)}</strong>
           </div>
+          ${walkthroughModeSwitch()}
           <div class="walkthroughHeaderActions">
             <button type="button" class="btn walkthroughReset" data-action="spatial_walkthrough_reset">Reset view</button>
             <button type="button" class="btn walkthroughExit" data-action="spatial_walkthrough_close">Exit walkthrough</button>
           </div>
         </div>
-        <div class="walkthroughStage">
-          <div class="gym3dViewport walkthroughViewport" data-gym3d="walkthrough">
+        <div class="walkthroughStage${walkthroughEditing?" isEditing":""}">
+          <div class="gym3dViewport walkthroughViewport${walkthroughEditing?" isEditing":""}" data-gym3d="walkthrough">
             <div class="gym3dLoading">Preparing walkthrough…</div>
             <button type="button" class="walkthroughStart" data-action="gym3d_lock">
               <strong>Click to walk</strong>
@@ -1219,7 +1324,7 @@ function layoutPanel(rows, currency){
             <canvas class="walkthroughMinimap" width="220" height="150" data-gym3d-minimap aria-label="Walkthrough minimap"></canvas>
             <div class="gym3dWarnings" data-gym3d-warnings></div>
           </div>
-          <aside class="walkthroughGuide">
+          ${walkthroughEditing ? walkthroughEditPanel(false) : `<aside class="walkthroughGuide">
             <div>
               <span class="walkthroughGuideKicker">Safety view</span>
               <h2>Move through the real plan</h2>
@@ -1236,7 +1341,7 @@ function layoutPanel(rows, currency){
               <span>In-room equipment</span><strong>${inRoomInstances.length}</strong>
               ${stagedInstanceCount ? `<span>Parked in staging</span><strong>${stagedInstanceCount}</strong>` : ""}
             </div>
-          </aside>
+          </aside>`}
         </div>
       </div>
     ` : ""}

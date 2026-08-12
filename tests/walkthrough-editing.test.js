@@ -301,3 +301,196 @@ GymTests.test("reset clears transient editor state without mutating the layout",
     GymTests.equal(GymWalkthroughEditing.setWallTool("not-a-tool").wallTool,null);
   });
 });
+
+function walkthroughPanelElement(){
+  const holder=document.createElement("div");
+  holder.innerHTML=walkthroughEditPanel();
+  return holder;
+}
+
+function walkthroughActionElement(action,dataset={}){
+  const control=document.createElement("button");
+  control.type="button";
+  control.dataset.action=action;
+  Object.assign(control.dataset,dataset);
+  return control;
+}
+
+GymTests.test("renders an accessible Walk/Edit switch and equipment editor",()=>{
+  withWalkthroughFixture(basicWalkthroughFixture(),()=>{
+    state.layout.selectedInstId="target";
+    GymWalkthroughEditing.setMode("edit");
+    const html=walkthroughEditPanel();
+    GymTests.assert(html.includes('role="radiogroup"'));
+    GymTests.assert(html.includes('data-action="walkthrough_mode"'));
+    GymTests.assert(html.includes('data-action="walkthrough_rotate"'));
+    GymTests.equal((html.match(/data-action="walkthrough_move"/g)||[]).length,4);
+    GymTests.assert(html.includes('aria-live="polite"'));
+  });
+});
+
+GymTests.test("renders exact six-inch and Fine one-inch movement states",()=>{
+  withWalkthroughFixture(basicWalkthroughFixture(),()=>{
+    state.layout.selectedInstId="target";
+    let panel=walkthroughPanelElement();
+    let coarse=panel.querySelector('[data-action="walkthrough_step"][data-step="coarse"]');
+    let fine=panel.querySelector('[data-action="walkthrough_step"][data-step="fine"]');
+    GymTests.equal(coarse.textContent.trim(),"6 in");
+    GymTests.equal(fine.textContent.trim(),"Fine · 1 in");
+    GymTests.equal(coarse.getAttribute("aria-pressed"),"true");
+    GymTests.equal(fine.getAttribute("aria-pressed"),"false");
+
+    GymWalkthroughEditing.setMoveStep("fine");
+    panel=walkthroughPanelElement();
+    coarse=panel.querySelector('[data-action="walkthrough_step"][data-step="coarse"]');
+    fine=panel.querySelector('[data-action="walkthrough_step"][data-step="fine"]');
+    GymTests.equal(coarse.getAttribute("aria-pressed"),"false");
+    GymTests.equal(fine.getAttribute("aria-pressed"),"true");
+  });
+});
+
+GymTests.test("wall tools use native controls and expose their pressed state",()=>{
+  withWalkthroughFixture({},()=>{
+    GymWalkthroughEditing.setMode("edit");
+    GymWalkthroughEditing.setWallTool("mirror");
+    const panel=walkthroughPanelElement();
+    const actions=Array.from(panel.querySelectorAll("[data-action]"));
+    const wallTools=actions.filter(control=>control.dataset.action==="walkthrough_wall_tool");
+    GymTests.equal(wallTools.length,3);
+    GymTests.assert(actions.filter(control=>control.tagName==="BUTTON").every(control=>control.type==="button"));
+    GymTests.equal(panel.querySelector('[data-kind="mirror"]').getAttribute("aria-pressed"),"true");
+    GymTests.equal(panel.querySelector('[data-kind="slat"]').getAttribute("aria-pressed"),"false");
+    GymTests.assert(!!panel.querySelector('[data-action="walkthrough_cancel_tool"]'));
+  });
+});
+
+GymTests.test("Walkthrough Undo is disabled until an edit succeeds",()=>{
+  withWalkthroughFixture(basicWalkthroughFixture(),()=>{
+    state.layout.selectedInstId="target";
+    let undo=walkthroughPanelElement().querySelector('[data-action="walkthrough_undo"]');
+    GymTests.equal(undo.disabled,true);
+    GymTests.equal(undo.getAttribute("aria-disabled"),"true");
+
+    GymWalkthroughEditing.nudgeInstance("target",1,0);
+    undo=walkthroughPanelElement().querySelector('[data-action="walkthrough_undo"]');
+    GymTests.equal(undo.disabled,false);
+    GymTests.equal(undo.getAttribute("aria-disabled"),"false");
+  });
+});
+
+GymTests.test("Walkthrough rerenders restore the exact directional control",()=>{
+  withWalkthroughFixture(basicWalkthroughFixture(),()=>{
+    state.layout.selectedInstId="target";
+    const holder=document.createElement("div");
+    holder.innerHTML=walkthroughEditPanel();
+    document.body.appendChild(holder);
+    try{
+      const selector='[data-focus-key="walkthrough-move-right:target"]';
+      holder.querySelector(selector).focus();
+      const focus=captureFocus();
+      holder.innerHTML=walkthroughEditPanel();
+      restoreFocus(focus);
+      GymTests.equal(document.activeElement,holder.querySelector(selector));
+    }finally{
+      holder.remove();
+    }
+  });
+});
+
+GymTests.test("delegated Walkthrough equipment actions use the editing commands",()=>{
+  withWalkthroughFixture(basicWalkthroughFixture(),renderCount=>{
+    state.layout.selectedInstId="target";
+    wireMain();
+    const activate=control=>document.body.onclick({target:control});
+
+    activate(walkthroughActionElement("walkthrough_mode",{mode:"edit"}));
+    GymTests.equal(GymWalkthroughEditing.state().mode,"edit");
+    activate(walkthroughActionElement("walkthrough_step",{step:"fine"}));
+    GymTests.equal(GymWalkthroughEditing.state().moveStep,"fine");
+    activate(walkthroughActionElement("walkthrough_move",{id:"target",dx:"1",dy:"0"}));
+    GymTests.closeTo(instXTotalFt(state.layout.instances[0]),4+1/12,1e-9);
+    activate(walkthroughActionElement("walkthrough_rotate",{id:"target"}));
+    GymTests.equal(state.layout.instances[0].rotated,true);
+    activate(walkthroughActionElement("walkthrough_wall_tool",{kind:"mirror"}));
+    GymTests.equal(GymWalkthroughEditing.state().wallTool,"mirror");
+    activate(walkthroughActionElement("walkthrough_cancel_tool"));
+    GymTests.equal(GymWalkthroughEditing.state().wallTool,null);
+    activate(walkthroughActionElement("walkthrough_undo"));
+    GymTests.equal(state.layout.instances[0].rotated,false);
+    GymTests.assert(renderCount()>=7);
+  });
+});
+
+GymTests.test("delegated Walkthrough feature inputs produce validated patches",()=>{
+  const baseFeature={
+    id:"wf_target",kind:"mirror",label:"Mirror",wall:"top",
+    startFt:2,startIn:0,bottomFt:1,bottomIn:0,widthFt:6,widthIn:0,heightFt:5,heightIn:0,
+    color:"#cbd5e1",brightnessPct:75,
+  };
+  const cases=[
+    {action:"walkthrough_wf_kind",value:"slat",read:feature=>feature.kind,want:"slat"},
+    {action:"walkthrough_wf_label",value:"Training wall",read:feature=>feature.label,want:"Training wall"},
+    {action:"walkthrough_wf_wall",value:"bottom",read:feature=>feature.wall,want:"bottom"},
+    {action:"walkthrough_wf_color",value:"#112233",read:feature=>feature.color,want:"#112233"},
+    {action:"walkthrough_wf_brightness",value:"42",read:feature=>feature.brightnessPct,want:42},
+    {action:"walkthrough_wf_start_ft",value:"3",read:feature=>feature.startFt,want:3},
+    {action:"walkthrough_wf_start_in",value:"6",read:feature=>feature.startIn,want:6},
+    {action:"walkthrough_wf_bottom_ft",value:"2",read:feature=>feature.bottomFt,want:2},
+    {action:"walkthrough_wf_bottom_in",value:"6",read:feature=>feature.bottomIn,want:6},
+    {action:"walkthrough_wf_width_ft",value:"5",read:feature=>feature.widthFt,want:5},
+    {action:"walkthrough_wf_width_in",value:"6",read:feature=>feature.widthIn,want:6},
+    {action:"walkthrough_wf_height_ft",value:"4",read:feature=>feature.heightFt,want:4},
+    {action:"walkthrough_wf_height_in",value:"6",read:feature=>feature.heightIn,want:6},
+  ];
+
+  cases.forEach(testCase=>withWalkthroughFixture({wallFeatures:[baseFeature]},()=>{
+    wireMain();
+    const input=document.createElement("input");
+    input.dataset.action=testCase.action;
+    input.dataset.id=baseFeature.id;
+    input.value=testCase.value;
+    document.body.oninput({target:input});
+    GymTests.equal(testCase.read(state.layout.wallFeatures[0]),testCase.want,testCase.action);
+  }));
+});
+
+GymTests.test("delegated Walkthrough feature nudge and remove actions mutate the selected feature",()=>{
+  const feature={
+    id:"wf_target",kind:"mirror",label:"Mirror",wall:"top",
+    startFt:2,startIn:0,bottomFt:1,bottomIn:0,widthFt:6,widthIn:0,heightFt:5,heightIn:0,
+    color:"#cbd5e1",brightnessPct:0,
+  };
+  withWalkthroughFixture({wallFeatures:[feature]},()=>{
+    state.layout.selectedWallFeatureId=feature.id;
+    wireMain();
+    document.body.onclick({target:walkthroughActionElement("walkthrough_wf_nudge",{id:feature.id,inches:"1"})});
+    GymTests.equal(state.layout.wallFeatures[0].startIn,1);
+    document.body.onclick({target:walkthroughActionElement("walkthrough_wf_remove",{id:feature.id})});
+    GymTests.equal(state.layout.wallFeatures.length,0);
+    GymTests.equal(state.layout.selectedWallFeatureId,null);
+  });
+});
+
+GymTests.test("Escape cancels a wall tool before closing Walkthrough",()=>{
+  withWalkthroughFixture(basicWalkthroughFixture(),renderCount=>{
+    state.layout.walkthroughOpen=true;
+    state.layout.selectedInstId="target";
+    GymWalkthroughEditing.setMode("edit");
+    GymWalkthroughEditing.setWallTool("mirror");
+    let prevented=0;
+    const escape={key:"Escape",preventDefault(){prevented+=1;},stopPropagation(){}};
+
+    GymTests.equal(handleWalkthroughEscape(escape),true);
+    GymTests.equal(state.layout.walkthroughOpen,true);
+    GymTests.equal(state.layout.selectedInstId,"target");
+    GymTests.equal(GymWalkthroughEditing.state().mode,"edit");
+    GymTests.equal(GymWalkthroughEditing.state().wallTool,null);
+
+    GymTests.equal(handleWalkthroughEscape(escape),true);
+    GymTests.equal(state.layout.walkthroughOpen,false);
+    GymTests.equal(state.layout.selectedInstId,"target");
+    GymTests.equal(GymWalkthroughEditing.state().mode,"walk");
+    GymTests.equal(prevented,2);
+    GymTests.equal(renderCount(),2);
+  });
+});
