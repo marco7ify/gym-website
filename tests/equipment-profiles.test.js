@@ -201,6 +201,31 @@
     return probe.parts;
   }
 
+  function gatorPadTopEdges(pad){
+    const angle=pad.options?.rotationX||0;
+    const halfY=pad.size.y/2;
+    return [-1,1].map(direction=>{
+      const localZ=direction*pad.size.z/2;
+      return {
+        y:pad.pos.y+Math.cos(angle)*halfY-Math.sin(angle)*localZ,
+        z:pad.pos.z+Math.sin(angle)*halfY+Math.cos(angle)*localZ,
+      };
+    });
+  }
+
+  function gatorPadUndersideCenter(pad){
+    const angle=pad.options?.rotationX||0;
+    const halfY=pad.size.y/2;
+    return {
+      y:pad.pos.y-Math.cos(angle)*halfY,
+      z:pad.pos.z-Math.sin(angle)*halfY,
+    };
+  }
+
+  function yzDistance(a,b){
+    return Math.hypot(a.y-b.y,a.z-b.z);
+  }
+
   function echoProbeParts(){
     const probe=modelProbe();
     window.GymEquipmentModels.build("rogue-echo-rower",probe.view,probe.group,{id:"echo-probe"},{w:26/12,h:99/12},3.25);
@@ -536,6 +561,31 @@
     });
   });
 
+  GymTests.test("keeps the GATOR pads as one supported incline with a visible two-inch seat gap",()=>{
+    const parts=gatorProbeParts();
+    const seat=partsByTag(parts,"gator-seat-pad")[0];
+    const back=partsByTag(parts,"gator-back-pad")[0];
+    const head=partsByTag(parts,"gator-head-pad")[0];
+    [seat,back,head].forEach(pad=>GymTests.closeTo(pad.options.rotationX,-.55,1e-9,"GATOR pad train must share its approved incline"));
+    const [seatLow,seatHigh]=gatorPadTopEdges(seat);
+    const [backLow,backHigh]=gatorPadTopEdges(back);
+    const [headLow]=gatorPadTopEdges(head);
+    GymTests.assert(seatHigh.z<backLow.z && backHigh.z<=headLow.z+1e-9,"GATOR pad train must advance continuously along local Z");
+    GymTests.closeTo(yzDistance(seatHigh,backLow)*12,2,.12,"GATOR seat/back gap must remain visibly near 2 in");
+    GymTests.closeTo(yzDistance(backHigh,headLow)*12,0,.08,"GATOR back/head pads must meet as one continuous incline");
+    GymTests.assert(seatHigh.y<backLow.y && backHigh.y<=headLow.y+1e-9,"GATOR pad train must rise without a discontinuity");
+    [["gator-seat-support",seat],["gator-back-support",back],["gator-head-support",head]].forEach(([tag,pad])=>{
+      const support=partsByTag(parts,tag)[0];
+      GymTests.assert(support,`Missing ${tag}`);
+      const underside=gatorPadUndersideCenter(pad);
+      const endpointDistance=Math.min(
+        yzDistance(support.size.start,underside),
+        yzDistance(support.size.end,underside),
+      );
+      GymTests.assert(endpointDistance<=.16,`${tag} must visibly link to its pad underside`);
+    });
+  });
+
   GymTests.test("builds the Echo Rower at its exact footprint and seat height",()=>{
     const parts=echoProbeParts();
     assertRigidEnvelope(parts,{w:26/12,d:99/12,h:3.25});
@@ -553,17 +603,49 @@
       "echo-phone-holder":1,"echo-rowing-handle":1,
       "echo-rail-channel":1,"echo-seat-roller":2,"echo-heel-cup":2,
       "echo-damper":1,"echo-handle-rest":1,"echo-fold-hinge":1,"echo-fold-latch":1,
+      "echo-main-frame":1,"echo-fan-grille":12,
     };
     Object.entries(exactCounts).forEach(([tag,count])=>GymTests.equal(partsByTag(parts,tag).length,count,tag));
-    GymTests.assert(partsByTag(parts,"echo-fan-spoke").length>=12);
+    GymTests.equal(partsByTag(parts,"echo-fan-spoke").length,24);
     GymTests.assert(partsByTag(parts,"echo-slide-rail").length>=1);
     GymTests.assert(partsByTag(parts,"echo-chain").length>=1);
     const screen=partsByTag(parts,"echo-console-screen")[0];
     GymTests.closeTo(Math.hypot(screen.size.x,screen.size.y)*12,4.7,.05,"Echo console screen must retain its 4.7 in diagonal");
     GymTests.assert(parts.every(part=>part.userData.instId==="echo-probe" && part.userData.partTag),"Every visible Echo primitive needs stable semantic metadata");
-    GymTests.assert(parts.length<=48,`Echo must stay within 48 visible primitives; received ${parts.length}`);
-    GymTests.assert(new Set(parts.map(part=>part.material)).size<=5,"Echo must share at most five materials");
-    GymTests.assert(new Set(parts.map(geometrySignature)).size<=25,"Echo must reuse at most 25 distinct geometry signatures");
+    GymTests.assert(parts.length<=72,`Echo must stay within 72 visible primitives; received ${parts.length}`);
+    GymTests.assert(new Set(parts.map(part=>part.material)).size<=8,"Echo must share at most eight materials");
+    GymTests.assert(new Set(parts.map(geometrySignature)).size<=30,"Echo must reuse at most 30 distinct geometry signatures");
+  });
+
+  GymTests.test("keeps Echo spokes and grille coplanar with each per-side YZ fan face",()=>{
+    const parts=echoProbeParts();
+    const housings=partsByTag(parts,"echo-fan-housing");
+    const spokes=partsByTag(parts,"echo-fan-spoke");
+    const grilles=partsByTag(parts,"echo-fan-grille");
+    [-1,1].forEach(sign=>{
+      const side=sign<0?"left":"right";
+      const housing=housings.find(part=>part.userData.side===side);
+      GymTests.assert(housing,`Echo needs a ${side} fan housing`);
+      const faceX=housing.pos.x+sign*housing.size.length/2;
+      const sideSpokes=spokes.filter(part=>part.userData.side===side);
+      const sideGrilles=grilles.filter(part=>part.userData.side===side);
+      GymTests.equal(sideSpokes.length,12,`Echo needs twelve ${side} fan spokes`);
+      GymTests.equal(sideGrilles.length,6,`Echo needs six ${side} fan grille rim segments`);
+      [...sideSpokes,...sideGrilles].forEach(part=>{
+        GymTests.equal(part.kind,"beam",`Echo ${part.userData.partTag} must be a planar beam`);
+        GymTests.closeTo(part.size.start.x,faceX,1e-9,`Echo ${side} ${part.userData.partTag} start must lie on the YZ fan face`);
+        GymTests.closeTo(part.size.end.x,faceX,1e-9,`Echo ${side} ${part.userData.partTag} end must lie on the YZ fan face`);
+      });
+    });
+  });
+
+  GymTests.test("grounds both Echo stabilizing feet rather than relying on its wheels",()=>{
+    const parts=echoProbeParts();
+    ["echo-front-foot","echo-rear-foot"].forEach(tag=>{
+      const foot=partsByTag(parts,tag)[0];
+      GymTests.assert(foot,`Missing ${tag}`);
+      GymTests.closeTo(partAabb(foot).min.y,0,1e-9,`${tag} must touch the floor`);
+    });
   });
 
   // The production changes these checks protect: a Task 3 exact profile can

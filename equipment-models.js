@@ -330,24 +330,50 @@
     const pad=material({color:0x07090b,roughness:.91,metalness:.01,envMapIntensity:.1});
     const silver=material({color:0xbfc6ca,roughness:.24,metalness:.9,envMapIntensity:1.15});
     const rubber=material({color:0x040506,roughness:.96,metalness:0,envMapIntensity:.05});
+    const padAngle=-.55;
+    const padThickness=2.7/12;
+    const padLengths={seat:12.6/12,back:25.9/12,head:9/12};
+    const seatBackGap=2/12;
+    const padTrainLength=padLengths.seat+seatBackGap+padLengths.back+padLengths.head;
+    const padTrainStartZ=-Math.cos(padAngle)*padTrainLength/2;
+    const padTrainBaseY=h*.28;
+    const padPose=(offset,length)=>{
+      const center=offset+length/2;
+      return {
+        x:0,
+        y:padTrainBaseY-Math.sin(padAngle)*center,
+        z:padTrainStartZ+Math.cos(padAngle)*center,
+      };
+    };
+    const seatPose=padPose(0,padLengths.seat);
+    const backPose=padPose(padLengths.seat+seatBackGap,padLengths.back);
+    const headPose=padPose(padLengths.seat+seatBackGap+padLengths.back,padLengths.head);
+    const padUnderside=pose=>({
+      x:0,
+      y:pose.y-Math.cos(padAngle)*padThickness/2,
+      z:pose.z-Math.sin(padAngle)*padThickness/2,
+    });
+    const seatUnder=padUnderside(seatPose);
+    const backUnder=padUnderside(backPose);
+    const headUnder=padUnderside(headPose);
 
     addBox({x:w*.92,y:h*.045,z:d*.07},{x:0,y:h*.025,z:d*.39},frame,{partTag:"gator-rear-stabilizer"});
     addBox({x:w*.72,y:h*.045,z:d*.07},{x:0,y:h*.025,z:-d*.39},frame,{partTag:"gator-front-stabilizer"});
-    addBeam({x:0,y:h*.1,z:d*.36},{x:0,y:h*.45,z:-d*.2},w*.09,frame,w*.065,{partTag:"gator-main-spine"});
+    addBeam({x:0,y:h*.1,z:d*.36},{x:0,y:h*.27,z:seatUnder.z+d*.08},w*.09,frame,w*.065,{partTag:"gator-main-spine"});
     [-1,1].forEach((side,index)=>{
       addCylinder(w*.045,w*.075,{x:side*w*.29,y:w*.045,z:d*.36},rubber,{rotationZ:Math.PI/2,partTag:"gator-transport-wheel",side:side<0?"left":"right",partIndex:index,geometryKey:"gator-wheel"});
       addBox({x:w*.13,y:h*.025,z:d*.08},{x:side*w*.38,y:h*.015,z:-d*.39},rubber,{partTag:"gator-foot-pad",side:side<0?"left":"right",geometryKey:"gator-foot-pad"});
     });
     addTube({x:-w*.16,y:h*.09,z:d*.43},{x:w*.16,y:h*.09,z:d*.43},w*.022,rubber,12,{partTag:"gator-lifting-handle"});
 
-    addBox({x:11.8/12,y:2.7/12,z:12.6/12},{x:0,y:h*.34,z:d*.21},pad,{rotationX:-.12,partTag:"gator-seat-pad"});
-    addBox({x:11.8/12,y:2.7/12,z:25.9/12},{x:0,y:h*.58,z:-d*.08},pad,{rotationX:-.55,partTag:"gator-back-pad"});
-    addBox({x:11.8/12,y:2.7/12,z:9/12},{x:0,y:h*.84,z:-d*.34},pad,{rotationX:-.43,partTag:"gator-head-pad"});
-    addBeam({x:0,y:h*.18,z:d*.23},{x:0,y:h*.32,z:d*.18},w*.055,frame,w*.05,{partTag:"gator-seat-support"});
-    addBeam({x:0,y:h*.28,z:d*.08},{x:0,y:h*.69,z:-d*.2},w*.06,frame,w*.05,{partTag:"gator-back-support"});
-    addBeam({x:0,y:h*.68,z:-d*.2},{x:0,y:h*.81,z:-d*.34},w*.05,frame,w*.045,{partTag:"gator-head-support"});
+    addBox({x:11.8/12,y:padThickness,z:padLengths.seat},seatPose,pad,{rotationX:padAngle,partTag:"gator-seat-pad"});
+    addBox({x:11.8/12,y:padThickness,z:padLengths.back},backPose,pad,{rotationX:padAngle,partTag:"gator-back-pad"});
+    addBox({x:11.8/12,y:padThickness,z:padLengths.head},headPose,pad,{rotationX:padAngle,partTag:"gator-head-pad"});
+    addBeam({x:0,y:h*.11,z:seatUnder.z+d*.08},seatUnder,w*.055,frame,w*.05,{partTag:"gator-seat-support"});
+    addBeam({x:0,y:h*.19,z:backUnder.z+d*.1},backUnder,w*.06,frame,w*.05,{partTag:"gator-back-support"});
+    addBeam({x:0,y:backUnder.y-h*.1,z:backUnder.z+d*.04},headUnder,w*.05,frame,w*.045,{partTag:"gator-head-support"});
 
-    addBox({x:w*.52,y:h*.05,z:d*.42},{x:0,y:h*.25,z:d*.03},silver,{rotationX:-.12,partTag:"gator-angle-plate"});
+    addBox({x:w*.52,y:h*.05,z:d*.42},{x:0,y:backUnder.y-h*.2,z:backUnder.z+d*.03},silver,{rotationX:padAngle,partTag:"gator-angle-plate"});
     for(let index=0;index<10;index++){
       const t=index/9;
       addBox({x:w*.035,y:h*.018,z:d*.025},{x:0,y:h*(.20+t*.18),z:d*(.20-t*.34)},rubber,{partTag:"gator-angle-station",partIndex:index,geometryKey:"gator-station",castShadow:false});
@@ -370,20 +396,33 @@
     const nickel=material({color:0xbec7cc,roughness:.2,metalness:.94,envMapIntensity:1.2});
     const screen=material({color:0x0b5367,emissive:0x16a6bd,emissiveIntensity:.55,roughness:.22,metalness:.08});
 
+    addBeam({x:0,y:h*.055,z:d*.44},{x:0,y:h*.22,z:-d*.27},w*.07,aluminum,w*.06,{partTag:"echo-main-frame"});
     addBox({x:w*.22,y:h*.08,z:d*.7},{x:0,y:h*.16,z:d*.12},aluminum,{partTag:"echo-slide-rail"});
     addBox({x:w*.055,y:h*.025,z:d*.66},{x:0,y:h*.205,z:d*.14},black,{partTag:"echo-rail-channel",castShadow:false});
-    addBox({x:w*.64,y:h*.05,z:d*.055},{x:0,y:h*.045,z:d*.46},aluminum,{partTag:"echo-rear-foot"});
+    const stabilizerHeight=h*.05;
+    addBox({x:w*.64,y:stabilizerHeight,z:d*.055},{x:0,y:stabilizerHeight/2,z:d*.46},aluminum,{partTag:"echo-rear-foot"});
     addBox({x:w*.42,y:h*.065,z:d*.12},{x:0,y:16/12-h*.032,z:d*.18},black,{partTag:"echo-seat"});
     [-1,1].forEach((side,index)=>addCylinder(w*.035,w*.16,{x:side*w*.12,y:16/12-h*.10,z:d*.18},rubber,{rotationZ:Math.PI/2,partTag:"echo-seat-roller",side:side<0?"left":"right",partIndex:index,geometryKey:"echo-seat-roller"}));
     addBox({x:w*.28,y:h*.05,z:d*.025},{x:0,y:h*.22,z:d*.42},rubber,{partTag:"echo-rail-stop"});
 
-    [-1,1].forEach((side,index)=>addCylinder(w*.36,w*.065,{x:side*w*.035,y:h*.35,z:-d*.34},black,{rotationZ:Math.PI/2,segments:28,partTag:"echo-fan-housing",side:side<0?"left":"right",partIndex:index,geometryKey:"echo-fan-shell"}));
-    for(let index=0;index<12;index++){
-      const angle=index*Math.PI/6;
-      addBeam({x:0,y:h*.35,z:-d*.34},{x:Math.cos(angle)*w*.27,y:h*.35+Math.sin(angle)*w*.27,z:-d*.34},w*.012,black,w*.012,{partTag:"echo-fan-spoke",partIndex:index,geometryKey:"echo-fan-spoke",castShadow:false});
-    }
+    const fanY=h*.35,fanZ=-d*.34;
+    const fanFaceOffset=w*(.035+.065/2);
+    [-1,1].forEach((side,index)=>{
+      const sideName=side<0?"left":"right";
+      const faceX=side*fanFaceOffset;
+      addCylinder(w*.36,w*.065,{x:side*w*.035,y:fanY,z:fanZ},black,{rotationZ:Math.PI/2,segments:28,partTag:"echo-fan-housing",side:sideName,partIndex:index,geometryKey:"echo-fan-shell"});
+      for(let partIndex=0;partIndex<12;partIndex++){
+        const angle=partIndex*Math.PI/6;
+        addBeam({x:faceX,y:fanY,z:fanZ},{x:faceX,y:fanY+Math.cos(angle)*w*.27,z:fanZ+Math.sin(angle)*w*.27},w*.012,nickel,w*.012,{partTag:"echo-fan-spoke",side:sideName,partIndex,geometryKey:"echo-fan-spoke",castShadow:false});
+      }
+      for(let partIndex=0;partIndex<6;partIndex++){
+        const angle=partIndex*Math.PI/3;
+        const next=angle+Math.PI/3;
+        addBeam({x:faceX,y:fanY+Math.cos(angle)*w*.315,z:fanZ+Math.sin(angle)*w*.315},{x:faceX,y:fanY+Math.cos(next)*w*.315,z:fanZ+Math.sin(next)*w*.315},w*.012,nickel,w*.012,{partTag:"echo-fan-grille",side:sideName,partIndex,geometryKey:"echo-fan-grille",castShadow:false});
+      }
+    });
     addCylinder(w*.055,w*.11,{x:0,y:h*.35,z:-d*.34},nickel,{rotationZ:Math.PI/2,segments:16,partTag:"echo-damper"});
-    addBox({x:w*.82,y:h*.05,z:d*.055},{x:0,y:h*.04,z:-d*.39},aluminum,{partTag:"echo-front-foot"});
+    addBox({x:w*.82,y:stabilizerHeight,z:d*.055},{x:0,y:stabilizerHeight/2,z:-d*.39},aluminum,{partTag:"echo-front-foot"});
     [-1,1].forEach((side,index)=>{
       const sideName=side<0?"left":"right";
       addCylinder(w*.055,w*.08,{x:side*w*.31,y:w*.055,z:-d*.39},rubber,{rotationZ:Math.PI/2,partTag:"echo-transport-wheel",side:sideName,partIndex:index,geometryKey:"echo-wheel"});

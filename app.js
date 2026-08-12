@@ -204,10 +204,6 @@ function formatFtIn(ft){
 /** Split a total-feet value (may be negative for wall extensions) into integer ft + inch. */
 function splitTotalFtToFtIn(totalFt){
   const t = safeNum(totalFt);
-  if(t < 0){
-    // Negative: store as negative ft, 0 inches (avoids confusing -0ft 6in display)
-    return { ft: Math.ceil(t - 1e-9), inch: 0 };
-  }
   let ft = Math.floor(t + 1e-9);
   let inch = (t - ft) * 12;
   if(inch < 1e-6) inch = 0;

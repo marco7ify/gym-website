@@ -21,11 +21,11 @@ try{
     "./test-harness.js?v=1",
     "../wall-features.js?v=3",
     "../garage-doors.js?v=2",
-    "../app.js?v=86",
-    "../walkthrough-editing.js?v=1",
+    "../app.js?v=87",
+    "../walkthrough-editing.js?v=2",
     "../garage-door-3d.js?v=1",
-    "../view3d.js?v=42",
-    "./wall-features-3d.test.js?v=walkthrough-edit-round1-v1",
+    "../view3d.js?v=43",
+    "./wall-features-3d.test.js?v=final-fix-v2",
   ]) await loadClassicScript(src);
   GymTests.finish();
 }catch(error){

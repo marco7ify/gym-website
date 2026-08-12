@@ -121,7 +121,10 @@ function walkthroughEditPanel(includeModeSwitch=true){
     body=`<section class="walkthroughEditorSection walkthroughFeatureEditor" aria-labelledby="walkthrough-feature-heading">
       <div class="walkthroughEditorHeading">
         <div><span class="walkthroughEditorKicker">Selected wall feature</span><h2 id="walkthrough-feature-heading">${escapeHtml(selectedFeature.label||name)}</h2></div>
-        <button type="button" class="walkthroughDangerAction" data-action="walkthrough_wf_remove" data-id="${id}" data-focus-key="walkthrough-wf-remove:${id}">Delete</button>
+        <div class="walkthroughEditorHeadingActions">
+          <button type="button" data-action="walkthrough_clear_selection" data-focus-key="walkthrough-clear-selection" aria-label="Clear selected wall feature">Back to wall tools</button>
+          <button type="button" class="walkthroughDangerAction" data-action="walkthrough_wf_remove" data-id="${id}" data-focus-key="walkthrough-wf-remove:${id}">Delete</button>
+        </div>
       </div>
       <div class="walkthroughFeatureFields">
         ${walkthroughCompactField("Type",`<select aria-label="Wall feature type" data-action="walkthrough_wf_kind" data-id="${id}" data-focus-key="walkthrough-wf-kind:${id}">${GymWallFeatures.KINDS.map(kind=>`<option value="${kind}"${selectedFeature.kind===kind?" selected":""}>${wallFeatureDisplayName(kind)}</option>`).join("")}</select>`)}
@@ -140,17 +143,21 @@ function walkthroughEditPanel(includeModeSwitch=true){
     </section>`;
   }else if(selectedInst){
     const id=escapeAttr(selectedInst.id);
+    const stepLabel=editor.moveStep==="fine" ? "1 inch" : "6 inches";
     body=`<section class="walkthroughEditorSection walkthroughEquipmentEditor" aria-labelledby="walkthrough-equipment-heading">
       <div class="walkthroughEditorHeading">
         <div><span class="walkthroughEditorKicker">Selected equipment</span><h2 id="walkthrough-equipment-heading">${escapeHtml(selectedItem?.name||"Equipment")}</h2></div>
-        <button type="button" class="walkthroughRotateAction" data-action="walkthrough_rotate" data-id="${id}" data-focus-key="walkthrough-rotate:${id}" aria-label="Rotate selected equipment 90 degrees">↻ 90°</button>
+        <div class="walkthroughEditorHeadingActions">
+          <button type="button" data-action="walkthrough_clear_selection" data-focus-key="walkthrough-clear-selection" aria-label="Clear selected equipment">Back to wall tools</button>
+          <button type="button" class="walkthroughRotateAction" data-action="walkthrough_rotate" data-id="${id}" data-focus-key="walkthrough-rotate:${id}" aria-label="Rotate selected equipment 90 degrees">↻ 90°</button>
+        </div>
       </div>
-      <div class="walkthroughPosition" aria-label="Current room coordinates"><span>X <strong>${escapeHtml(formatFtIn(instXTotalFt(selectedInst)))}</strong></span><span>Y <strong>${escapeHtml(formatFtIn(instYTotalFt(selectedInst)))}</strong></span></div>
+      <div class="walkthroughPosition" aria-label="Current room position and orientation"><span>X <strong>${escapeHtml(formatFtIn(instXTotalFt(selectedInst)))}</strong></span><span>Y <strong>${escapeHtml(formatFtIn(instYTotalFt(selectedInst)))}</strong></span><span>Orientation: <strong>${selectedInst.rotated?"90°":"0°"}</strong></span></div>
       <div class="walkthroughDirectionalPad" role="group" aria-label="Move selected equipment in room coordinates">
-        <button type="button" data-direction="up" data-action="walkthrough_move" data-id="${id}" data-dx="0" data-dy="-1" data-focus-key="walkthrough-move-up:${id}" aria-label="Move up">↑</button>
-        <button type="button" data-direction="left" data-action="walkthrough_move" data-id="${id}" data-dx="-1" data-dy="0" data-focus-key="walkthrough-move-left:${id}" aria-label="Move left">←</button>
-        <button type="button" data-direction="right" data-action="walkthrough_move" data-id="${id}" data-dx="1" data-dy="0" data-focus-key="walkthrough-move-right:${id}" aria-label="Move right">→</button>
-        <button type="button" data-direction="down" data-action="walkthrough_move" data-id="${id}" data-dx="0" data-dy="1" data-focus-key="walkthrough-move-down:${id}" aria-label="Move down">↓</button>
+        <button type="button" data-direction="up" data-action="walkthrough_move" data-id="${id}" data-dx="0" data-dy="-1" data-focus-key="walkthrough-move-up:${id}" aria-label="Move up ${stepLabel}">↑</button>
+        <button type="button" data-direction="left" data-action="walkthrough_move" data-id="${id}" data-dx="-1" data-dy="0" data-focus-key="walkthrough-move-left:${id}" aria-label="Move left ${stepLabel}">←</button>
+        <button type="button" data-direction="right" data-action="walkthrough_move" data-id="${id}" data-dx="1" data-dy="0" data-focus-key="walkthrough-move-right:${id}" aria-label="Move right ${stepLabel}">→</button>
+        <button type="button" data-direction="down" data-action="walkthrough_move" data-id="${id}" data-dx="0" data-dy="1" data-focus-key="walkthrough-move-down:${id}" aria-label="Move down ${stepLabel}">↓</button>
       </div>
       <div class="walkthroughStepGroup" role="group" aria-label="Movement step">
         <button type="button" data-action="walkthrough_step" data-step="coarse" data-focus-key="walkthrough-step-coarse" aria-pressed="${editor.moveStep==="coarse"?"true":"false"}">6 in</button>
@@ -1206,7 +1213,7 @@ function layoutPanel(rows, currency){
             wallsVisible:spatial.walls!==false,
           })}
           <button type="button" class="focusCanvasBtn ${state.layoutFocusMode?"active":""}" data-action="toggle_layout_focus" aria-pressed="${state.layoutFocusMode?"true":"false"}">${state.layoutFocusMode?"Show panels":"Focus canvas"}</button>
-          <button type="button" class="walkthroughEnterBtn" data-action="spatial_walkthrough_open">Enter walkthrough</button>
+          <button type="button" class="walkthroughEnterBtn" data-action="spatial_walkthrough_open" data-focus-key="walkthrough-launcher">Enter walkthrough</button>
         </div>
       </div>
       <div class="spatialUtilityBars">
@@ -1300,7 +1307,7 @@ function layoutPanel(rows, currency){
       </div>
     </div>
     ${state.layout.walkthroughOpen ? `
-      <div class="walkthroughOverlay" role="dialog" aria-modal="true" aria-label="First-person gym walkthrough">
+      <dialog class="walkthroughOverlay" aria-modal="true" aria-label="First-person gym walkthrough">
         <div class="walkthroughHeader">
           <div class="walkthroughTitle">
             <span class="walkthroughEyebrow">First-person walkthrough</span>
@@ -1309,7 +1316,7 @@ function layoutPanel(rows, currency){
           ${walkthroughModeSwitch()}
           <div class="walkthroughHeaderActions">
             <button type="button" class="btn walkthroughReset" data-action="spatial_walkthrough_reset">Reset view</button>
-            <button type="button" class="btn walkthroughExit" data-action="spatial_walkthrough_close">Exit walkthrough</button>
+            <button type="button" class="btn walkthroughExit" data-action="spatial_walkthrough_close" autofocus>Exit walkthrough</button>
           </div>
         </div>
         <div class="walkthroughStage${walkthroughEditing?" isEditing":""}">
@@ -1343,7 +1350,7 @@ function layoutPanel(rows, currency){
             </div>
           </aside>`}
         </div>
-      </div>
+      </dialog>
     ` : ""}
   `;
 

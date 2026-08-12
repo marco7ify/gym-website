@@ -2767,19 +2767,35 @@ class Gym3DView {
     if(!pointer||!this.wallEditSurfaces.length) return null;
     const raycaster=new THREE.Raycaster();
     raycaster.setFromCamera(pointer,this.camera);
-    return raycaster.intersectObjects(this.wallEditSurfaces,false)[0]||null;
+    const isWorldVisible=object=>{
+      for(let current=object;current;current=current.parent){
+        if(current.visible===false) return false;
+      }
+      return true;
+    };
+    const targets=[...new Set([...this.clickTargets,...this.wallEditSurfaces])].filter(isWorldVisible);
+    const first=raycaster.intersectObjects(targets,false)[0]||null;
+    return first?.object?.userData?.wallEdit ? first : null;
   }
 
   resolveWallEditIntersection(hit){
     const meta=hit?.object?.userData?.wallEdit;
     if(!meta) return null;
+    const baseFixed={top:0,right:this.roomData.W,bottom:this.roomData.L,left:0}[meta.wall];
+    if(!Number.isFinite(baseFixed)||Math.abs(safeNum(meta.fixed)-baseFixed)>.03) return null;
     const point=hit.point;
     const alongFt=meta.axis==="x"?point.x:point.z;
     const floor=this.floorElevationAt(
       point.x+meta.inwardX*.2,
       point.z+meta.inwardZ*.2,
     );
-    return {wall:meta.wall,alongFt,mountFt:Math.max(0,point.y-floor)};
+    return {
+      wall:meta.wall,
+      alongFt,
+      mountFt:Math.max(0,point.y-floor),
+      runStartFt:meta.start,
+      runEndFt:meta.end,
+    };
   }
 
   wallHitAt(pointer){
@@ -2806,17 +2822,23 @@ class Gym3DView {
       this.hideWallEditPreview();
       return null;
     }
-    const meta=intersection.object.userData.wallEdit;
-    const defaults=globalThis.GymWallFeatures?.DEFAULTS?.[editor.wallTool];
-    const width=Math.max(.1,safeNum(defaults?.width)||2);
-    const height=Math.max(.08,safeNum(defaults?.height)||2);
+    const candidate=globalThis.GymWalkthroughEditing?.featureFromWallHit?.(editor.wallTool,hit);
+    if(!candidate?.ok){
+      this.hideWallEditPreview();
+      return null;
+    }
+    const transform=globalThis.GymWallFeatures?.worldTransform?.(candidate.feature,this.roomData,state.layout);
+    if(!transform){
+      this.hideWallEditPreview();
+      return null;
+    }
     this.wallEditPreview.position.set(
-      intersection.point.x+meta.inwardX*.025,
-      intersection.point.y,
-      intersection.point.z+meta.inwardZ*.025,
+      transform.x,
+      transform.y,
+      transform.z,
     );
-    this.wallEditPreview.rotation.set(0,{top:0,right:-Math.PI/2,bottom:Math.PI,left:Math.PI/2}[meta.wall]||0,0);
-    this.wallEditPreviewPlane.scale.set(width,height,1);
+    this.wallEditPreview.rotation.set(0,transform.rotationY,0);
+    this.wallEditPreviewPlane.scale.set(transform.width,transform.height,1);
     this.wallEditPreview.visible=true;
     this.host.dataset.wallHitValid="true";
     return hit;
@@ -2913,7 +2935,7 @@ class Gym3DView {
             return;
           }
           this.hideWallEditPreview();
-          this.selectAt(e,true);
+          this.selectAt(e,true,true);
           return;
         }
         const wasDrag=this.lookDrag?.moved;
@@ -2993,11 +3015,21 @@ class Gym3DView {
     document.addEventListener("visibilitychange",this.onVisibility);
   }
 
-  selectAt(event,renderWalkthroughEdit=false){
+  selectAt(event,renderWalkthroughEdit=false,clearOnMiss=false){
     const pointer=this.pointerForEvent(event);
     if(!pointer) return;
     const picked=this.pickTarget(pointer);
-    if(!picked) return;
+    if(!picked){
+      if(clearOnMiss){
+        const hadSelection=!!(state.layout.selectedInstId||state.layout.selectedWallFeatureId);
+        if(typeof clearAllSelections === "function") clearAllSelections();
+        if(hadSelection){
+          this.rememberCamera();
+          render();
+        }
+      }
+      return;
+    }
     if(typeof clearAllSelections === "function") clearAllSelections();
     if(picked.type==="wallFeature") state.layout.selectedWallFeatureId=picked.id;
     else state.layout.selectedInstId=picked.id;

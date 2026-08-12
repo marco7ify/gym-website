@@ -145,6 +145,9 @@
         return editor;
       },
       setWallTool(kind){ editor={...editor,wallTool:kind||null}; return editor; },
+      featureFromWallHit(kind,hit){
+        return original?.featureFromWallHit?.(kind,hit)||{ok:false,reason:"No wall candidate."};
+      },
       addFeatureFromWallHit(kind,hit){
         calls.push({kind,hit});
         if(hit) editor={...editor,wallTool:null};
@@ -227,6 +230,39 @@
     });
   });
 
+  GymTests.test("blank Edit clicks clear selected equipment and return to wall placement",()=>{
+    withWalkthroughEditingDouble({mode:"edit"},()=>{
+      const originalRender=window.render;
+      let renders=0;
+      window.render=()=>{renders++;};
+      const fixture=createEquipmentDispatchFixture({
+        mode:"walkthrough",
+        items:[{id:"blank_target_item",brand:"Test",name:"Blank target",category:"Benches",width:1,length:1,height:1}],
+        instances:[{id:"blank_target",itemId:"blank_target_item",xFt:1,xIn:0,yFt:1,yIn:0,rotated:false}],
+      });
+      try{
+        const {view}=fixture;
+        state.layout.selectedInstId="blank_target";
+        view.camera.position.set(10,4,10);
+        view.camera.lookAt(10,0,10);
+        view.camera.updateMatrixWorld(true);
+        view.scene.updateMatrixWorld(true);
+        const canvas=view.renderer.domElement;
+        canvas.setPointerCapture=()=>{};
+        const rect=canvas.getBoundingClientRect();
+        const x=rect.left+rect.width/2,y=rect.top+rect.height/2;
+        canvas.dispatchEvent(new PointerEvent("pointerdown",{clientX:x,clientY:y,pointerId:9,bubbles:true}));
+        window.dispatchEvent(new PointerEvent("pointerup",{clientX:x,clientY:y,pointerId:9}));
+        GymTests.equal(state.layout.selectedInstId,null);
+        GymTests.equal(state.layout.selectedWallFeatureId,null);
+        GymTests.equal(renders,1,"A blank Edit click must render the wall-tool state exactly once");
+      }finally{
+        fixture.destroy();
+        window.render=originalRender;
+      }
+    });
+  });
+
   GymTests.test("retains walkthrough pointer look and movement input in Walk mode",()=>{
     withWalkthroughEditingDouble({mode:"walk"},()=>{
       const fixture=createEquipmentDispatchFixture({
@@ -302,12 +338,34 @@
 
         window.dispatchEvent(new PointerEvent("pointerup",{clientX:x,clientY:y,pointerId:3}));
 
-        GymTests.deepEqual(editor.calls,[{kind:"mirror",hit:{wall:"top",alongFt:6,mountFt:4}}]);
+        GymTests.deepEqual(editor.calls,[{kind:"mirror",hit:{wall:"top",alongFt:6,mountFt:4,runStartFt:0,runEndFt:36}}]);
         GymTests.equal(view.wallEditPreview.visible,false);
         GymTests.equal(host.dataset.wallTool,"");
         GymTests.equal(host.dataset.wallHitValid,"false");
       }finally{ fixture.destroy(); }
     });
+  });
+
+  GymTests.test("foreground equipment occludes wall edits until the wall is visible",()=>{
+    const fixture=createEquipmentDispatchFixture({
+      mode:"walkthrough",walls:true,
+      items:[{id:"occluder_item",brand:"Test",name:"Occluder",category:"Benches",width:2,length:3,height:3}],
+      instances:[{id:"occluder",itemId:"occluder_item",xFt:5,xIn:0,yFt:1,yIn:0,rotated:false}],
+    });
+    try{
+      const {view}=fixture;
+      view.camera.position.set(6,1.5,5);
+      view.camera.lookAt(6,1.5,0);
+      view.camera.updateMatrixWorld(true);
+      view.scene.updateMatrixWorld(true);
+      GymTests.equal(view.wallHitAt(new THREE.Vector2(0,0)),null,"Equipment in front of a wall must block editing that wall");
+
+      view.itemGroups.get("occluder").visible=false;
+      view.scene.updateMatrixWorld(true);
+      GymTests.deepEqual(view.wallHitAt(new THREE.Vector2(0,0)),{
+        wall:"top",alongFt:6,mountFt:1.5,runStartFt:0,runEndFt:36,
+      });
+    }finally{ fixture.destroy(); }
   });
 
   GymTests.test("cancels only the active wall tool on Escape in Edit mode",()=>{
@@ -810,7 +868,7 @@
       const group=fixture.view.itemGroups.get("inst_echo");
       const tagged=groupMeshes(group).filter(mesh=>String(mesh.userData.partTag||"").startsWith("echo-"));
       GymTests.equal(group.userData.modelType,"photo-matched Rogue Echo Rower");
-      GymTests.assert(tagged.length>0 && tagged.length<=48,"The dedicated Echo root must expose its bounded tagged assembly");
+      GymTests.assert(tagged.length>0 && tagged.length<=72,"The dedicated Echo root must expose its bounded tagged assembly");
       GymTests.assert(tagged.every(mesh=>mesh.userData.instId==="inst_echo"),"Every tagged Echo mesh must preserve its interaction target");
       [
         ["echo-seat",1],["echo-rear-foot",1],["echo-fan-housing",2],
@@ -819,15 +877,26 @@
         ["echo-console-screen",1],["echo-phone-holder",1],["echo-rowing-handle",1],
         ["echo-rail-channel",1],["echo-seat-roller",2],["echo-damper",1],
         ["echo-handle-rest",1],["echo-fold-hinge",1],["echo-fold-latch",1],
+        ["echo-main-frame",1],["echo-fan-grille",12],
       ].forEach(([tag,count])=>GymTests.equal(tagged.filter(mesh=>mesh.userData.partTag===tag).length,count));
-      GymTests.assert(tagged.filter(mesh=>mesh.userData.partTag==="echo-fan-spoke").length>=12,"Real Echo needs a complete radial fan grille");
+      GymTests.equal(tagged.filter(mesh=>mesh.userData.partTag==="echo-fan-spoke").length,24,"Real Echo needs twelve spokes on each fan face");
       GymTests.assert(tagged.some(mesh=>mesh.userData.partTag==="echo-slide-rail"),"Real Echo needs its long slide rail");
       GymTests.assert(tagged.some(mesh=>mesh.userData.partTag==="echo-chain"),"Real Echo needs its chain");
-      GymTests.assert(new Set(tagged.map(mesh=>mesh.material)).size<=5,"Real Echo meshes must reuse at most five material objects");
-      GymTests.assert(new Set(tagged.map(mesh=>mesh.geometry)).size<=24,"Real Echo meshes must reuse at most 24 geometry objects");
-      ["echo-fan-housing","echo-fan-spoke","echo-footplate","echo-foot-strap","echo-heel-cup","echo-transport-wheel","echo-turf-tire","echo-seat-roller","echo-monitor-mast"].forEach(tag=>{
+      GymTests.assert(new Set(tagged.map(mesh=>mesh.material)).size<=8,"Real Echo meshes must reuse at most eight material objects");
+      GymTests.assert(new Set(tagged.map(mesh=>mesh.geometry)).size<=30,"Real Echo meshes must reuse at most 30 geometry objects");
+      ["echo-fan-housing","echo-fan-spoke","echo-fan-grille","echo-footplate","echo-foot-strap","echo-heel-cup","echo-transport-wheel","echo-turf-tire","echo-seat-roller","echo-monitor-mast"].forEach(tag=>{
         const meshes=tagged.filter(mesh=>mesh.userData.partTag===tag);
         GymTests.equal(new Set(meshes.map(mesh=>mesh.geometry)).size,1,`${tag} meshes must share one geometry resource`);
+      });
+      [-1,1].forEach(sign=>{
+        const side=sign<0?"left":"right";
+        const housing=tagged.find(mesh=>mesh.userData.partTag==="echo-fan-housing"&&mesh.userData.side===side);
+        GymTests.assert(housing,`Real Echo needs a ${side} fan housing`);
+        const faceX=housing.position.x+sign*housing.geometry.parameters.height/2;
+        const fanFaceParts=tagged.filter(mesh=>(mesh.userData.partTag==="echo-fan-spoke"||mesh.userData.partTag==="echo-fan-grille")&&mesh.userData.side===side);
+        GymTests.equal(fanFaceParts.filter(mesh=>mesh.userData.partTag==="echo-fan-spoke").length,12,`Real Echo needs twelve ${side} fan spokes`);
+        GymTests.equal(fanFaceParts.filter(mesh=>mesh.userData.partTag==="echo-fan-grille").length,6,`Real Echo needs six ${side} grille rim segments`);
+        fanFaceParts.forEach(mesh=>GymTests.closeTo(mesh.position.x,faceX,1e-9,`Real Echo ${side} ${mesh.userData.partTag} must lie on its YZ fan face`));
       });
       const screen=tagged.find(mesh=>mesh.userData.partTag==="echo-console-screen");
       screen.geometry.computeBoundingBox();
@@ -837,6 +906,11 @@
       GymTests.equal(screen.castShadow,false,"Echo screen must not cast shadows");
       const chain=tagged.find(mesh=>mesh.userData.partTag==="echo-chain");
       GymTests.equal(chain.castShadow,false,"Echo chain must not cast shadows");
+      ["echo-front-foot","echo-rear-foot"].forEach(tag=>{
+        const foot=tagged.find(mesh=>mesh.userData.partTag===tag);
+        GymTests.assert(foot,`Real Echo is missing ${tag}`);
+        assertNear(new THREE.Box3().setFromObject(foot).min.y,0,`Real Echo ${tag} must touch the floor`);
+      });
     }finally{ fixture.destroy(); }
   });
 
@@ -945,6 +1019,31 @@
       ].forEach(([tag,count])=>GymTests.equal(tagged.filter(mesh=>mesh.userData.partTag===tag).length,count));
       ["gator-main-spine","gator-front-stabilizer","gator-rear-stabilizer","gator-angle-plate","gator-lock-pin","gator-front-brace"].forEach(tag=>{
         GymTests.assert(tagged.some(mesh=>mesh.userData.partTag===tag),`Real GATOR is missing ${tag}`);
+      });
+      const padByTag=tag=>tagged.find(mesh=>mesh.userData.partTag===tag);
+      const padTopEdge=(pad,direction)=>{
+        pad.geometry.computeBoundingBox();
+        const bounds=pad.geometry.boundingBox;
+        return new THREE.Vector3(0,bounds.max.y,direction*bounds.max.z)
+          .applyEuler(pad.rotation)
+          .add(pad.position);
+      };
+      const seat=padByTag("gator-seat-pad");
+      const back=padByTag("gator-back-pad");
+      const head=padByTag("gator-head-pad");
+      [seat,back,head].forEach(pad=>assertNear(pad.rotation.x,-.55,"Real GATOR pads must share the approved incline"));
+      const seatHigh=padTopEdge(seat,1);
+      const backLow=padTopEdge(back,-1);
+      const backHigh=padTopEdge(back,1);
+      const headLow=padTopEdge(head,-1);
+      GymTests.assert(seatHigh.z<backLow.z && backHigh.z<=headLow.z+1e-9,"Real GATOR pad train must advance continuously along local Z");
+      assertNear(seatHigh.distanceTo(backLow)*12,2,"Real GATOR seat/back gap must remain visibly near 2 in");
+      assertNear(backHigh.distanceTo(headLow)*12,0,"Real GATOR back/head pads must meet continuously");
+      [["gator-seat-support",seat],["gator-back-support",back],["gator-head-support",head]].forEach(([tag,pad])=>{
+        const support=padByTag(tag);
+        GymTests.assert(support,`Real GATOR is missing ${tag}`);
+        const padBounds=new THREE.Box3().setFromObject(pad).expandByScalar(.02);
+        GymTests.assert(padBounds.intersectsBox(new THREE.Box3().setFromObject(support)),`Real ${tag} must visibly link to its pad`);
       });
       GymTests.assert(new Set(tagged.map(mesh=>mesh.material)).size<=6,"Real GATOR meshes must reuse at most six material objects");
       GymTests.assert(new Set(tagged.map(mesh=>mesh.geometry)).size<=26,"Real GATOR meshes must reuse at most 26 geometry objects");

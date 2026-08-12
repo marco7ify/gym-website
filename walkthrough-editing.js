@@ -5,6 +5,7 @@
   let editor=DEFAULT();
 
   const snapshot=()=>({
+    layoutId:state.activeLayoutId||null,
     instances:deepCopy(state.layout.instances||[]),
     wallFeatures:deepCopy(state.layout.wallFeatures||[]),
     selectedInstId:state.layout.selectedInstId||null,
@@ -49,19 +50,16 @@
     const step=editor.moveStep==="fine" ? 1/12 : .5;
     const rawX=instXTotalFt(inst)+Math.sign(dxSign)*step;
     const rawY=instYTotalFt(inst)+Math.sign(dySign)*step;
-    const rawCandidate={...inst,xFt:rawX,xIn:0,yFt:rawY,yIn:0};
-    const rawRects=effectiveRectForInst(rawCandidate,item);
-    const conflict=hardPlacementConflict(instId,rawRects.base);
+    const x=splitTotalFtToFtIn(rawX);
+    const y=splitTotalFtToFtIn(rawY);
+    const candidate={...inst,xFt:x.ft,xIn:x.inch,yFt:y.ft,yIn:y.inch};
+    const rects=effectiveRectForInst(candidate,item);
+    const conflict=hardPlacementConflict(instId,rects.base);
     if(conflict){
       const message=String(conflict.message||"That movement is not valid.")
         .replace(/^Can’t rotate here/,"Can’t move there");
       return finish("error",message,{ok:false,reason:"hard-invalid",conflict});
     }
-
-    const x=splitTotalFtToFtIn(rawX);
-    const y=splitTotalFtToFtIn(rawY);
-    const candidate={...inst,xFt:x.ft,xIn:x.inch,yFt:y.ft,yIn:y.inch};
-    const rects=effectiveRectForInst(candidate,item);
 
     candidate.__invalid=isInvalidPlacement(instId,rects.base,rects.eff);
     state.layout.instances=state.layout.instances.map(entry=>entry.id===instId ? candidate : entry);
@@ -75,9 +73,12 @@
 
   function rotateInstance(instId){
     const before=snapshot();
-    const result=rotateLayoutInstance90(instId);
+    const result=rotateLayoutInstance90(instId,{render:false});
     if(result.ok) commitUndo(before);
-    return result;
+    const status=state.layoutActionStatus?.instId===instId
+      ? state.layoutActionStatus
+      : {tone:result.ok?"success":"error",message:result.ok?"Rotated equipment 90°.":"That rotation is not valid."};
+    return finish(status.tone,status.message,result);
   }
 
   function featureFromWallHit(kind,hit){
@@ -87,7 +88,13 @@
     const id=uid("wf");
     const room=wallFeatureRoomData(state.layout,state.settings);
     let feature=GymWallFeatures.normalize({id,kind,wall:hit.wall},room,()=>id,state.layout);
-    const centeredStart=Math.max(0,safeNum(hit.alongFt)-GymWallFeatures.width(feature)/2);
+    const featureWidth=GymWallFeatures.width(feature);
+    const runStart=Number.isFinite(Number(hit.runStartFt)) ? safeNum(hit.runStartFt) : 0;
+    const runEnd=Number.isFinite(Number(hit.runEndFt)) ? safeNum(hit.runEndFt) : GymWallFeatures.wallLength(feature,room);
+    if(runEnd-runStart<featureWidth-1e-9){
+      return {ok:false,reason:"This wall run is too short for that feature."};
+    }
+    const centeredStart=clamp(safeNum(hit.alongFt)-featureWidth/2,runStart,runEnd-featureWidth);
     const centeredBottom=Math.max(0,safeNum(hit.mountFt)-GymWallFeatures.height(feature)/2);
     const start=splitTotalFtToFtIn(centeredStart);
     const bottom=splitTotalFtToFtIn(centeredBottom);
@@ -148,13 +155,22 @@
     return finish("success","Removed wall feature.",{ok:true});
   }
 
+  function clearSelection(){
+    clearAllSelections();
+    return finish("success","Selection cleared. Choose a wall feature to place.",{ok:true});
+  }
+
   function undoLast(){
     if(!editor.undo){
       return finish("error","There is no Walkthrough edit to undo.",{ok:false,reason:"empty"});
     }
     const restore=editor.undo;
     editor.undo=null;
-    Object.assign(state.layout,deepCopy(restore));
+    if(restore.layoutId!==state.activeLayoutId){
+      return finish("error","The active layout changed, so that Walkthrough edit cannot be undone.",{ok:false,reason:"layout-changed"});
+    }
+    const {layoutId,...layout}=restore;
+    Object.assign(state.layout,deepCopy(layout));
     return finish("success","Undid the last Walkthrough edit.",{ok:true});
   }
 
@@ -170,6 +186,7 @@
     addFeatureFromWallHit,
     patchFeature,
     removeFeature,
+    clearSelection,
     undoLast,
   });
 })();

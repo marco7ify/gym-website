@@ -2525,6 +2525,13 @@
       grid-template-rows: 74px minmax(0, 1fr);
       background: #0b1119;
       color: #fff;
+      width: 100vw;
+      height: 100vh;
+      max-width: none;
+      max-height: none;
+      margin: 0;
+      padding: 0;
+      border: 0;
     }
 
     .walkthroughHeader {
@@ -2825,6 +2832,12 @@
       align-items: center;
       justify-content: space-between;
       gap: 12px;
+    }
+
+    .walkthroughEditorHeadingActions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
     .walkthroughEditPanelTop {
@@ -3325,6 +3338,6 @@
   <script type="importmap">
     {"imports":{"three":"./vendor/three.module.js"}}
   </script>
-  <script type="module" src="gltf-runtime.js?v=41"></script>
+  <script type="module" src="gltf-runtime.js?v=42"></script>
 </body>
 </html>

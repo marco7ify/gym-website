@@ -95,6 +95,70 @@ GymTests.test("Fine movement is exactly one inch",()=>{
   });
 });
 
+GymTests.test("coarse movement preserves signed extension coordinates on either axis",()=>{
+  const target=walkthroughFixtureItem("item_target","Target",1,1);
+  const extension={id:"left_bay",wall:"left",startFt:2,startIn:0,lengthFt:8,lengthIn:0,depthFt:3,depthIn:0};
+  const signedTarget=(id,x,y)=>walkthroughFixtureInstance(id,target.id,x,y);
+
+  [
+    {
+      name:"horizontal",
+      instance:signedTarget("target",-1.75,4),
+      dx:1,dy:0,
+      expected:{xFt:-2,xIn:9,yFt:4,yIn:0},
+    },
+    {
+      name:"vertical movement keeps negative X byte-identical",
+      instance:signedTarget("target",-1.75,4),
+      dx:0,dy:1,
+      expected:{xFt:-2,xIn:3,yFt:4,yIn:6},
+    },
+  ].forEach(testCase=>withWalkthroughFixture({
+    items:[target],instances:[testCase.instance],wallExtensions:[extension],
+  },()=>{
+    const result=GymWalkthroughEditing.nudgeInstance("target",testCase.dx,testCase.dy);
+    GymTests.equal(result.ok,true,testCase.name);
+    const committed=state.layout.instances[0];
+    GymTests.deepEqual({xFt:committed.xFt,xIn:committed.xIn,yFt:committed.yFt,yIn:committed.yIn},testCase.expected,testCase.name);
+    GymTests.closeTo(instXTotalFt(committed),testCase.expected.xFt+testCase.expected.xIn/12,1e-9,testCase.name);
+    GymTests.closeTo(instYTotalFt(committed),testCase.expected.yFt+testCase.expected.yIn/12,1e-9,testCase.name);
+  }));
+
+  const topExtension={id:"top_bay",wall:"top",startFt:2,startIn:0,lengthFt:8,lengthIn:0,depthFt:3,depthIn:0};
+  withWalkthroughFixture({items:[target],instances:[signedTarget("target",4,-1.75)],wallExtensions:[topExtension]},()=>{
+    const result=GymWalkthroughEditing.nudgeInstance("target",0,1);
+    GymTests.equal(result.ok,true);
+    GymTests.deepEqual(
+      {yFt:result.instance.yFt,yIn:result.instance.yIn},
+      {yFt:-2,yIn:9},
+      "Top-extension movement must retain the exact signed -1 ft 3 in total",
+    );
+    GymTests.closeTo(instYTotalFt(result.instance),-1.25,1e-9);
+  });
+});
+
+GymTests.test("Fine movement validates and commits the same signed candidate",()=>{
+  const target=walkthroughFixtureItem("item_target","Target",1,1);
+  const blocker=walkthroughFixtureItem("item_blocker","Blocker",1,1);
+  const extension={id:"left_bay",wall:"left",startFt:2,startIn:0,lengthFt:8,lengthIn:0,depthFt:3,depthIn:0};
+  withWalkthroughFixture({
+    items:[target,blocker],
+    wallExtensions:[extension],
+    instances:[
+      walkthroughFixtureInstance("target",target.id,-1.75,4),
+      walkthroughFixtureInstance("blocker",blocker.id,-.5,4),
+    ],
+  },()=>{
+    GymWalkthroughEditing.setMoveStep("fine");
+    const result=GymWalkthroughEditing.nudgeInstance("target",1,0);
+    GymTests.equal(result.ok,true);
+    GymTests.deepEqual({xFt:result.instance.xFt,xIn:result.instance.xIn},{xFt:-2,xIn:4});
+    GymTests.closeTo(instXTotalFt(result.instance),-1-2/3,1e-9);
+    const committedRects=effectiveRectForInst(result.instance,target);
+    GymTests.equal(hardPlacementConflict("target",committedRects.base),null,"The committed candidate must be the exact candidate that passed hard validation");
+  });
+});
+
 GymTests.test("hard movement rejection preserves layout and undo byte-for-byte",()=>{
   const target=walkthroughFixtureItem("item_target","Target",2,2);
   const blocker=walkthroughFixtureItem("item_blocker","Blocker",1,1);
@@ -160,11 +224,16 @@ GymTests.test("clearance-only movement is accepted with a warning",()=>{
 GymTests.test("rotation commits only validated candidates",()=>{
   const item=walkthroughFixtureItem("item_target","Treadmill",5,2);
   withWalkthroughFixture({items:[item],instances:[walkthroughFixtureInstance("target",item.id,4,4)]},()=>{
+    state.layout.selectedInstId="target";
     const before=deepCopy(state.layout.instances);
     const success=GymWalkthroughEditing.rotateInstance("target");
     GymTests.equal(success.ok,true);
     GymTests.equal(state.layout.instances[0].rotated,true);
     GymTests.deepEqual(GymWalkthroughEditing.state().undo.instances,before);
+    GymTests.deepEqual(GymWalkthroughEditing.state().status,{tone:"success",message:"Rotated Treadmill 90°."});
+    const panel=walkthroughPanelElement();
+    GymTests.equal(panel.querySelector('[role="status"]').textContent.trim(),"Rotated Treadmill 90°.");
+    GymTests.assert(panel.textContent.includes("Orientation: 90°"));
   });
 
   withWalkthroughFixture({items:[item],instances:[walkthroughFixtureInstance("target",item.id,18,1)]},()=>{
@@ -175,6 +244,28 @@ GymTests.test("rotation commits only validated candidates",()=>{
     GymTests.equal(rejected.reason,"hard-invalid");
     GymTests.deepEqual(state.layout,before);
     GymTests.equal(GymWalkthroughEditing.state().undo,undo);
+    GymTests.equal(GymWalkthroughEditing.state().status.tone,"error");
+    GymTests.equal(walkthroughPanelElement().querySelector('[role="status"]').textContent.trim(),GymWalkthroughEditing.state().status.message);
+  });
+});
+
+GymTests.test("rotation announces accepted clearance warnings in the Walkthrough live region",()=>{
+  const target=walkthroughFixtureItem("item_target","Treadmill",5,2);
+  const blocker=walkthroughFixtureItem("item_blocker","Blocker",1,1);
+  withWalkthroughFixture({
+    items:[target,blocker],
+    instances:[
+      walkthroughFixtureInstance("target",target.id,4,4,{deadspaceFt:1,deadspaceSides:["right"]}),
+      walkthroughFixtureInstance("blocker",blocker.id,8,6),
+    ],
+  },()=>{
+    state.layout.selectedInstId="target";
+    const result=GymWalkthroughEditing.rotateInstance("target");
+    GymTests.equal(result.ok,true);
+    GymTests.equal(result.instance.__invalid,true);
+    const expected="Rotated 90°. Clearance overlaps another item, so it is shown in red.";
+    GymTests.deepEqual(GymWalkthroughEditing.state().status,{tone:"warning",message:expected});
+    GymTests.equal(walkthroughPanelElement().querySelector('[role="status"]').textContent.trim(),expected);
   });
 });
 
@@ -205,6 +296,30 @@ GymTests.test("wall feature creation rejects door openings and missing base-wall
     const result=GymWalkthroughEditing.featureFromWallHit("mirror",{wall:"left",alongFt:10,mountFt:4});
     GymTests.equal(result.ok,false);
     GymTests.equal(result.reason,"Part of this base-wall run is missing.");
+  });
+});
+
+GymTests.test("wall feature creation clamps to the exact clicked wall run",()=>{
+  withWalkthroughFixture({
+    areas:[{id:"door",kind:"door",xFt:7,xIn:0,yFt:19,yIn:6,widthFt:6,widthIn:0,heightFt:0,heightIn:6}],
+  },()=>{
+    const result=GymWalkthroughEditing.featureFromWallHit("mirror",{
+      wall:"bottom",alongFt:6.9,mountFt:4,runStartFt:0,runEndFt:7,
+    });
+    GymTests.equal(result.ok,true);
+    GymTests.closeTo(GymWallFeatures.start(result.feature),1,1e-9,"A six-foot mirror must clamp wholly inside the zero-to-seven-foot clicked run");
+    GymTests.deepEqual(GymWallFeatures.validate(result.feature,state.layout,wallFeatureRoomData(state.layout,state.settings)),{valid:true,reasons:[]});
+  });
+});
+
+GymTests.test("wall feature creation rejects a clicked run shorter than the selected feature",()=>{
+  withWalkthroughFixture({},()=>{
+    const before=deepCopy(state.layout);
+    const result=GymWalkthroughEditing.featureFromWallHit("mirror",{
+      wall:"top",alongFt:2.5,mountFt:4,runStartFt:0,runEndFt:5,
+    });
+    GymTests.deepEqual(result,{ok:false,reason:"This wall run is too short for that feature."});
+    GymTests.deepEqual(state.layout,before);
   });
 });
 
@@ -294,6 +409,27 @@ GymTests.test("one-step undo restores movement, rotation, addition, and patch sn
     GymWalkthroughEditing.patchFeature(added.feature.id,{label:"Patched"});
     GymWalkthroughEditing.undoLast();
     GymTests.deepEqual(state.layout.wallFeatures,before);
+  });
+});
+
+GymTests.test("Walkthrough undo cannot overwrite a different active layout",()=>{
+  withWalkthroughFixture(basicWalkthroughFixture(),()=>{
+    state.activeLayoutId="layout_a";
+    state.layouts=[
+      {id:"layout_a",name:"Layout A",layout:deepCopy(state.layout)},
+      {id:"layout_b",name:"Layout B",layout:{
+        ...deepCopy(DEFAULT_LAYOUT),
+        instances:[walkthroughFixtureInstance("layout_b_target",state.items[0].id,12,12)],
+        wallFeatures:[{id:"layout_b_led",kind:"led",label:"B LED",wall:"top",startFt:2,startIn:0,bottomFt:7,bottomIn:0,widthFt:4,widthIn:0,heightFt:0,heightIn:1,color:"#ffffff",brightnessPct:80}],
+      }},
+    ];
+    GymTests.equal(GymWalkthroughEditing.nudgeInstance("target",1,0).ok,true);
+    state.setActiveLayout("layout_b");
+    const layoutB=deepCopy(state.layout);
+    const result=GymWalkthroughEditing.undoLast();
+    GymTests.deepEqual(result,{ok:false,reason:"layout-changed"});
+    GymTests.deepEqual(state.layout,layoutB);
+    GymTests.equal(GymWalkthroughEditing.state().undo,null);
   });
 });
 
@@ -469,6 +605,25 @@ GymTests.test("renders an accessible Walk/Edit switch and equipment editor",()=>
   });
 });
 
+GymTests.test("directional movement names announce the current step size",()=>{
+  withWalkthroughFixture(basicWalkthroughFixture(),()=>{
+    state.layout.selectedInstId="target";
+    const expected=(panel,step)=>[
+      ["up",`Move up ${step}`],
+      ["left",`Move left ${step}`],
+      ["right",`Move right ${step}`],
+      ["down",`Move down ${step}`],
+    ].forEach(([direction,label])=>GymTests.equal(
+      panel.querySelector(`[data-action="walkthrough_move"][data-direction="${direction}"]`).getAttribute("aria-label"),
+      label,
+    ));
+
+    expected(walkthroughPanelElement(),"6 inches");
+    GymWalkthroughEditing.setMoveStep("fine");
+    expected(walkthroughPanelElement(),"1 inch");
+  });
+});
+
 GymTests.test("renders exact six-inch and Fine one-inch movement states",()=>{
   withWalkthroughFixture(basicWalkthroughFixture(),()=>{
     state.layout.selectedInstId="target";
@@ -558,6 +713,63 @@ GymTests.test("delegated Walkthrough equipment actions use the editing commands"
     activate(walkthroughActionElement("walkthrough_undo"));
     GymTests.equal(state.layout.instances[0].rotated,false);
     GymTests.assert(renderCount()>=7);
+  });
+});
+
+GymTests.test("selected equipment and wall features provide a path back to wall tools",()=>{
+  const feature={
+    id:"wf_target",kind:"mirror",label:"Mirror",wall:"top",
+    startFt:2,startIn:0,bottomFt:1,bottomIn:0,widthFt:6,widthIn:0,heightFt:5,heightIn:0,
+    color:"#cbd5e1",brightnessPct:0,
+  };
+  [
+    {config:basicWalkthroughFixture(),select(){state.layout.selectedInstId="target";},label:"Clear selected equipment"},
+    {config:{wallFeatures:[feature]},select(){state.layout.selectedWallFeatureId=feature.id;},label:"Clear selected wall feature"},
+  ].forEach(testCase=>withWalkthroughFixture(testCase.config,()=>{
+    GymWalkthroughEditing.setMode("edit");
+    testCase.select();
+    let panel=walkthroughPanelElement();
+    const clear=panel.querySelector('[data-action="walkthrough_clear_selection"]');
+    GymTests.assert(clear&&clear.tagName==="BUTTON");
+    GymTests.equal(clear.getAttribute("aria-label"),testCase.label);
+
+    wireMain();
+    document.body.onclick({target:walkthroughActionElement("walkthrough_clear_selection")});
+    GymTests.equal(state.layout.selectedInstId,null);
+    GymTests.equal(state.layout.selectedWallFeatureId,null);
+    panel=walkthroughPanelElement();
+    GymTests.equal(panel.querySelectorAll('[data-action="walkthrough_wall_tool"]').length,3);
+  }));
+});
+
+GymTests.test("the Walkthrough uses a browser-modal dialog with isolated initial focus",()=>{
+  withWalkthroughFixture(basicWalkthroughFixture(),()=>{
+    const app=document.querySelector("#app");
+    const previousHtml=app.innerHTML;
+    try{
+      state.tab="layout";
+      state.activeLayoutId="layout_modal";
+      state.layouts=[{id:"layout_modal",name:"Modal layout",layout:deepCopy(state.layout)}];
+      state.layout.walkthroughOpen=true;
+      performRender();
+
+      const dialog=document.querySelector(".walkthroughOverlay");
+      GymTests.assert(dialog&&dialog.tagName==="DIALOG","Walkthrough overlay must use the browser's modal dialog primitive");
+      GymTests.equal(dialog.getAttribute("aria-modal"),"true");
+      GymTests.equal(dialog.open,true,"Walkthrough dialog must enter the top-layer modal state");
+      const exit=dialog.querySelector('[data-action="spatial_walkthrough_close"]');
+      GymTests.equal(exit.hasAttribute("autofocus"),true);
+      GymTests.equal(document.activeElement,exit,"Opening Walkthrough must move initial focus into its Exit action");
+
+      const selector=document.querySelector('[data-action="layout_select"]');
+      selector.focus();
+      GymTests.assert(dialog.contains(document.activeElement),"Underlying layout controls must not accept focus while Walkthrough is modal");
+      GymTests.assert(document.querySelector('[data-action="spatial_walkthrough_open"][data-focus-key="walkthrough-launcher"]'));
+      dialog.close();
+    }finally{
+      document.querySelector(".walkthroughOverlay")?.close?.();
+      app.innerHTML=previousHtml;
+    }
   });
 });
 

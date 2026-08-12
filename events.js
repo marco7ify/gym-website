@@ -96,6 +96,7 @@ function performLayoutLibraryAction(action,appState=state,options={}){
   appState.layout.selectedWallFeatureId=null;
   appState._roomCache=null;
   appState.tab="layout";
+  if(appState===state) globalThis.GymWalkthroughEditing?.reset?.();
   return true;
 }
 
@@ -113,12 +114,25 @@ function setLayoutActionStatus(instId,tone,message){
   state.layoutActionStatus={instId,tone,message};
 }
 
-function rotateLayoutInstance90(instId){
+let walkthroughReturnFocus=null;
+
+function rememberWalkthroughReturnFocus(){
+  walkthroughReturnFocus=captureFocus()||{focusKey:"walkthrough-launcher"};
+}
+
+function restoreWalkthroughReturnFocus(){
+  const target=walkthroughReturnFocus||{focusKey:"walkthrough-launcher"};
+  walkthroughReturnFocus=null;
+  requestAnimationFrame(()=>restoreFocus(target));
+}
+
+function rotateLayoutInstance90(instId,options={}){
+  const shouldRender=options.render!==false;
   const inst=(state.layout.instances||[]).find(x=>x.id===instId);
   const item=inst ? getItemById(inst.itemId) : null;
   if(!inst || !item){
     setLayoutActionStatus(instId,"error","That equipment is no longer in this layout.");
-    render();
+    if(shouldRender) render();
     return {ok:false,reason:"not-found"};
   }
 
@@ -127,7 +141,7 @@ function rotateLayoutInstance90(instId){
   const conflict=hardPlacementConflict(instId,candidateRect.base);
   if(conflict){
     setLayoutActionStatus(instId,"error",conflict.message);
-    render();
+    if(shouldRender) render();
     return {ok:false,reason:"hard-invalid",conflict};
   }
 
@@ -136,13 +150,13 @@ function rotateLayoutInstance90(instId){
   state.layout.instances=(state.layout.instances||[]).map(x=>x.id===instId ? next : x);
   if(invalid){
     setLayoutActionStatus(instId,"warning","Rotated 90°. Clearance overlaps another item, so it is shown in red.");
-    render();
+    if(shouldRender) render();
     return {ok:true,reason:"soft-conflict",instance:next};
   }
 
   const name=String(item.name||"").trim() || "equipment";
   setLayoutActionStatus(instId,"success",`Rotated ${name} 90°.`);
-  render();
+  if(shouldRender) render();
   return {ok:true,reason:"rotated",instance:next};
 }
 
@@ -185,6 +199,7 @@ function handleWalkthroughEscape(event){
   GymWalkthroughEditing.reset();
   state.layout.walkthroughOpen=false;
   render();
+  restoreWalkthroughReturnFocus();
   return true;
 }
 
@@ -1329,6 +1344,7 @@ function wireMain(){
       return;
     }
     if(t.dataset.action==="spatial_walkthrough_open"){
+      rememberWalkthroughReturnFocus();
       state.layout.walkthroughOpen=true;
       render();
       return;
@@ -1338,6 +1354,7 @@ function wireMain(){
       GymWalkthroughEditing.reset();
       state.layout.walkthroughOpen=false;
       render();
+      restoreWalkthroughReturnFocus();
       return;
     }
     if(t.dataset.action==="spatial_walkthrough_reset"){
@@ -1366,6 +1383,7 @@ function wireMain(){
       return;
     }
     if(t.dataset.action==="walkthrough_rotate") return void GymWalkthroughEditing.rotateInstance(t.dataset.id);
+    if(t.dataset.action==="walkthrough_clear_selection") return void GymWalkthroughEditing.clearSelection();
     if(t.dataset.action==="walkthrough_wall_tool"){
       GymWalkthroughEditing.setWallTool(t.dataset.kind);
       render();
