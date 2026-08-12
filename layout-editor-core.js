@@ -3,13 +3,17 @@
   if(typeof module === "object" && module.exports) module.exports = api;
   root.LayoutEditorCore = api;
 })(typeof globalThis !== "undefined" ? globalThis : this, function(){
-  function filterEquipment(items, filters={}){
+  function filterEquipment(items, filters={}, deps={}){
     const query = String(filters.query||"").trim().toLowerCase();
     return (items||[]).filter(item=>{
       const haystack = `${item.name||""} ${item.brand||""}`.toLowerCase();
       if(query && !haystack.includes(query)) return false;
       if(filters.category && filters.category!=="All" && item.category!==filters.category) return false;
-      if(filters.brand && filters.brand!=="All" && item.brand!==filters.brand) return false;
+      if(filters.brand==="__noBrand__" && String(item.brand||"").trim()) return false;
+      if(filters.brand && !["All","__noBrand__"].includes(filters.brand) && item.brand!==filters.brand) return false;
+      const pattern = deps.rackPatternInfo?.(item);
+      if(filters.upright && filters.upright!=="All" && pattern?.uprightSize!==filters.upright) return false;
+      if(filters.hole && filters.hole!=="All" && pattern?.holeSize!==filters.hole) return false;
       return true;
     });
   }
@@ -39,5 +43,17 @@
   }
 
   function draftChanged(a,b){ return JSON.stringify(a||{}) !== JSON.stringify(b||{}); }
-  return {filterEquipment, selectionType, clonePlacement, centerPlacement, draftChanged};
+
+  function workspaceDefaults(){
+    return {
+      search:"", inspectorMode:"auto", libraryDrawerOpen:false,
+      inspectorDrawerOpen:false, detailsEditorOpen:false,
+      detailsEditorItemId:null, detailsEditorDirty:false,
+      detailsEditorBaseline:null, discardEditorConfirmOpen:false,
+      returnFocusSelector:"", status:null,
+      openPageTool:"layout", openAdvancedSection:"",
+    };
+  }
+
+  return {filterEquipment, selectionType, clonePlacement, centerPlacement, draftChanged, workspaceDefaults};
 });

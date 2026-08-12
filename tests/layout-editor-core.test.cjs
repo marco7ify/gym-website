@@ -39,3 +39,30 @@ test("draftChanged compares normalized serializable values", () => {
   assert.equal(core.draftChanged({name:"Rack", qty:1}, {name:"Rack", qty:1}), false);
   assert.equal(core.draftChanged({name:"Rack", qty:2}, {name:"Rack", qty:1}), true);
 });
+
+test("workspaceDefaults contains only transient UI state", () => {
+  assert.deepEqual(core.workspaceDefaults(), {
+    search:"", inspectorMode:"auto", libraryDrawerOpen:false,
+    inspectorDrawerOpen:false, detailsEditorOpen:false,
+    detailsEditorItemId:null, detailsEditorDirty:false,
+    detailsEditorBaseline:null, discardEditorConfirmOpen:false,
+    returnFocusSelector:"", status:null,
+    openPageTool:"layout", openAdvancedSection:"",
+  });
+});
+
+test("filterEquipment supports no-brand and rack metadata filters", () => {
+  const filterItems = [
+    ...items,
+    {id:"d",name:"Unbranded Bench",brand:"",category:"Benches"},
+    {id:"e",name:"Compact Rack",brand:"REP",category:"Racks"},
+  ];
+  const pattern = item => item.id==="b"
+    ? {uprightSize:"3×3",holeSize:"1 in"}
+    : item.id==="e" ? {uprightSize:"2×2",holeSize:"5/8 in"} : null;
+  assert.deepEqual(core.filterEquipment(filterItems,{brand:"__noBrand__"},{rackPatternInfo:pattern}).map(x=>x.id), ["d"]);
+  assert.deepEqual(
+    core.filterEquipment(filterItems,{category:"Racks",upright:"3×3",hole:"1 in"},{rackPatternInfo:pattern}).map(x=>x.id),
+    ["b"]
+  );
+});
