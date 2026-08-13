@@ -419,7 +419,9 @@ function layoutPanel(rows, currency){
   const allHoles    = [...new Set(catsForRack.map(it=> rackPatternInfo(it)?.holeSize).filter(Boolean))].sort();
 
   const searchQuery = state.layoutWorkspace?.search || "";
-  const filteredRows = LayoutEditorCore.filterEquipment(rows, {
+  const equipmentScope = state.layoutWorkspace?.equipmentScope === "placed" ? "placed" : "all";
+  const scopedRows = LayoutEditorCore.scopeEquipment(rows, state.layout.instances, equipmentScope);
+  const filteredRows = LayoutEditorCore.filterEquipment(scopedRows, {
     query:searchQuery,
     category:selectedCat,
     brand:selectedBrand,
@@ -915,10 +917,14 @@ function layoutPanel(rows, currency){
         <div class="hd" style="padding:12px;">
           <div>
             <div class="h1">My Equipment</div>
-            <div class="h2">${rows.length} items</div>
+            <div class="h2">${equipmentScope === "placed" ? `${scopedRows.length} of ${rows.length} items` : `${rows.length} items`}</div>
           </div>
         </div>
         <div class="bd" style="padding:0;">
+          <div class="layoutEquipmentScope" role="group" aria-label="Equipment list scope">
+            <button type="button" class="${equipmentScope === "all" ? "active" : ""}" data-action="layoutEquipmentScope" data-scope="all" aria-pressed="${equipmentScope === "all"}">All equipment</button>
+            <button type="button" class="${equipmentScope === "placed" ? "active" : ""}" data-action="layoutEquipmentScope" data-scope="placed" aria-pressed="${equipmentScope === "placed"}">In this layout</button>
+          </div>
           <label class="layoutSearchField">
             <span class="srOnly">Search equipment</span>
             <input id="layoutEquipmentSearch" type="search" value="${escapeAttr(searchQuery)}" placeholder="Search equipment…" autocomplete="off" />
@@ -967,7 +973,10 @@ function layoutPanel(rows, currency){
           <!-- Equipment list -->
           <div class="gymItemList">
             ${filteredRows.map(it=> equipItemCard(it)).join("")}
-            ${!filteredRows.length ? `<div class="layoutLibraryEmpty" role="status"><strong>No equipment matches</strong><span>Try another search or clear the current filters.</span><button class="btn" data-action="layout_clear_filters">Clear filters</button></div>` : ""}
+            ${!filteredRows.length ? (equipmentScope === "placed" && !(state.layout.instances||[]).length
+              ? `<div class="layoutLibraryEmpty" role="status"><strong>No equipment is placed yet.</strong></div>`
+              : `<div class="layoutLibraryEmpty" role="status"><strong>No equipment matches</strong><span>Try another search or clear the current filters.</span><button class="btn" data-action="layout_clear_filters">Clear filters</button></div>`)
+              : ""}
           </div>
         </div>
       </div>

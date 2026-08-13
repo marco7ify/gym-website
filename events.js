@@ -1588,6 +1588,14 @@ function wireMain(){
       render();
       return;
     }
+    if(t.dataset.action==="layoutEquipmentScope"){
+      const scope=t.dataset.scope;
+      if(!["all","placed"].includes(scope)) return;
+      state.layoutWorkspace.equipmentScope=scope;
+      state.layoutExpandedItemId=null;
+      render();
+      return;
+    }
     if(t.dataset.action==="layout_clear_filters"){
       state.layoutWorkspace.search = "";
       state.layoutSelectedCategory = "All";

@@ -3380,6 +3380,31 @@
       padding: 9px 11px;
     }
 
+    .layoutEquipmentScope {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4px;
+      padding: 10px 12px 0;
+    }
+
+    .layoutEquipmentScope button {
+      min-height: 36px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: var(--chip);
+      color: var(--text-secondary);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .layoutEquipmentScope button.active {
+      background: var(--primary-light);
+      border-color: #f6a27f;
+      color: #a8370f;
+    }
+
     .layoutLibraryEmpty {
       display: grid;
       justify-items: start;
