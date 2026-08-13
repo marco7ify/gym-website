@@ -1599,6 +1599,7 @@ function wireMain(){
     }
     if(t.dataset.action==="layout_clear_selection"){
       clearAllSelections();
+      state.layoutWorkspace.libraryDrawerOpen=false;
       state.layoutWorkspace.inspectorDrawerOpen=false;
       state.layoutWorkspace.status = null;
       render();
