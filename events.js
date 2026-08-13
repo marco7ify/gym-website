@@ -1599,7 +1599,7 @@ function wireMain(){
     if(t.dataset.action==="layout_clear_filters"){
       state.layoutWorkspace.search = "";
       state.layoutSelectedCategory = "All";
-      state.layoutFilterBrand = "All";
+      state.layoutSelectedBrand = "All";
       state.layoutFilterUpright = "All";
       state.layoutFilterHole = "All";
       render();

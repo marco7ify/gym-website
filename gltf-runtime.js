@@ -28,8 +28,8 @@ const classicScripts=[
   "./garage-door-3d.js?v=1",
   "./view3d.js?v=43",
   "./panels.js?v=73",
-  "./layout.js?v=88",
-  "./events.js?v=84",
+  "./layout.js?v=89",
+  "./events.js?v=85",
   "./render.js?v=71",
 ];
 

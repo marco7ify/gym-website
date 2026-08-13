@@ -45,12 +45,12 @@
     .map(match=>leafUrl(match[1]));
 
   GymTests.test("loads the current runtime entry URL",()=>{
-    GymTests.equal(leafUrl(runtimeScript?.src||""),"gltf-runtime.js?v=42");
+    GymTests.equal(leafUrl(runtimeScript?.src||""),"gltf-runtime.js?v=43");
   });
 
   GymTests.test("loads every classic production asset at its current cache URL",()=>{
     GymTests.deepEqual(classicScripts,[
-      "layout-editor-core.js?v=1",
+      "layout-editor-core.js?v=2",
       "model-assets.js?v=4",
       "wall-features.js?v=3",
       "garage-doors.js?v=2",
@@ -60,8 +60,8 @@
       "garage-door-3d.js?v=1",
       "view3d.js?v=43",
       "panels.js?v=73",
-      "layout.js?v=88",
-      "events.js?v=84",
+      "layout.js?v=89",
+      "events.js?v=85",
       "render.js?v=71",
     ]);
   });
@@ -70,12 +70,12 @@
     GymTests.deepEqual(logicProductionScripts,[
       "wall-features.js?v=3",
       "garage-doors.js?v=2",
-      "layout-editor-core.js?v=1",
+      "layout-editor-core.js?v=2",
       "app.js?v=87",
       "walkthrough-editing.js?v=2",
       "equipment-models.js?v=6",
-      "layout.js?v=88",
-      "events.js?v=84",
+      "layout.js?v=89",
+      "events.js?v=85",
     ]);
   });
 

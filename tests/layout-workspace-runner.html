@@ -1,0 +1,184 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Layout Workspace Browser Tests</title>
+<style>
+  body { margin: 0; font: 14px system-ui, sans-serif; }
+  #test-results { white-space: pre-wrap; }
+  #fixture { display: block; width: 1400px; height: 1000px; border: 0; }
+</style>
+<pre id="test-results" data-complete="false" data-failures="0">Running…</pre>
+<iframe id="fixture" src="../?layout-editor-preview=1&amp;workspace-test=2"></iframe>
+<script>
+(function(){
+  "use strict";
+  const results=document.querySelector("#test-results");
+  const frame=document.querySelector("#fixture");
+  const failures=[];
+  let finished=false;
+
+  function assert(value,message){ if(!value) throw new Error(message); }
+  function equal(actual,expected,message){
+    if(actual!==expected) throw new Error(`${message}: expected ${JSON.stringify(expected)}, received ${JSON.stringify(actual)}`);
+  }
+  function test(name,run){
+    try{ run(); }
+    catch(error){ failures.push(`${name}: ${error && error.message ? error.message : String(error)}`); }
+  }
+  function finish(){
+    if(finished) return;
+    finished=true;
+    results.dataset.complete="true";
+    results.dataset.failures=String(failures.length);
+    results.textContent=failures.length ? failures.join("\n") : "All tests passed.";
+  }
+  function nextFrame(win){
+    return new Promise(resolve=>win.requestAnimationFrame(()=>win.requestAnimationFrame(resolve)));
+  }
+
+  const timeout=setTimeout(()=>{
+    failures.push("Layout workspace tests timed out.");
+    finish();
+  },15000);
+
+  frame.addEventListener("load",async()=>{
+    const win=frame.contentWindow;
+    const doc=frame.contentDocument;
+    const state=win.eval("state");
+    const snapshot={
+      tab:state.tab,
+      items:state.items,
+      layout:state.layout,
+      layoutWorkspace:state.layoutWorkspace,
+      layoutFocusMode:state.layoutFocusMode,
+      layoutSelectedCategory:state.layoutSelectedCategory,
+      layoutSelectedBrand:state.layoutSelectedBrand,
+      layoutFilterUpright:state.layoutFilterUpright,
+      layoutFilterHole:state.layoutFilterHole,
+      layoutExpandedItemId:state.layoutExpandedItemId,
+    };
+    const originalPersist=win.persist;
+
+    try{
+      win.persist=()=>{};
+      state.tab="layout";
+      state.items=[
+        {id:"item_placed",name:"Placed Trainer",brand:"Acme",category:"Cable & Functional",status:"Ready to Buy",qty:1,unit:"ft",length:3,width:2,height:7,price:1000,fees:0},
+        {id:"item_unplaced",name:"Unplaced Bench",brand:"Other",category:"Benches",status:"Researching",qty:1,unit:"ft",length:4,width:2,height:2,price:500,fees:0},
+      ];
+      state.layout=win.eval("deepCopy(DEFAULT_LAYOUT)");
+      state.layout.instances=[{id:"inst_placed",itemId:"item_placed",xFt:2,xIn:0,yFt:2,yIn:0,rotated:false,deadspaceFt:null,deadspaceIn:0,deadspaceSides:null,__invalid:false}];
+      state.layoutWorkspace=win.eval("LayoutEditorCore.workspaceDefaults()");
+      state.layoutFocusMode=false;
+      state.layoutSelectedCategory="All";
+      state.layoutSelectedBrand="All";
+      state.layoutFilterUpright="All";
+      state.layoutFilterHole="All";
+      state.layoutExpandedItemId=null;
+      win.render({immediate:true});
+      await nextFrame(win);
+
+      test("placed-only scope, search, and all-equipment restoration",()=>{
+        equal(doc.querySelectorAll('button[data-action="addInst"]').length,2,"All equipment should show both fixture items");
+        doc.querySelector('button[data-action="layoutEquipmentScope"][data-scope="placed"]').click();
+        win.render({immediate:true});
+        equal(doc.querySelector('button[data-scope="placed"]').getAttribute("aria-pressed"),"true","Placed scope should be pressed");
+        const placedIds=[...doc.querySelectorAll('button[data-action="addInst"]')].map(button=>button.dataset.id);
+        equal(placedIds.join(","),"item_placed","Placed scope should contain only placed equipment");
+
+        let search=doc.querySelector("#layoutEquipmentSearch");
+        search.value="Placed";
+        search.dispatchEvent(new win.Event("input",{bubbles:true}));
+        win.render({immediate:true});
+        equal(doc.querySelectorAll('button[data-action="addInst"]').length,1,"Search should retain the matching placed item");
+
+        search=doc.querySelector("#layoutEquipmentSearch");
+        search.value="Unplaced";
+        search.dispatchEvent(new win.Event("input",{bubbles:true}));
+        win.render({immediate:true});
+        equal(doc.querySelectorAll('button[data-action="addInst"]').length,0,"Search must not reintroduce unplaced equipment");
+        doc.querySelector('button[data-action="layout_clear_filters"]').click();
+        win.render({immediate:true});
+        equal(state.layoutWorkspace.equipmentScope,"placed","Clear filters should preserve placed scope");
+        equal(doc.querySelectorAll('button[data-action="addInst"]').length,1,"Clear filters should restore the placed item");
+
+        doc.querySelector('button[data-action="layoutEquipmentScope"][data-scope="all"]').click();
+        win.render({immediate:true});
+        equal(doc.querySelectorAll('button[data-action="addInst"]').length,2,"All equipment should restore the full library");
+      });
+
+      test("clear filters resets the active brand without resetting scope",()=>{
+        state.layoutWorkspace.equipmentScope="placed";
+        state.layoutSelectedBrand="Other";
+        win.render({immediate:true});
+        equal(doc.querySelectorAll('button[data-action="addInst"]').length,0,"Brand mismatch should create an empty placed result");
+        doc.querySelector('button[data-action="layout_clear_filters"]').click();
+        win.render({immediate:true});
+        equal(state.layoutSelectedBrand,"All","Clear filters should reset the brand used by rendering");
+        equal(state.layoutWorkspace.equipmentScope,"placed","Clear filters should keep placed scope");
+        equal(doc.querySelectorAll('button[data-action="addInst"]').length,1,"Clearing brand should restore placed equipment");
+      });
+
+      frame.style.width="720px";
+      await nextFrame(win);
+      test("compact selection Clear closes the inspector and backdrop",()=>{
+        assert(win.matchMedia("(max-width: 1180px)").matches,"Fixture should be at the compact breakpoint");
+        state.layout.selectedInstId=null;
+        state.layoutWorkspace.libraryDrawerOpen=false;
+        state.layoutWorkspace.inspectorDrawerOpen=false;
+        win.render({immediate:true});
+        const instance=doc.querySelector('g[data-type="inst"]');
+        instance.dispatchEvent(new win.KeyboardEvent("keydown",{key:"Enter",bubbles:true}));
+        win.render({immediate:true});
+        equal(state.layout.selectedInstId,"inst_placed","Keyboard selection should select the equipment");
+        equal(state.layoutWorkspace.inspectorDrawerOpen,true,"Selection should open the compact inspector");
+        assert(doc.querySelector(".workspaceDrawerBackdrop"),"Selection should render a compact backdrop");
+        doc.querySelector('button[data-action="layout_clear_selection"]').click();
+        win.render({immediate:true});
+        equal(state.layout.selectedInstId,null,"Clear should remove the equipment selection");
+        equal(state.layoutWorkspace.libraryDrawerOpen,false,"Clear should close the equipment drawer");
+        equal(state.layoutWorkspace.inspectorDrawerOpen,false,"Clear should close the inspector drawer");
+        assert(!doc.querySelector(".workspaceDrawerBackdrop"),"Clear should remove the compact backdrop");
+      });
+
+      frame.style.width="1400px";
+      await nextFrame(win);
+      test("Focus canvas expands and restores the workspace",()=>{
+        assert(!win.matchMedia("(max-width: 1180px)").matches,"Fixture should be at the desktop breakpoint");
+        state.layoutFocusMode=false;
+        state.layoutWorkspace.libraryDrawerOpen=true;
+        state.layoutWorkspace.inspectorDrawerOpen=true;
+        win.render({immediate:true});
+        const normalWidth=doc.querySelector(".layoutCanvasCard").getBoundingClientRect().width;
+        doc.querySelector('button[data-action="toggle_layout_focus"]').click();
+        win.render({immediate:true});
+        const focusedWidth=doc.querySelector(".layoutCanvasCard").getBoundingClientRect().width;
+        equal(state.layoutFocusMode,true,"Focus action should enable focus mode");
+        equal(state.layoutWorkspace.libraryDrawerOpen,false,"Focus should close the equipment drawer");
+        equal(state.layoutWorkspace.inspectorDrawerOpen,false,"Focus should close the inspector drawer");
+        assert(focusedWidth>normalWidth+100,`Focused canvas should be wider (${normalWidth} -> ${focusedWidth})`);
+        assert([...doc.querySelectorAll(".layoutWorkspace.layout3col > aside")].every(sidebar=>win.getComputedStyle(sidebar).display==="none"),"Focus should hide both sidebars");
+        doc.querySelector('button[data-action="toggle_layout_focus"]').click();
+        win.render({immediate:true});
+        equal(state.layoutFocusMode,false,"Show panels should restore normal mode");
+        assert([...doc.querySelectorAll(".layoutWorkspace.layout3col > aside")].every(sidebar=>win.getComputedStyle(sidebar).display!=="none"),"Show panels should restore both sidebars");
+      });
+    }catch(error){
+      failures.push(`Fixture setup: ${error && error.message ? error.message : String(error)}`);
+    }finally{
+      state.tab=snapshot.tab;
+      state.items=snapshot.items;
+      state.layout=snapshot.layout;
+      state.layoutWorkspace=snapshot.layoutWorkspace;
+      state.layoutFocusMode=snapshot.layoutFocusMode;
+      state.layoutSelectedCategory=snapshot.layoutSelectedCategory;
+      state.layoutSelectedBrand=snapshot.layoutSelectedBrand;
+      state.layoutFilterUpright=snapshot.layoutFilterUpright;
+      state.layoutFilterHole=snapshot.layoutFilterHole;
+      state.layoutExpandedItemId=snapshot.layoutExpandedItemId;
+      win.persist=originalPersist;
+      clearTimeout(timeout);
+      finish();
+    }
+  });
+})();
+</script>
