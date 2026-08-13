@@ -15,6 +15,16 @@ test("filterEquipment combines query, category, and brand", () => {
   );
 });
 
+test("scopeEquipment returns unique placed items in original library order", () => {
+  const instances=[{itemId:"c"},{itemId:"a"},{itemId:"c"},{itemId:"missing"}];
+  assert.deepEqual(core.scopeEquipment(items,instances,"placed").map(item=>item.id),["a","c"]);
+});
+
+test("scopeEquipment keeps all items by default and handles an empty layout", () => {
+  assert.deepEqual(core.scopeEquipment(items,[],"all"),items);
+  assert.deepEqual(core.scopeEquipment(items,[],"placed"),[]);
+});
+
 test("selectionType returns the one active layout selection", () => {
   assert.equal(core.selectionType({selectedInstId:"i1"}), "equipment");
   assert.equal(core.selectionType({selectedAreaId:"a1"}), "area");
@@ -64,7 +74,7 @@ test("draftChanged compares normalized serializable values", () => {
 
 test("workspaceDefaults contains only transient UI state", () => {
   assert.deepEqual(core.workspaceDefaults(), {
-    search:"", inspectorMode:"auto", libraryDrawerOpen:false,
+    search:"", equipmentScope:"all", inspectorMode:"auto", libraryDrawerOpen:false,
     inspectorDrawerOpen:false, detailsEditorOpen:false,
     detailsEditorItemId:null, detailsEditorDirty:false,
     detailsEditorBaseline:null, discardEditorConfirmOpen:false,

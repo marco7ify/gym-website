@@ -18,6 +18,12 @@
     });
   }
 
+  function scopeEquipment(items,instances,scope="all"){
+    if(scope!=="placed") return items||[];
+    const placedIds=new Set((instances||[]).map(instance=>instance.itemId).filter(Boolean));
+    return (items||[]).filter(item=>placedIds.has(item.id));
+  }
+
   function selectionType(layout={}){
     const ordered = [
       ["selectedInstId","equipment"], ["selectedAreaId","area"],
@@ -55,7 +61,7 @@
 
   function workspaceDefaults(){
     return {
-      search:"", inspectorMode:"auto", libraryDrawerOpen:false,
+      search:"", equipmentScope:"all", inspectorMode:"auto", libraryDrawerOpen:false,
       inspectorDrawerOpen:false, detailsEditorOpen:false,
       detailsEditorItemId:null, detailsEditorDirty:false,
       detailsEditorBaseline:null, discardEditorConfirmOpen:false,
@@ -71,5 +77,5 @@
     return {...state,...next};
   }
 
-  return {filterEquipment, selectionType, clonePlacement, centerPlacement, splitFeet, draftChanged, workspaceDefaults, toggleDrawer};
+  return {filterEquipment, scopeEquipment, selectionType, clonePlacement, centerPlacement, splitFeet, draftChanged, workspaceDefaults, toggleDrawer};
 });
