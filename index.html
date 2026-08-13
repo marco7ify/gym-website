@@ -3331,6 +3331,15 @@
       margin-top: 20px;
     }
 
+    .layoutWorkspace.layout3col.layoutFocusMode {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .layoutWorkspace.layout3col.layoutFocusMode > .layoutCanvasCard {
+      grid-column: 1;
+      width: 100%;
+    }
+
     .layoutWorkspace > .layoutCanvasCard {
       position: static;
       min-width: 0;

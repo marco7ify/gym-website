@@ -1328,6 +1328,8 @@ function wireMain(){
       return;
     }
     if(t.dataset.action==="toggle_layout_focus"){
+      state.layoutWorkspace.libraryDrawerOpen=false;
+      state.layoutWorkspace.inspectorDrawerOpen=false;
       state.layoutFocusMode=!state.layoutFocusMode;
       render();
       return;
@@ -1597,6 +1599,7 @@ function wireMain(){
     }
     if(t.dataset.action==="layout_clear_selection"){
       clearAllSelections();
+      state.layoutWorkspace.inspectorDrawerOpen=false;
       state.layoutWorkspace.status = null;
       render();
       return;
