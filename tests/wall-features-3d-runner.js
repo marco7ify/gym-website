@@ -21,7 +21,7 @@ try{
     "./test-harness.js?v=1",
     "../wall-features.js?v=3",
     "../garage-doors.js?v=2",
-    "../layout-editor-core.js?v=1",
+    "../layout-editor-core.js?v=2",
     "../app.js?v=87",
     "../walkthrough-editing.js?v=2",
     "../garage-door-3d.js?v=1",

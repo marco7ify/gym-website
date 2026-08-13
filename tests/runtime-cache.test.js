@@ -34,6 +34,12 @@
     const document=new DOMParser().parseFromString(source,"text/html");
     return leafUrl(document.querySelector('script[type="module"][src]')?.getAttribute("src")||"");
   }));
+  const runnerProductionUrls=await Promise.all(runnerContracts.map(async ([html])=>{
+    const moduleName=html.replace(/\.html$/,".js");
+    const source=await fetch(`./${moduleName}?runtime-cache-contract=${Date.now()}`,{cache:"no-store"}).then(response=>response.text());
+    return Array.from(source.matchAll(/["'](\.\.\/(?:layout-editor-core|layout|events)\.js\?v=[^"']+)["']/g))
+      .map(match=>leafUrl(match[1]));
+  }));
   const equipmentRunnerSource=await fetch(`./equipment-dispatch-3d-runner.js?runtime-cache-contract=${Date.now()}`,{cache:"no-store"}).then(response=>response.text());
   const equipmentInnerMatch=equipmentRunnerSource.match(/["'](\.\/equipment-dispatch-3d\.test\.js\?v=[^"']+)["']/);
   const equipmentInnerScript=leafUrl(equipmentInnerMatch?.[1]||"");
@@ -81,6 +87,14 @@
 
   GymTests.test("loads every real-Three runner module at its current cache URL",()=>{
     GymTests.deepEqual(runnerModuleScripts,runnerContracts.map(([,script])=>script));
+  });
+
+  GymTests.test("loads current layout sources inside the real-Three runners",()=>{
+    GymTests.deepEqual(runnerProductionUrls,[
+      ["layout-editor-core.js?v=2"],
+      ["layout-editor-core.js?v=2"],
+      ["layout-editor-core.js?v=2","layout.js?v=89","events.js?v=85"],
+    ]);
   });
 
   GymTests.test("loads the current inner equipment real-Three test at its cache URL",()=>{
