@@ -139,15 +139,19 @@ function rotateLayoutInstance90(instId,options={}){
   const candidate=rotatedInstanceCandidate(inst,item);
   const candidateRect=effectiveRectForInst(candidate,item);
   const conflict=hardPlacementConflict(instId,candidateRect.base);
-  if(conflict){
+  if(conflict && options.allowHardConflict===false){
     setLayoutActionStatus(instId,"error",conflict.message);
     if(shouldRender) render();
     return {ok:false,reason:"hard-invalid",conflict};
   }
-
-  const invalid=isInvalidPlacement(instId,candidateRect.base,candidateRect.eff);
+  const invalid=!!conflict || isInvalidPlacement(instId,candidateRect.base,candidateRect.eff);
   const next={...candidate,__invalid:invalid};
   state.layout.instances=(state.layout.instances||[]).map(x=>x.id===instId ? next : x);
+  if(conflict){
+    setLayoutActionStatus(instId,"warning","Rotated 90°. This placement now overlaps something or extends outside the room, so it is shown in red.");
+    if(shouldRender) render();
+    return {ok:true,reason:"hard-conflict",conflict,instance:next};
+  }
   if(invalid){
     setLayoutActionStatus(instId,"warning","Rotated 90°. Clearance overlaps another item, so it is shown in red.");
     if(shouldRender) render();
@@ -1432,7 +1436,34 @@ function wireMain(){
       return;
     }
     if(t.dataset.action==="layout_rename"){
-      if(!performLayoutLibraryAction("rename")) return;
+      state.layoutWorkspace.layoutRenameOpen=true;
+      render();
+      requestAnimationFrame(()=>{
+        const input=document.querySelector("#layoutRenameInput");
+        input?.focus();
+        input?.select();
+      });
+      return;
+    }
+    if(t.dataset.action==="layout_rename_cancel"){
+      state.layoutWorkspace.layoutRenameOpen=false;
+      render();
+      return;
+    }
+    if(t.dataset.action==="layout_rename_save"){
+      const input=document.querySelector("#layoutRenameInput");
+      const requested=String(input?.value||"").trim();
+      const index=(state.layouts||[]).findIndex(entry=>entry.id===state.activeLayoutId);
+      if(index<0) return;
+      if(!requested){
+        state.layoutWorkspace.status={kind:"error",message:"Enter a layout name."};
+        render();
+        requestAnimationFrame(()=>document.querySelector("#layoutRenameInput")?.focus());
+        return;
+      }
+      state.layouts[index].name=availableLayoutName(requested,state.layouts,state.activeLayoutId);
+      state.layoutWorkspace.layoutRenameOpen=false;
+      state.layoutWorkspace.status={kind:"success",message:"Layout renamed."};
       render();
       return;
     }

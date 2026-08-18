@@ -78,7 +78,7 @@ test("workspaceDefaults contains only transient UI state", () => {
     inspectorDrawerOpen:false, detailsEditorOpen:false,
     detailsEditorItemId:null, detailsEditorDirty:false,
     detailsEditorBaseline:null, discardEditorConfirmOpen:false,
-    returnFocusSelector:"", status:null,
+    returnFocusSelector:"", status:null, layoutRenameOpen:false,
     openPageTool:"layout", openAdvancedSection:"",
   });
 });

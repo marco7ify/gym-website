@@ -73,7 +73,7 @@
 
   function rotateInstance(instId){
     const before=snapshot();
-    const result=rotateLayoutInstance90(instId,{render:false});
+    const result=rotateLayoutInstance90(instId,{render:false,allowHardConflict:false});
     if(result.ok) commitUndo(before);
     const status=state.layoutActionStatus?.instId===instId
       ? state.layoutActionStatus

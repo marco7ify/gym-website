@@ -266,52 +266,59 @@ GymTests.test("rotation command reports a missing instance and renders once",()=
   }));
 });
 
-GymTests.test("rotation command preserves a hard-invalid instance and renders once",()=>{
+GymTests.test("rotation command commits a hard-conflict instance and renders once",()=>{
   const item={...placementFixtureItem("item_target","Treadmill"),length:5,width:2};
   const inst=placementFixtureInstance("target",item.id,18,1);
   withPlacementFixture({items:[item],instances:[inst]},()=>withRotationRender(()=>{
-    const before=deepCopy(state.layout.instances[0]);
     const conflict={kind:"outside-room",message:"Can’t rotate here — the equipment would extend outside the room."};
-    GymTests.deepEqual(rotateLayoutInstance90(inst.id),{ok:false,reason:"hard-invalid",conflict});
-    GymTests.deepEqual(state.layout.instances[0],before);
+    const result=rotateLayoutInstance90(inst.id);
+    GymTests.equal(result.ok,true);
+    GymTests.equal(result.reason,"hard-conflict");
+    GymTests.deepEqual(result.conflict,conflict);
+    GymTests.equal(state.layout.instances[0].rotated,true);
+    GymTests.equal(state.layout.instances[0].__invalid,true);
     GymTests.equal(window.__rotationRenderCount,1);
-    GymTests.deepEqual(state.layoutActionStatus,{instId:inst.id,tone:"error",message:conflict.message});
+    GymTests.deepEqual(state.layoutActionStatus,{
+      instId:inst.id,
+      tone:"warning",
+      message:"Rotated 90°. This placement now overlaps something or extends outside the room, so it is shown in red.",
+    });
   }));
 });
 
-function assertHardRotationPreservesInstance(config, expectedKind){
+function assertHardRotationCommitsInvalidInstance(config, expectedKind){
   withPlacementFixture(config,()=>withRotationRender(()=>{
     const target=state.layout.instances.find(instance=>instance.id==="target");
-    const before=deepCopy(target);
     const result=rotateLayoutInstance90(target.id);
-    GymTests.equal(result.ok,false);
-    GymTests.equal(result.reason,"hard-invalid");
+    GymTests.equal(result.ok,true);
+    GymTests.equal(result.reason,"hard-conflict");
     GymTests.equal(result.conflict.kind,expectedKind);
-    GymTests.deepEqual(state.layout.instances.find(instance=>instance.id==="target"),before);
+    GymTests.equal(state.layout.instances.find(instance=>instance.id==="target").rotated,true);
+    GymTests.equal(state.layout.instances.find(instance=>instance.id==="target").__invalid,true);
     GymTests.equal(window.__rotationRenderCount,1);
   }));
 }
 
-GymTests.test("rotation command byte-preserves every hard conflict class",()=>{
+GymTests.test("rotation command commits every hard conflict class as invalid",()=>{
   const target=()=>({...placementFixtureItem("item_target","Treadmill"),length:4,width:2});
   const inst=()=>placementFixtureInstance("target","item_target",4,4);
-  assertHardRotationPreservesInstance({
+  assertHardRotationCommitsInvalidInstance({
     items:[target()],
     instances:[inst()],
     areas:[{id:"reserved",kind:"walkway",label:"Stretch lane",xFt:3.1,xIn:0,yFt:5.1,yIn:0,widthFt:.5,widthIn:0,heightFt:.5,heightIn:0}],
   },"reserved-area");
-  assertHardRotationPreservesInstance({
+  assertHardRotationCommitsInvalidInstance({
     items:[target()],
     instances:[inst()],
     areas:[{id:"door",kind:"door",label:"Side door",xFt:2.5,xIn:0,yFt:5,yIn:0,widthFt:.5,widthIn:0,heightFt:.1,heightIn:0,doorOrientation:"horizontal",doorSwing:"down",doorHinge:"start",doorRadiusFt:2,doorRadiusIn:0,doorClearEnabled:true}],
   },"door-clearance");
   const blocker={...placementFixtureItem("item_blocker","Bench"),length:.5,width:.5};
-  assertHardRotationPreservesInstance({
+  assertHardRotationCommitsInvalidInstance({
     items:[target(),blocker],
     instances:[inst(),placementFixtureInstance("blocker","item_blocker",3.1,5.1)],
   },"equipment-overlap");
   const edgeItem={...placementFixtureItem("item_edge","Treadmill"),length:5,width:2};
-  assertHardRotationPreservesInstance({
+  assertHardRotationCommitsInvalidInstance({
     items:[edgeItem],
     instances:[placementFixtureInstance("target",edgeItem.id,18,1)],
   },"outside-room");
@@ -334,7 +341,7 @@ GymTests.test("rotation command commits a staging-only rotation and preserves it
   }));
 });
 
-GymTests.test("rotation command rejects a staging-boundary candidate outside the allowed union",()=>{
+GymTests.test("rotation command commits a staging-boundary conflict as invalid",()=>{
   const item={...placementFixtureItem("item_staging_edge","Staging Trainer"),length:4,width:2};
   const inst=placementFixtureInstance("target",item.id,12.75,4);
   const conflict={kind:"outside-room",message:"Can’t rotate here — the equipment would extend outside the room."};
@@ -343,9 +350,12 @@ GymTests.test("rotation command rejects a staging-boundary candidate outside the
     const candidate=rotatedInstanceCandidate(before,item);
     GymTests.equal(rectInsideRect(effectiveRectForInst(before,item).base,room().staging),true);
     GymTests.equal(rectInsideRoom(effectiveRectForInst(candidate,item).base),false);
-    GymTests.deepEqual(rotateLayoutInstance90(inst.id),{ok:false,reason:"hard-invalid",conflict});
-    GymTests.deepEqual(state.layout.instances[0],before);
-    GymTests.deepEqual(state.layoutActionStatus,{instId:inst.id,tone:"error",message:conflict.message});
+    const result=rotateLayoutInstance90(inst.id);
+    GymTests.equal(result.ok,true);
+    GymTests.equal(result.reason,"hard-conflict");
+    GymTests.deepEqual(result.conflict,conflict);
+    GymTests.equal(state.layout.instances[0].rotated,true);
+    GymTests.equal(state.layout.instances[0].__invalid,true);
     GymTests.equal(window.__rotationRenderCount,1);
   }));
 });
@@ -406,7 +416,7 @@ GymTests.test("delegated rotate click uses the guarded rotation command",()=>{
     }finally{
       button.remove();
     }
-    GymTests.equal(state.layout.instances[0].rotated,false);
+    GymTests.equal(state.layout.instances[0].rotated,true);
     GymTests.equal(window.__rotationRenderCount,1);
   }));
 });
@@ -423,7 +433,7 @@ GymTests.test("one SVG pointer gesture reaches the shared rotation command exact
     button.dataset.action="rotateInst";
     button.dataset.id=inst.id;
     svg.appendChild(button);
-    document.body.appendChild(svg);
+    document.body.insertBefore(svg,document.querySelector("#app"));
     const pointerdown={
       target:button,
       preventDefault(){},
@@ -551,7 +561,7 @@ GymTests.test("Enter selects a focused SVG equipment group",()=>{
     control.classList.add("instSelectControl");
     group.appendChild(control);
     svg.appendChild(group);
-    document.body.appendChild(svg);
+    document.body.insertBefore(svg,document.querySelector("#app"));
     const event={key:"Enter",target:control,preventDefault(){},stopPropagation(){}};
     try{
       wireMain();

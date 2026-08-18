@@ -7,7 +7,7 @@
   #fixture { display: block; width: 1400px; height: 1000px; border: 0; }
 </style>
 <pre id="test-results" data-complete="false" data-failures="0">Running…</pre>
-<iframe id="fixture" src="../?layout-editor-preview=1&amp;workspace-test=2"></iframe>
+<iframe id="fixture" src="../?layout-editor-preview=1&amp;workspace-test=4"></iframe>
 <script>
 (function(){
   "use strict";
@@ -48,6 +48,8 @@
       tab:state.tab,
       items:state.items,
       layout:state.layout,
+      layouts:state.layouts,
+      activeLayoutId:state.activeLayoutId,
       layoutWorkspace:state.layoutWorkspace,
       layoutFocusMode:state.layoutFocusMode,
       layoutSelectedCategory:state.layoutSelectedCategory,
@@ -67,6 +69,8 @@
       ];
       state.layout=win.eval("deepCopy(DEFAULT_LAYOUT)");
       state.layout.instances=[{id:"inst_placed",itemId:"item_placed",xFt:2,xIn:0,yFt:2,yIn:0,rotated:false,deadspaceFt:null,deadspaceIn:0,deadspaceSides:null,__invalid:false}];
+      state.layouts=[{id:"layout_fixture",name:"Fixture layout",layout:win.eval("deepCopy(DEFAULT_LAYOUT)")}];
+      state.activeLayoutId="layout_fixture";
       state.layoutWorkspace=win.eval("LayoutEditorCore.workspaceDefaults()");
       state.layoutFocusMode=false;
       state.layoutSelectedCategory="All";
@@ -116,6 +120,65 @@
         equal(state.layoutSelectedBrand,"All","Clear filters should reset the brand used by rendering");
         equal(state.layoutWorkspace.equipmentScope,"placed","Clear filters should keep placed scope");
         equal(doc.querySelectorAll('button[data-action="addInst"]').length,1,"Clearing brand should restore placed equipment");
+      });
+
+      test("desktop inspector scroll keeps editing and layout actions reachable",()=>{
+        state.layout.selectedInstId="inst_placed";
+        win.render({immediate:true});
+        const inspector=doc.querySelector(".layoutInspectorScroll");
+        const selectedCard=inspector.querySelector(".card");
+        equal(win.getComputedStyle(selectedCard).flexShrink,"0","Selected equipment card must not shrink and clip its controls");
+        assert(inspector.scrollHeight>inspector.clientHeight,"The full inspector should scroll when its tools exceed the viewport");
+        inspector.scrollTop=inspector.scrollHeight;
+        const rename=doc.querySelector('button[data-action="layout_rename"]');
+        const rect=rename.getBoundingClientRect();
+        const hit=doc.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2);
+        assert(hit===rename||rename.contains(hit),"The layout Rename action should not be covered by another inspector card");
+      });
+
+      test("layout Rename uses an inline editor and saves the new name",()=>{
+        const inspector=doc.querySelector(".layoutInspectorScroll");
+        inspector.scrollTop=inspector.scrollHeight;
+        doc.querySelector('button[data-action="layout_rename"]').click();
+        win.render({immediate:true});
+        const input=doc.querySelector("#layoutRenameInput");
+        assert(input,"Rename should open an inline name field");
+        input.value="Training floor";
+        doc.querySelector('button[data-action="layout_rename_save"]').click();
+        win.render({immediate:true});
+        equal(state.layouts[0].name,"Training floor","Save should rename the active layout");
+        equal(doc.querySelector('select[data-action="layout_select"] option:checked').textContent,"Training floor","The layout selector should show the saved name");
+        assert(!doc.querySelector("#layoutRenameInput"),"The inline editor should close after saving");
+      });
+
+      test("Plan and Split both rotate an invalid placement and mark it red",()=>{
+        const placedItem=state.items.find(item=>item.id==="item_placed");
+        placedItem.length=5;
+        placedItem.width=2;
+        const resetAtEdge=()=>{
+          state.layout.instances[0]={...state.layout.instances[0],xFt:18,xIn:0,yFt:1,yIn:0,rotated:false,__invalid:false};
+          state.layout.selectedInstId="inst_placed";
+        };
+
+        resetAtEdge();
+        state.layout.spatialViewMode="plan";
+        win.render({immediate:true});
+        doc.querySelector('.selectedEquipmentToolbar [data-action="rotateInst"]').click();
+        equal(state.layout.instances[0].rotated,true,"Plan Rotate should commit the new orientation");
+        equal(state.layout.instances[0].__invalid,true,"Plan Rotate should mark the invalid placement red");
+
+        resetAtEdge();
+        state.layout.spatialViewMode="split";
+        win.render({immediate:true});
+        doc.querySelector('.selectedEquipmentToolbar [data-action="rotateInst"]').click();
+        equal(state.layout.instances[0].rotated,true,"Split Rotate should commit the new orientation");
+        equal(state.layout.instances[0].__invalid,true,"Split Rotate should mark the invalid placement red");
+        assert(String(state.layoutActionStatus?.message||"").includes("shown in red"),"Invalid rotation should explain the red warning state");
+
+        placedItem.length=3;
+        state.layout.instances[0]={...state.layout.instances[0],xFt:2,yFt:2,rotated:false,__invalid:false};
+        state.layout.spatialViewMode="plan";
+        win.render({immediate:true});
       });
 
       frame.style.width="720px";
@@ -168,6 +231,8 @@
       state.tab=snapshot.tab;
       state.items=snapshot.items;
       state.layout=snapshot.layout;
+      state.layouts=snapshot.layouts;
+      state.activeLayoutId=snapshot.activeLayoutId;
       state.layoutWorkspace=snapshot.layoutWorkspace;
       state.layoutFocusMode=snapshot.layoutFocusMode;
       state.layoutSelectedCategory=snapshot.layoutSelectedCategory;

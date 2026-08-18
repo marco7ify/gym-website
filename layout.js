@@ -1160,12 +1160,21 @@ function layoutPanel(rows, currency){
           <select data-action="layout_select" style="width:100%; margin-bottom:8px;">
             ${opts}
           </select>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+          ${state.layoutWorkspace?.layoutRenameOpen ? `
+            <div class="layoutRenameEditor" role="group" aria-label="Rename layout">
+              <label for="layoutRenameInput">Layout name</label>
+              <input id="layoutRenameInput" type="text" maxlength="80" value="${escapeAttr(activeLayoutName)}" />
+              <div class="layoutRenameActions">
+                <button type="button" class="btn" data-action="layout_rename_cancel">Cancel</button>
+                <button type="button" class="btn primary" data-action="layout_rename_save">Save</button>
+              </div>
+            </div>
+          ` : `<div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
             <button class="btn" style="font-size:11px;" data-action="layout_new">New</button>
             <button class="btn" style="font-size:11px;" data-action="layout_dup">Duplicate</button>
             <button class="btn" style="font-size:11px;" data-action="layout_rename">Rename</button>
             <button class="btn danger" style="font-size:11px;" data-action="layout_delete">Delete</button>
-          </div>
+          </div>`}
         </div>
       </div>
     </aside>
