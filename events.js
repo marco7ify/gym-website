@@ -3132,6 +3132,8 @@ function wireMain(){
         if(!g){
           if(LayoutEditorCore.selectionType(state.layout)!=="none"){
             clearAllSelections();
+            state.layoutWorkspace.libraryDrawerOpen=false;
+            state.layoutWorkspace.inspectorDrawerOpen=false;
             state.layoutWorkspace.status=null;
             render();
           }

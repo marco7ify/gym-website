@@ -29,7 +29,7 @@ try{
     "../garage-door-3d.js?v=1",
     "../view3d.js?v=43",
     "../layout.js?v=90",
-    "../events.js?v=86",
+    "../events.js?v=87",
     "./equipment-dispatch-3d.test.js?v=final-fix-v2",
   ]) await loadClassicScript(src);
   GymTests.finish();

@@ -7,7 +7,7 @@
   #fixture { display: block; width: 1400px; height: 1000px; border: 0; }
 </style>
 <pre id="test-results" data-complete="false" data-failures="0">Running…</pre>
-<iframe id="fixture" src="../?layout-editor-preview=1&amp;workspace-test=4"></iframe>
+<iframe id="fixture" src="../?layout-editor-preview=1&amp;workspace-test=5"></iframe>
 <script>
 (function(){
   "use strict";
@@ -181,6 +181,22 @@
         win.render({immediate:true});
       });
 
+      test("desktop equipment selection never dims the workspace",()=>{
+        assert(!win.matchMedia("(max-width: 1180px)").matches,"Fixture should be at the desktop breakpoint");
+        state.layout.selectedInstId=null;
+        state.layoutWorkspace.libraryDrawerOpen=false;
+        state.layoutWorkspace.inspectorDrawerOpen=false;
+        win.render({immediate:true});
+        const instance=doc.querySelector('g[data-type="inst"]');
+        instance.dispatchEvent(new win.KeyboardEvent("keydown",{key:"Enter",bubbles:true}));
+        win.render({immediate:true});
+        const backdrop=doc.querySelector(".workspaceDrawerBackdrop");
+        assert(backdrop,"Selection should retain drawer state for responsive resizing");
+        equal(win.getComputedStyle(backdrop).display,"none","Desktop selection must not show the grey drawer backdrop");
+        doc.querySelector('button[data-action="layout_clear_selection"]').click();
+        win.render({immediate:true});
+      });
+
       frame.style.width="720px";
       await nextFrame(win);
       test("compact selection Clear closes the inspector and backdrop",()=>{
@@ -201,6 +217,19 @@
         equal(state.layoutWorkspace.libraryDrawerOpen,false,"Clear should close the equipment drawer");
         equal(state.layoutWorkspace.inspectorDrawerOpen,false,"Clear should close the inspector drawer");
         assert(!doc.querySelector(".workspaceDrawerBackdrop"),"Clear should remove the compact backdrop");
+      });
+
+      test("compact click-away clears selection and closes the backdrop",()=>{
+        const instance=doc.querySelector('g[data-type="inst"]');
+        instance.dispatchEvent(new win.KeyboardEvent("keydown",{key:"Enter",bubbles:true}));
+        win.render({immediate:true});
+        const svg=doc.querySelector("#layoutSvg");
+        svg.onpointerdown({target:svg,clientX:0,clientY:0});
+        win.render({immediate:true});
+        equal(state.layout.selectedInstId,null,"Clicking empty canvas should clear the equipment selection");
+        equal(state.layoutWorkspace.inspectorDrawerOpen,false,"Clicking empty canvas should close the inspector drawer");
+        equal(state.layoutWorkspace.libraryDrawerOpen,false,"Clicking empty canvas should close the equipment drawer");
+        assert(!doc.querySelector(".workspaceDrawerBackdrop"),"Clicking empty canvas should remove the compact backdrop");
       });
 
       frame.style.width="1400px";

@@ -51,7 +51,7 @@
     .map(match=>leafUrl(match[1]));
 
   GymTests.test("loads the current runtime entry URL",()=>{
-    GymTests.equal(leafUrl(runtimeScript?.src||""),"gltf-runtime.js?v=44");
+    GymTests.equal(leafUrl(runtimeScript?.src||""),"gltf-runtime.js?v=45");
   });
 
   GymTests.test("loads every classic production asset at its current cache URL",()=>{
@@ -67,7 +67,7 @@
       "view3d.js?v=43",
       "panels.js?v=73",
       "layout.js?v=90",
-      "events.js?v=86",
+      "events.js?v=87",
       "render.js?v=71",
     ]);
   });
@@ -81,7 +81,7 @@
       "walkthrough-editing.js?v=3",
       "equipment-models.js?v=6",
       "layout.js?v=90",
-      "events.js?v=86",
+      "events.js?v=87",
     ]);
   });
 
@@ -93,7 +93,7 @@
     GymTests.deepEqual(runnerProductionUrls,[
       ["layout-editor-core.js?v=3"],
       ["layout-editor-core.js?v=3"],
-      ["layout-editor-core.js?v=3","layout.js?v=90","events.js?v=86"],
+      ["layout-editor-core.js?v=3","layout.js?v=90","events.js?v=87"],
     ]);
   });
 

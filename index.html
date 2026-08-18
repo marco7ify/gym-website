@@ -3521,6 +3521,7 @@
     }
 
     .workspaceDrawerBackdrop {
+      display: none;
       position: fixed;
       inset: 0;
       z-index: 69;
@@ -3582,6 +3583,8 @@
     .equipmentDiscardPrompt > div { display: flex; justify-content: flex-end; gap: 8px; }
 
     @media (max-width: 1180px) {
+      .workspaceDrawerBackdrop { display: block; }
+
       .layoutWorkspace.layout3col {
         grid-template-columns: minmax(0, 1fr);
         height: auto;
@@ -3668,6 +3671,6 @@
     {"imports":{"three":"./vendor/three.module.js"}}
   </script>
   <script src="./layout-editor-core.js?v=3"></script>
-  <script type="module" src="gltf-runtime.js?v=44"></script>
+  <script type="module" src="gltf-runtime.js?v=45"></script>
 </body>
 </html>

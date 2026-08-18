@@ -29,7 +29,7 @@ const classicScripts=[
   "./view3d.js?v=43",
   "./panels.js?v=73",
   "./layout.js?v=90",
-  "./events.js?v=86",
+  "./events.js?v=87",
   "./render.js?v=71",
 ];
 
